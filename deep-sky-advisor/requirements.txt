@@ -1,0 +1,6 @@
+astropy
+numpy
+scipy
+Pillow
+tifffile
+xisf

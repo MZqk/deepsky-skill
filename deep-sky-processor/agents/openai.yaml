@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deep Sky Processor"
+  short_description: "Agent-guided authentic deep-sky image processing"
+  default_prompt: "Use $deep-sky-processor to process this deep-sky image through staged visual review and safe iterative adjustments."
