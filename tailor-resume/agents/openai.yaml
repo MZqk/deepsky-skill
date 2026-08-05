@@ -1,4 +1,4 @@
 interface:
   display_name: "定制简历"
-  short_description: "根据职位 JD 筛选真实经历并生成 Markdown、DOCX 和 PDF 专用简历"
-  default_prompt: "Use $tailor-resume to match my verified career history to this JD and generate a tailored resume bundle."
+  short_description: "基于已验证经历定制简历，并生成公司调研与面试准备材料"
+  default_prompt: "Use $tailor-resume to match my verified career history to this JD, create the application bundle, and prepare targeted interview materials."

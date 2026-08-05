@@ -2,6 +2,22 @@
 
 Use this reference for every job-specific application.
 
+## Contents
+
+- [Requirement model](#requirement-model)
+- [Behavior-level decoding](#behavior-level-decoding)
+- [Evidence states](#evidence-states)
+- [Evidence depth](#evidence-depth)
+- [Selection priorities](#selection-priorities)
+- [Keyword policy](#keyword-policy)
+- [Resume writing](#resume-writing)
+- [Compression calibration](#compression-calibration)
+- [Chronology rules](#chronology-rules)
+- [Page-cap calculation](#page-cap-calculation)
+- [Application directory](#application-directory)
+- [Match report](#match-report)
+- [Delivery gate](#delivery-gate)
+
 ## Requirement model
 
 Extract requirements without silently strengthening or weakening them:
@@ -13,6 +29,24 @@ Extract requirements without silently strengthening or weakening them:
 
 Also capture the role level, business domain, recurring nouns and verbs, and
 observable success outcomes.
+
+## Behavior-level decoding
+
+Use two-layer decoding when a JD responsibility is too abstract to match
+directly:
+
+1. Convert the abstract responsibility into observable behavior categories.
+   For example, "drive project delivery" may include requirements analysis,
+   planning, stakeholder alignment, risk handling, decisions, and review.
+2. Convert each relevant behavior into the actions and evidence that would
+   demonstrate it: what the candidate did, for whom or with whom, at what scope,
+   and with what verified outcome or artifact.
+3. Match those evidence needs against the career master. Record missing details
+   as `none` or `needs-confirmation`; never assume the candidate performed every
+   behavior implied by the JD.
+
+Use the decoded behavior chain to identify high-impact clarification questions
+and to order evidence. Do not copy the entire analytical chain into the resume.
 
 ## Evidence states
 
@@ -26,6 +60,22 @@ Classify each requirement:
 
 Point to a career-master heading or quote a concise current-task fact. Do not
 use an invented evidence ID if the source has none.
+
+## Evidence depth
+
+Assess depth using only supplied facts:
+
+- **Action:** the personally performed decision, analysis, build, coordination,
+  or delivery work.
+- **Scope or result:** a verified metric, scale, constraint, output, or outcome.
+- **Stakeholders:** verified reporting lines, users, customers, teams, or
+  decision-makers that clarify ownership.
+- **Artifact:** a safe-to-disclose deliverable such as a process, specification,
+  analysis, system, or training material.
+
+These are possible evidence layers, not mandatory fields. Never invent a metric,
+stakeholder, or artifact to make a bullet appear complete. Do not expose
+confidential artifact names, links, customer details, or internal information.
 
 ## Selection priorities
 
@@ -54,6 +104,10 @@ bullets.
 
 - Make each bullet concise and evidence-led.
 - Prefer action + scope/context + verified result.
+- Use compressed STAR as an editing check rather than a visible four-part
+  formula. When verified, show two or three meaningful steps in the behavior
+  chain—such as initiation, stakeholder alignment, decision, delivery, and
+  review—without turning the bullet into a process diary.
 - Use active voice without adding ownership not present in the source.
 - Keep dates, tense, punctuation, and number formatting consistent.
 - Avoid first-person pronouns, generic adjectives, mission statements, and
@@ -62,6 +116,20 @@ bullets.
   language; retain an official title and add a supported functional translation
   in parentheses when useful.
 - Do not hide an unsupported hard requirement behind vague wording.
+
+## Compression calibration
+
+When the strongest content is still over budget or the correct detail level is
+unclear, compare three working versions:
+
+1. A lean version containing only indispensable evidence.
+2. A full version preserving all relevant verified detail.
+3. A balanced version between those boundaries.
+
+Use the comparison to identify facts that cannot be removed and wording that
+adds no evidence. Treat these as working drafts, not default deliverables. The
+actual PDF page count and page cap remain authoritative, and no version may add
+or strengthen a fact merely to sound more complete.
 
 ## Chronology rules
 

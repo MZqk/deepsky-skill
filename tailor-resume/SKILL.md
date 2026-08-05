@@ -1,12 +1,12 @@
 ---
 name: tailor-resume
-description: Build and maintain a verified career-master.md, analyze a job description, select the strongest relevant evidence, and generate a factual ATS-friendly tailored resume in Markdown, DOCX, and PDF plus a match report. Use when the user asks to create, tailor, rewrite, or optimize a resume/CV for a specific JD; organize or update a career history; or compare verified experience against job requirements.
+description: Build and maintain a verified career-master.md, analyze a job description, research a target company with current sources, select the strongest relevant evidence, and generate a factual ATS-friendly tailored resume bundle, match report, and evidence-based interview preparation. Use when the user asks to create, tailor, rewrite, or optimize a resume/CV for a specific JD; organize or update a career history; compare verified experience against job requirements; research a target employer; or prepare targeted interview questions, STAR outlines, and questions for the interviewer.
 ---
 
 # Tailor Resume
 
-Create a job-specific resume from verified career facts. Keep the reusable Skill
-separate from the user's private career data.
+Create job-specific application and interview materials from verified career
+facts. Keep the reusable Skill separate from the user's private career data.
 
 ## Non-negotiable rules
 
@@ -29,6 +29,12 @@ separate from the user's private career data.
 8. When a critical fact is ambiguous, ask one high-impact question at a time.
    If the user asks for a draft first, generate a conservative draft and record
    unresolved gaps in the match report.
+9. Cite current company claims with a source and research date. Separate sourced
+   facts from analysis or inference, and never copy external claims into the
+   career master.
+10. Build interview answer outlines only from verified career facts. Mark a
+    missing STAR element as unresolved instead of filling it with a plausible
+    invention.
 
 ## Choose the workflow
 
@@ -39,11 +45,19 @@ separate from the user's private career data.
 - **Update and tailor**: Use explicit new facts for the current application,
   propose a career-master patch, and continue tailoring without waiting for the
   permanent write.
+- **Research the target company**: Produce sourced, dated application context
+  without treating external information as evidence about the candidate.
+- **Prepare for interviews**: Map likely questions to verified experiences,
+  create concise STAR outlines, and prepare questions for the interviewer.
+- **Build the full application package**: Combine tailoring, company research,
+  and interview preparation in one application directory.
 
 Read [career-master-schema.md](references/career-master-schema.md) when building,
 updating, or interpreting the fact source. Read
 [matching-and-output.md](references/matching-and-output.md) before analyzing a
-JD or generating deliverables.
+JD or generating resume deliverables. Read
+[company-research-and-interview.md](references/company-research-and-interview.md)
+before researching a company or preparing interview materials.
 
 ## Resolve private paths
 
@@ -97,7 +111,22 @@ append a numeric suffix instead of overwriting it.
 4. Save the normalized JD as `jd.md` in the application directory. Preserve the
    wording of requirements; clearly label any extraction uncertainty.
 5. Do not perform external company research unless the user explicitly asks.
-   Even then, keep external context out of personal-experience claims.
+   A request for interview preparation or a full application package counts as
+   permission to research the named target company. Keep external context out
+   of personal-experience claims.
+
+## Research the target company
+
+1. Research only when requested directly or as part of interview preparation.
+2. Prefer first-party and authoritative sources for the company's products,
+   business model, stated values, and recent developments. Use reputable
+   secondary reporting only when it adds necessary context.
+3. Record the publisher, page title, publication date when available, URL, and
+   research date. Place citations next to the claims they support.
+4. Separate verified facts from reasoned implications for the role. Label an
+   implication as analysis rather than presenting it as company fact.
+5. Save detailed research as `company-research.md`. Use only a concise,
+   role-relevant subset in interview preparation.
 
 ## Map requirements to evidence
 
@@ -108,10 +137,13 @@ append a numeric suffix instead of overwriting it.
 3. Classify evidence as `strong`, `partial`, `none`, or `needs-confirmation`.
 4. Point to the relevant career-master heading or current-task fact in the
    match report.
-5. Ask only about missing facts that could materially change the application.
-6. Warn about unsupported hard requirements, but still generate the best
+5. Decode an abstract responsibility into observable behavior categories,
+   specific actions, stakeholders, and possible evidence types before matching
+   it. Treat this as an analysis aid, not as permission to add candidate facts.
+6. Ask only about missing facts that could materially change the application.
+7. Warn about unsupported hard requirements, but still generate the best
    truthful resume unless the user requested a fit assessment first.
-7. Do not emit an arbitrary overall match percentage. Generate a numeric score
+8. Do not emit an arbitrary overall match percentage. Generate a numeric score
    only when explicitly requested, and disclose its formula.
 
 ## Select and write resume content
@@ -123,27 +155,58 @@ append a numeric suffix instead of overwriting it.
 3. Include a compact core-skills section containing only evidenced skills.
 4. Order formal employment in reverse chronology. Reorder projects and bullets
    within a role by JD relevance.
-5. Keep the recent ten-year formal-employment timeline intelligible. Compress a
+5. Put education before experience for students, recent graduates, and roles
+   where academic or research credentials are a primary selection signal.
+   Otherwise lead with the strongest relevant professional evidence.
+6. Keep the recent ten-year formal-employment timeline intelligible. Compress a
    weakly related role to basic company/title/date information instead of
    creating an unexplained gap. Omit older irrelevant roles; restore older
    highly relevant evidence when useful.
-6. If the most recent formal role lasted at least 12 months, retain one scope
+7. If the most recent formal role lasted at least 12 months, retain one scope
    statement and two to four substantive bullets even when it is weakly related.
    Use four to six bullets when it is highly relevant, subject to the page cap.
-7. Prefer action, scope, and verified outcome over generic responsibility lists.
+8. Prefer action, scope, and verified outcome over generic responsibility lists.
    Remove duplicated evidence across the summary, skills, and experience.
-8. Omit photo, age, gender, marital status, government ID, current salary, and
+9. Use compressed STAR as an editing check: preserve enough verified context,
+   ownership, action, and result to make each selected example understandable.
+   Include verified stakeholders, artifacts, or behavior-chain steps when they
+   prove depth; never force a metric or artifact that the user did not supply.
+10. Adapt emphasis and tone to the JD and sourced company context only when it
+    improves relevance. Do not let tone changes alter ownership, seniority, or
+    the factual meaning of an accomplishment.
+11. Omit photo, age, gender, marital status, government ID, current salary, and
    expected salary by default. Include only non-empty basic contact fields and
    relevant professional links.
-9. Omit empty education, certification, language, project, publication, or
+12. Omit empty education, certification, language, project, publication, or
    open-source sections.
-10. Keep the resume single-column and ATS-readable. Do not use sidebars, text
+13. Keep the resume single-column and ATS-readable. Do not use sidebars, text
     boxes, icons, skill bars, multi-column layout, or layout tables.
 
 Use the language-appropriate Markdown starting point:
 
 - [tailored-resume.zh.template.md](assets/tailored-resume.zh.template.md)
 - [tailored-resume.en.template.md](assets/tailored-resume.en.template.md)
+
+## Prepare interview materials
+
+1. Start from the JD requirement-to-evidence matrix. Cover the highest-weight
+   responsibilities and every unsupported hard requirement likely to be tested.
+2. Generate 10-15 likely questions unless the user requests a shorter drill.
+   Balance behavioral, technical or professional, and motivation or culture
+   questions according to the JD.
+3. For each behavioral question, identify the strongest verified experience and
+   provide a concise STAR outline, key facts or metrics, likely follow-ups, and
+   an honesty-safe risk note. Use `needs-confirmation` where evidence is unclear.
+4. For technical questions, distinguish verified hands-on experience from
+   general study points. Do not turn theoretical preparation into an experience
+   claim.
+5. Prepare 3-5 role-specific questions for the interviewer and explain the
+   intent behind each one.
+6. Follow the JD's primary language and use the matching starting point:
+   [interview-prep.zh.template.md](assets/interview-prep.zh.template.md) or
+   [interview-prep.en.template.md](assets/interview-prep.en.template.md).
+7. Generate `interview-prep.md` first. Render matching DOCX and PDF files when
+   interview materials are part of the requested deliverables.
 
 ## Enforce the page budget
 
@@ -181,6 +244,17 @@ applications/YYYY-MM-DD-company-role/
 └── match-report.md
 ```
 
+Add only the applicable files when company research or interview preparation is
+requested:
+
+```text
+applications/YYYY-MM-DD-company-role/
+├── company-research.md       # when company research is performed
+├── interview-prep.md        # when interview preparation is requested
+├── interview-prep.docx      # rendered from interview-prep.md
+└── interview-prep.pdf       # rendered from interview-prep.md
+```
+
 Build `tailored-resume.md` first. Generate DOCX and PDF from that same Markdown
 source with [render_resume.py](scripts/render_resume.py). Resolve the bundled
 workspace Python runtime when available; otherwise use a Python environment
@@ -193,6 +267,18 @@ python <skill-directory>/scripts/render_resume.py \
   --pdf <application-directory>/tailored-resume.pdf \
   --qa-dir <temporary-qa-directory> \
   --target-pages <page-cap>
+```
+
+Render interview preparation from its Markdown source with the same parity and
+visual-QA pipeline, but without the resume page cap unless the user sets one:
+
+```bash
+python <skill-directory>/scripts/render_resume.py \
+  <application-directory>/interview-prep.md \
+  --document-kind interview \
+  --docx <application-directory>/interview-prep.docx \
+  --pdf <application-directory>/interview-prep.pdf \
+  --qa-dir <temporary-interview-qa-directory>
 ```
 
 The renderer uses an A4 single-column layout with 18 mm margins, 10.5 pt body
@@ -216,6 +302,11 @@ unfinished work:
 6. Keep QA images outside the application bundle and remove them after the
    latest inspection passes.
 7. Never claim DOCX/PDF generation or visual QA succeeded when it did not.
+8. For company research, verify that each time-sensitive claim has a nearby
+   citation and that facts and inferences are visibly distinct.
+9. For interview preparation, verify that suggested answers trace to the career
+   master or explicit current-task facts, cover the JD's main requirements, and
+   leave unresolved facts marked for confirmation.
 
 ## Write `match-report.md`
 
@@ -227,7 +318,8 @@ Follow [match-report.template.md](assets/match-report.template.md). Include:
 - materially omitted experience and why it was omitted;
 - hard gaps, partial evidence, and remaining questions;
 - proposed but uncommitted career-master additions;
-- final Markdown estimate, actual PDF page count, page cap, and visual-QA status.
+- final Markdown estimate, actual PDF page count, page cap, and visual-QA status;
+- company-research date and interview-material render status when applicable.
 
 Keep analysis out of the resume itself. Deliver the clean resume files and the
 separate report.

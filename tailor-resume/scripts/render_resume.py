@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a constrained ATS resume Markdown file to DOCX and PDF.
+"""Render constrained resume or interview-prep Markdown to DOCX and PDF.
 
 The Markdown file remains the reader-facing source. This script applies a fixed
 A4 single-column style, converts DOCX to PDF with LibreOffice, renders PDF QA
@@ -169,9 +169,11 @@ def parse_markdown(markdown: str) -> list[Block]:
     h1_count = sum(block.kind == "heading" and block.level == 1 for block in blocks)
     h2_count = sum(block.kind == "heading" and block.level == 2 for block in blocks)
     if h1_count != 1:
-        raise ValueError(f"Resume Markdown must contain exactly one H1 name; found {h1_count}.")
+        raise ValueError(
+            f"Document Markdown must contain exactly one H1 title; found {h1_count}."
+        )
     if h2_count == 0:
-        raise ValueError("Resume Markdown must contain at least one H2 section.")
+        raise ValueError("Document Markdown must contain at least one H2 section.")
     return blocks
 
 
@@ -357,7 +359,9 @@ def add_rule(paragraph) -> None:
     ppr.append(borders)
 
 
-def build_docx(blocks: Iterable[Block], output_path: Path) -> None:
+def build_docx(
+    blocks: Iterable[Block], output_path: Path, document_kind: str = "resume"
+) -> None:
     document = Document()
     section = document.sections[0]
     section.page_width = Mm(210)
@@ -370,8 +374,12 @@ def build_docx(blocks: Iterable[Block], output_path: Path) -> None:
     section.footer_distance = Mm(8)
 
     configure_styles(document)
-    document.core_properties.title = "Tailored Resume"
-    document.core_properties.subject = "Job-specific resume"
+    if document_kind == "interview":
+        document.core_properties.title = "Interview Preparation"
+        document.core_properties.subject = "Job-specific interview preparation"
+    else:
+        document.core_properties.title = "Tailored Resume"
+        document.core_properties.subject = "Job-specific resume"
     document.core_properties.author = ""
     document.core_properties.last_modified_by = ""
     document.core_properties.comments = ""
@@ -662,7 +670,7 @@ def render(args: argparse.Namespace) -> dict[str, object]:
     blocks = parse_markdown(markdown)
     equivalent_lines, estimated_pages = estimate_pages(blocks)
 
-    build_docx(blocks, docx_path)
+    build_docx(blocks, docx_path, args.document_kind)
     convert_docx_to_pdf(docx_path, pdf_path)
 
     reader = PdfReader(str(pdf_path))
@@ -677,6 +685,7 @@ def render(args: argparse.Namespace) -> dict[str, object]:
 
     report: dict[str, object] = {
         "input_markdown": str(input_path),
+        "document_kind": args.document_kind,
         "docx": str(docx_path),
         "pdf": str(pdf_path),
         "estimated_equivalent_lines": equivalent_lines,
@@ -714,9 +723,15 @@ def render(args: argparse.Namespace) -> dict[str, object]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Render ATS resume Markdown to matching DOCX/PDF files."
+        description="Render resume or interview-prep Markdown to matching DOCX/PDF files."
     )
-    parser.add_argument("input", type=Path, help="Tailored resume Markdown file")
+    parser.add_argument("input", type=Path, help="Reader-facing Markdown source file")
+    parser.add_argument(
+        "--document-kind",
+        choices=["resume", "interview"],
+        default="resume",
+        help="Document metadata profile (default: resume)",
+    )
     parser.add_argument("--docx", type=Path, help="Output DOCX path")
     parser.add_argument("--pdf", type=Path, help="Output PDF path")
     parser.add_argument(
