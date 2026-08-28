@@ -1,12 +1,14 @@
 ---
 name: siril-mosaic
 description: 使用 Siril 1.4+ 将同一目标的多个已校准、已堆栈 FITS 面板自动拼接为完整天文马赛克，并以输入哈希、天体测量、最大画布配准、重叠归一化、线性 FITS 和视觉审查完成验收。不用于 RAW 灯光帧校准、去拜耳或普通全景照片。
+license: Proprietary
 metadata:
   slug: siril-mosaic
   version: "0.1.0"
   displayName: Siril Mosaic
   summary: 使用 Siril 自动解算、配准并拼接已堆栈天文面板，交付可审计的线性 FITS 马赛克和显示预览。
   tags: [astronomy, siril, mosaic, fits]
+  homepage: https://github.com/MZqk/deepsky-skill
 ---
 
 # Siril Mosaic

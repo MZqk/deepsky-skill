@@ -22,7 +22,8 @@ class ReleasePackageTests(unittest.TestCase):
     def _make_skill(self, base: Path) -> Path:
         root = base / "siril-mosaic"
         payloads = {
-            "SKILL.md": b"---\nname: siril-mosaic\n---\n",
+            "LICENSE.md": b"Copyright 2026 MZqk. All rights reserved.\n",
+            "SKILL.md": b"---\nname: siril-mosaic\nlicense: Proprietary\n---\n",
             "agents/openai.yaml": b"interface:\n  display_name: Siril Mosaic\n",
             "references/quality.md": b"quality\n",
             "references/workflow.md": b"workflow\n",
@@ -71,6 +72,10 @@ class ReleasePackageTests(unittest.TestCase):
 
             with zipfile.ZipFile(output) as archive:
                 self.assertEqual(archive.namelist(), list(PACKAGE.EXPECTED_RELEASE_FILES))
+                self.assertEqual(
+                    archive.read("LICENSE.md"),
+                    b"Copyright 2026 MZqk. All rights reserved.\n",
+                )
                 self.assertTrue(all(info.compress_type == zipfile.ZIP_STORED for info in archive.infolist()))
                 self.assertTrue(all(info.date_time == PACKAGE.FIXED_ZIP_TIMESTAMP for info in archive.infolist()))
                 self.assertTrue(

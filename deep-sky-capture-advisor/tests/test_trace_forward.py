@@ -227,8 +227,12 @@ SCENARIOS = (
     TraceScenario(
         "I01",
         "tampered-knowledge-page",
-        "在一次性 Skill 副本中修改一页 bundled Markdown 的一个字节，然后运行 bundle verifier。",
-        {"kind": "isolated-skill-copy", "production_tree_read_only": True},
+        "在一次性 Skill 副本中修改一页 Catalog 列出的正式知识 Markdown 的一个字节，然后运行 bundle verifier。",
+        {
+            "kind": "isolated-skill-copy",
+            "page_kind": "cataloged-content-page",
+            "production_tree_read_only": True,
+        },
         {
             "route": "integrity-stop",
             "verifier_nonzero": True,

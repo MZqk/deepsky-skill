@@ -4,15 +4,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="${SCRIPT_DIR}/venv_hb"
+SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+VENV_DIR="${SKILL_DIR}/.venv"
 
 # Check if venv exists, create if not
 if [ ! -d "$VENV_DIR" ]; then
     echo "🔧 Setting up virtual environment..."
     
-    # Try Homebrew Python first, then system Python
-    if [ -x "/opt/homebrew/bin/python3.11" ]; then
-        PYTHON="/opt/homebrew/bin/python3.11"
+    # Prefer the repository's supported Python version, then fall back safely.
+    if command -v python3.12 >/dev/null 2>&1; then
+        PYTHON="$(command -v python3.12)"
     elif [ -x "/opt/homebrew/bin/python3" ]; then
         PYTHON="/opt/homebrew/bin/python3"
     else
@@ -23,7 +24,7 @@ if [ ! -d "$VENV_DIR" ]; then
     
     # Install dependencies
     echo "📦 Installing dependencies..."
-    "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/../requirements.txt" -q
+    "$VENV_DIR/bin/pip" install -r "$SKILL_DIR/requirements.txt" -q
     
     echo "✅ Environment ready!"
 fi

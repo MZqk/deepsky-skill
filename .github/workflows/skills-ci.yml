@@ -1,0 +1,111 @@
+name: Skills CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changed Skills
+    runs-on: ubuntu-latest
+    outputs:
+      skills: ${{ steps.detect.outputs.skills }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - id: detect
+        name: Build path matrix
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            skills="$(python3 scripts/changed_skills.py --all)"
+          else
+            skills="$(python3 scripts/changed_skills.py --base "${BASE_SHA}" --head "${HEAD_SHA}")"
+          fi
+          echo "skills=${skills}" >> "${GITHUB_OUTPUT}"
+
+  repository-contracts:
+    name: Repository contracts
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Create lightweight contract environment
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/repository-contracts"
+          "${RUNNER_TEMP}/repository-contracts/bin/python" -m pip install "pytest>=8,<10" "PyYAML>=6,<7"
+      - name: Validate repository structure and README
+        run: "${RUNNER_TEMP}/repository-contracts/bin/python scripts/validate_repository.py"
+      - name: Run path and routing contracts
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: "${RUNNER_TEMP}/repository-contracts/bin/python -B -m pytest -p no:cacheprovider tests"
+
+  skill-tests:
+    name: ${{ matrix.skill }} / ${{ matrix.os }} / Python 3.12
+    needs: changes
+    if: ${{ needs.changes.outputs.skills != '[]' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        skill: ${{ fromJSON(needs.changes.outputs.skills) }}
+        os: [ubuntu-latest, macos-latest]
+    env:
+      SKILL: ${{ matrix.skill }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ matrix.skill }}/requirements*.txt
+      - name: Create independent Skill environment
+        run: |
+          python3 -m venv "${SKILL}/.venv"
+          "${SKILL}/.venv/bin/python" -m pip install -r "${SKILL}/requirements-dev.txt"
+      - name: Validate Skill structure
+        run: "${SKILL}/.venv/bin/python scripts/validate_repository.py --skill ${SKILL}"
+      - name: Run Skill tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          if [ -d "${SKILL}/tests" ]; then
+            "${SKILL}/.venv/bin/python" -B -m pytest -p no:cacheprovider "${SKILL}/tests"
+          else
+            echo "${SKILL} has no tests directory; structure and release checks still apply."
+          fi
+      - name: Check release boundary
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          case "${SKILL}" in
+            deep-sky-capture-advisor)
+              "${SKILL}/.venv/bin/python" \
+                deep-sky-capture-advisor/scripts/package_release.py \
+                --output "${RUNNER_TEMP}/deep-sky-capture-advisor-0.1.0.zip"
+              ;;
+            siril-mosaic)
+              "${SKILL}/.venv/bin/python" \
+                siril-mosaic/scripts/package_release.py --check
+              "${SKILL}/.venv/bin/python" \
+                siril-mosaic/scripts/package_release.py \
+                --output "${RUNNER_TEMP}/siril-mosaic-0.1.0.zip"
+              ;;
+          esac
+      - name: Confirm tests did not rewrite tracked files
+        run: git diff --exit-code

@@ -1,67 +1,74 @@
-# Skills
+# deepsky-skill
 
-一组面向 Codex 的可复用 Skills，覆盖深空摄影知识问答、天文图像诊断与处理，以及基于真实职业经历的定制简历生成。
+面向 Codex 的深空摄影 Skill 集合，覆盖拍摄知识、图像诊断、真实性约束下的后期处理，以及 Siril 天文马赛克拼接。
+
+本仓库采用“领域单仓、独立发布单元”的组织方式：每个顶层 Skill 独立维护依赖、虚拟环境、测试、版本、许可和发布记录；仓库根目录只维护索引、结构校验、CI 和轻量路由契约。
 
 ## Skills 一览
 
+<!-- skills-index:start -->
 | Skill | 用途 | 主要输出 |
 | --- | --- | --- |
 | [`deep-sky-capture-advisor`](deep-sky-capture-advisor/) | 使用内置可追溯知识快照回答深空摄影器材、拍摄、后期与排障问题 | 带适用条件、审核状态与来源路径的建议 |
 | [`deep-sky-advisor`](deep-sky-advisor/) | 分析 FITS、XISF、TIFF、PNG 或 JPEG 深空图像，并给出有证据支持的后期建议 | 诊断数据、预览图、处理建议报告 |
 | [`deep-sky-processor`](deep-sky-processor/) | 在真实性约束下，通过分阶段审查完成深空图像后期 | 自然版和增强版 JPG，可选 TIFF 母版 |
 | [`siril-mosaic`](siril-mosaic/) | 使用 Siril 自动解算、配准并拼接已堆栈天文面板 | 线性 32-bit FITS、显示预览和审计记录 |
-| [`tailor-resume`](tailor-resume/) | 根据已验证的职业经历和职位描述生成 ATS 友好的定制简历 | Markdown、DOCX、PDF 简历及匹配报告 |
+<!-- skills-index:end -->
 
 每个 Skill 的完整行为、约束和工作流均定义在对应目录的 `SKILL.md` 中。
 
 ## 目录结构
 
+<!-- skills-tree:start -->
 ```text
 .
 ├── deep-sky-capture-advisor/ # 自包含的深空摄影知识顾问
-├── deep-sky-advisor/    # 深空图像诊断与后期建议
-├── deep-sky-processor/  # AI 主导的深空图像处理工作流
-├── siril-mosaic/        # Siril 天文马赛克拼接与视觉验收
-└── tailor-resume/       # 职业事实管理与定制简历生成
+├── deep-sky-advisor/         # 深空图像诊断与后期建议
+├── deep-sky-processor/       # AI 主导的深空图像处理工作流
+└── siril-mosaic/             # Siril 天文马赛克拼接与视觉验收
 ```
+<!-- skills-tree:end -->
 
-各目录通常包含：
-
-- `SKILL.md`：Skill 说明和执行规则
-- `scripts/`：分析、处理或渲染脚本
-- `references/`：工作流所需的参考资料
-- `assets/`：模板等静态资源
-- `tests/`：自动化测试（如有）
-- `agents/openai.yaml`：Codex 展示信息（如有）
+各 Skill 可按需要包含 `scripts/`、`references/`、`assets/`、`tests/` 和 `agents/openai.yaml`。每个 Skill 还维护自己的 `CHANGELOG.md`、许可文件、`RELEASING.md` 和 `requirements-dev.txt`。
 
 ## 安装
 
-将需要的 Skill 目录复制或软链接到 Codex Skills 目录。例如：
+将需要的 Skill 目录软链接到 Codex Skills 目录：
+
+<!-- skills-install:start -->
+```bash
+CODEX_SKILLS_DIR="${CODEX_HOME:-$HOME/.codex}/skills"
+mkdir -p "$CODEX_SKILLS_DIR"
+ln -s "$(pwd)/deep-sky-capture-advisor" "$CODEX_SKILLS_DIR/deep-sky-capture-advisor"
+ln -s "$(pwd)/deep-sky-advisor" "$CODEX_SKILLS_DIR/deep-sky-advisor"
+ln -s "$(pwd)/deep-sky-processor" "$CODEX_SKILLS_DIR/deep-sky-processor"
+ln -s "$(pwd)/siril-mosaic" "$CODEX_SKILLS_DIR/siril-mosaic"
+```
+<!-- skills-install:end -->
+
+四个 Skill 使用彼此独立的 Python 3.12 虚拟环境。从仓库根目录执行：
 
 ```bash
-mkdir -p ~/.codex/skills
-ln -s "$(pwd)/deep-sky-capture-advisor" ~/.codex/skills/deep-sky-capture-advisor
-ln -s "$(pwd)/deep-sky-advisor" ~/.codex/skills/deep-sky-advisor
-ln -s "$(pwd)/deep-sky-processor" ~/.codex/skills/deep-sky-processor
-ln -s "$(pwd)/siril-mosaic" ~/.codex/skills/siril-mosaic
-ln -s "$(pwd)/tailor-resume" ~/.codex/skills/tailor-resume
+python3.12 -m venv deep-sky-capture-advisor/.venv
+deep-sky-capture-advisor/.venv/bin/python -m pip install -r deep-sky-capture-advisor/requirements-dev.txt
+
+python3.12 -m venv deep-sky-advisor/.venv
+deep-sky-advisor/.venv/bin/python -m pip install -r deep-sky-advisor/requirements-dev.txt
+
+python3.12 -m venv deep-sky-processor/.venv
+deep-sky-processor/.venv/bin/python -m pip install -r deep-sky-processor/requirements-dev.txt
+
+python3.12 -m venv siril-mosaic/.venv
+siril-mosaic/.venv/bin/python -m pip install -r siril-mosaic/requirements-dev.txt
 ```
 
-需要运行深空图像脚本时，请分别安装对应依赖：
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r deep-sky-advisor/requirements.txt
-python -m pip install -r deep-sky-processor/requirements.txt
-```
-
-`tailor-resume` 生成 DOCX 和 PDF 时还需要 `python-docx`、`pypdf`、LibreOffice 和 Poppler。具体要求以各 Skill 的 `SKILL.md` 为准。
+`deep-sky-capture-advisor` 的运行脚本只使用 Python 标准库；`deep-sky-advisor` 和 `deep-sky-processor` 的运行依赖分别声明在各自的 `requirements.txt` 中。`siril-mosaic` 的 Python 入口只使用标准库，但实际拼接要求 Siril 1.4+；缺少可靠 WCS 时还可能需要已配置索引的本机 Astrometry.net。
 
 ## 使用
 
-在 Codex 中直接描述任务，或明确指定 Skill。例如：
+在 Codex 中直接描述任务，或明确指定 Skill：
 
+<!-- skills-usage:start -->
 ```text
 使用 $deep-sky-capture-advisor 根据我的器材和观测条件制定今晚的拍摄方案。
 
@@ -70,55 +77,68 @@ python -m pip install -r deep-sky-processor/requirements.txt
 使用 $deep-sky-processor 将这张星云图处理为自然版和增强版 JPG。
 
 使用 $siril-mosaic 将这个目录中的已堆栈面板拼成完整天文马赛克。
-
-使用 $tailor-resume 根据 career-master.md 和这份 JD 生成定制简历。
 ```
+<!-- skills-usage:end -->
 
-也可以独立运行部分脚本。以下命令展示各 Skill 的基本入口：
+也可以从仓库根目录独立运行脚本：
 
 ```bash
-# 检索自包含知识快照
-python3 -B deep-sky-capture-advisor/scripts/query_knowledge.py "城市阳台第一次拍摄" --format text
+deep-sky-capture-advisor/.venv/bin/python -B \
+  deep-sky-capture-advisor/scripts/query_knowledge.py \
+  "城市阳台第一次拍摄" --format text
 
-# 分析深空图像
-bash deep-sky-advisor/scripts/run_analysis.sh /path/to/input.fits /path/to/output
+bash deep-sky-advisor/scripts/run_analysis.sh \
+  /path/to/input.fits /path/to/output
 
-# 查看深空处理管线参数
-python deep-sky-processor/scripts/pipeline.py --help
+deep-sky-processor/.venv/bin/python \
+  deep-sky-processor/scripts/pipeline.py --help
 
-# 检查天文马赛克输入目录
-python siril-mosaic/scripts/siril_mosaic.py inspect /path/to/panels
-
-# 查看简历渲染器参数
-python tailor-resume/scripts/render_resume.py --help
+siril-mosaic/.venv/bin/python \
+  siril-mosaic/scripts/siril_mosaic.py inspect /path/to/panels
 ```
 
 ## 开发与验证
 
-修改 Skill 后，应至少确认 `SKILL.md` 中引用的脚本和资料仍然存在。带测试的 Skill 可使用 pytest 验证：
+先为目标 Skill 创建上述独立环境，再执行它自己的测试：
 
 ```bash
-python -m pytest deep-sky-advisor/tests
-python -m pytest deep-sky-processor/tests
-python3 -B -m pytest -p no:cacheprovider deep-sky-capture-advisor/tests
-python -m pytest siril-mosaic/tests
+deep-sky-capture-advisor/.venv/bin/python -B -m pytest -p no:cacheprovider deep-sky-capture-advisor/tests
+deep-sky-advisor/.venv/bin/python -B -m pytest -p no:cacheprovider deep-sky-advisor/tests
+deep-sky-processor/.venv/bin/python -B -m pytest -p no:cacheprovider deep-sky-processor/tests
+siril-mosaic/.venv/bin/python -B -m pytest -p no:cacheprovider siril-mosaic/tests
 ```
 
-图像处理和文档渲染的结果还应按照对应 `SKILL.md` 的要求进行视觉检查。
-
-## Siril Mosaic 发布
-
-禁止直接运行 `skillhub publish siril-mosaic/`。SkillHub 的目录采集不会读取 `.gitignore`，直接发布会把 `dev-runs/` 中的 FITS、日志和本机配置带入候选包。只能发布由精确白名单生成的 ZIP：
+根级结构、README 和跨 Skill 路由契约使用轻量开发环境执行：
 
 ```bash
-python3 siril-mosaic/scripts/package_release.py --check
-python3 siril-mosaic/scripts/package_release.py \
-  --output dist/siril-mosaic-0.1.0.zip \
-  --skillhub-preflight
+REPO_CHECK_ENV="$(mktemp -d)/repository-contracts"
+python3.12 -m venv "$REPO_CHECK_ENV"
+"$REPO_CHECK_ENV/bin/python" -m pip install "pytest>=8,<10" "PyYAML>=6,<7"
+"$REPO_CHECK_ENV/bin/python" scripts/validate_repository.py
+"$REPO_CHECK_ENV/bin/python" -B -m pytest -p no:cacheprovider tests
 ```
 
-`--skillhub-preflight` 只允许执行以下 dry-run；不得在预检阶段省略 `--dry-run`：
+图像处理结果仍须按照各 Skill 的视觉与真实性门禁检查；测试通过不能替代真实图像验收。
+
+## 独立发布
+
+每个 Skill 的发布步骤见其 `RELEASING.md`，变更记录见其 `CHANGELOG.md`。标签必须使用 `<skill>/v<version>`，例如 `siril-mosaic/v0.1.0`；不要创建含义不明确的全局 `v0.1.0` 标签。
+
+Capture Advisor 和 Siril Mosaic 具有精确发布打包器。发布检查只构建本地候选包，不执行上传：
+
 
 ```bash
-skillhub publish dist/siril-mosaic-0.1.0.zip --dry-run --json
+RELEASE_DIR="$(python3.12 -c 'import tempfile; from pathlib import Path; print(Path(tempfile.mkdtemp(prefix="deepsky-release-")).resolve())')"
+
+deep-sky-capture-advisor/.venv/bin/python \
+  deep-sky-capture-advisor/scripts/package_release.py \
+  --output "$RELEASE_DIR/deep-sky-capture-advisor-0.1.0.zip"
+
+siril-mosaic/.venv/bin/python \
+  siril-mosaic/scripts/package_release.py --check
+siril-mosaic/.venv/bin/python \
+  siril-mosaic/scripts/package_release.py \
+  --output "$RELEASE_DIR/siril-mosaic-0.1.0.zip"
 ```
+
+禁止直接运行 `skillhub publish siril-mosaic/`。SkillHub 的目录采集不会读取 `.gitignore`，正式发布只能使用精确白名单生成的 ZIP，并在发布前按 `RELEASING.md` 完成显式授权和 dry-run 预检。

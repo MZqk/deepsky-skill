@@ -37,7 +37,7 @@
     "08-FAQ/**/*.md (excluding index.md)",
     "09-踩坑与复盘/**/*.md (excluding index.md)"
   ],
-  "packaged_at": "2026-08-28T06:59:50+00:00",
+  "packaged_at": "2026-08-28T08:15:04+00:00",
   "runtime": {
     "query_network_access": false,
     "self_contained": true,
@@ -49,8 +49,8 @@
     "SKILL.md": "4d4d1ccebb789310d974ad4e43d25a4b36b6d5135151900ad5b711d115e5aa16",
     "agents/openai.yaml": "54ee5f53279c972403e94923ca4912ae6a6be1da521df4f9e1d834ba86864b52",
     "release-authorization.json": "246385476e6f70938162bde54f527585d1dfcfe0964260729986e5714a7b4cd0",
-    "scripts/knowledge_common.py": "1168ca572881417cbdb0e8b5acada6c3f332b1e08ef5eb117a99efb30e8a1c09",
-    "scripts/query_knowledge.py": "352ab549fadbb193375010e95361ad57e77d2b604b57b72f535fb7a9d464c258"
+    "scripts/knowledge_common.py": "fe40e30c079142522629ff964ec1c4b109fd49f6b5bbd5b5958a61e2bc515907",
+    "scripts/query_knowledge.py": "1742b86864e65418fa68a9d4bfab17d3b2c41069731b515ad768464324e0b4b4"
   },
   "schema_version": 2,
   "skill_name": "deep-sky-capture-advisor",

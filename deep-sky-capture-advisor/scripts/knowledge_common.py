@@ -129,6 +129,13 @@ _VALID_STATUSES = {"draft", "stable", "deprecated"}
 class BundleIntegrityError(ValueError):
     """Raised when bundled data does not satisfy the supported integrity contract."""
 
+    def __init__(self, errors: str | Iterable[str]) -> None:
+        normalized = (errors,) if isinstance(errors, str) else tuple(str(item) for item in errors)
+        if not normalized:
+            normalized = ("bundle integrity validation failed",)
+        self.errors = normalized
+        super().__init__("; ".join(normalized))
+
 
 @dataclass(frozen=True)
 class ValidatedBundle:
@@ -503,7 +510,13 @@ def expected_runtime_file_hashes(skill_root: Path) -> dict[str, str]:
     return dict(sorted(result.items()))
 
 
-def compute_bundle_facts(catalog: dict[str, Any], catalog_bytes: bytes, knowledge_root: Path) -> dict[str, Any]:
+def compute_bundle_facts(
+    catalog: dict[str, Any],
+    catalog_bytes: bytes,
+    knowledge_root: Path,
+    *,
+    integrity_errors: list[str] | None = None,
+) -> dict[str, Any]:
     """Validate catalog/page structure and derive every manifest bundle fact."""
 
     entries, catalog_paths = _validate_catalog(catalog)
@@ -523,7 +536,10 @@ def compute_bundle_facts(catalog: dict[str, Any], catalog_bytes: bytes, knowledg
     for relative in sorted(catalog_paths):
         actual = sha256_bytes(knowledge_files[relative])
         if actual != entry_by_path[relative]["sha256"]:
-            raise _fail(relative, "page SHA-256 does not match catalog")
+            message = f"{relative}: page SHA-256 does not match catalog"
+            if integrity_errors is None:
+                raise BundleIntegrityError(message)
+            integrity_errors.append(message)
 
     return {
         "catalog_sha256": sha256_bytes(catalog_bytes),
@@ -618,13 +634,19 @@ def validate_bundle(
     """Validate schema, runtime closure, catalog, pages, and all recomputed facts."""
 
     _validate_manifest_shape(manifest)
-    facts = compute_bundle_facts(catalog, catalog_bytes, knowledge_root)
+    errors: list[str] = []
+    facts = compute_bundle_facts(
+        catalog,
+        catalog_bytes,
+        knowledge_root,
+        integrity_errors=errors,
+    )
     declared = manifest["bundle"]
     for field, actual in facts.items():
         if declared[field] != actual:
-            raise _fail(
-                f"manifest.bundle.{field}",
-                f"declares {declared[field]!r}, recomputed {actual!r}",
+            errors.append(
+                f"manifest.bundle.{field}: declares {declared[field]!r}, "
+                f"recomputed {actual!r}"
             )
 
     actual_skill_root = skill_root or knowledge_root.parent.parent
@@ -638,10 +660,13 @@ def validate_bundle(
             details.append("missing " + ", ".join(missing))
         if extra:
             details.append("unexpected " + ", ".join(extra))
-        raise _fail("manifest.runtime_files", "; ".join(details))
-    for relative, actual in actual_runtime_files.items():
+        errors.append("manifest.runtime_files: " + "; ".join(details))
+    for relative in sorted(set(actual_runtime_files) & set(declared_runtime_files)):
+        actual = actual_runtime_files[relative]
         if declared_runtime_files[relative] != actual:
-            raise _fail(f"manifest.runtime_files.{relative}", "SHA-256 mismatch")
+            errors.append(f"manifest.runtime_files.{relative}: SHA-256 mismatch")
+    if errors:
+        raise BundleIntegrityError(errors)
     return facts
 
 

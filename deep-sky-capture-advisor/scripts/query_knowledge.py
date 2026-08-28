@@ -920,7 +920,7 @@ def main() -> int:
         except BundleIntegrityError as exc:
             print(
                 json.dumps(
-                    {"ok": False, "errors": [str(exc)]},
+                    {"ok": False, "errors": list(exc.errors)},
                     ensure_ascii=False,
                     indent=2,
                     sort_keys=True,

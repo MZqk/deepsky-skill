@@ -7,6 +7,14 @@ description: |
   只作为诊断、可控图像变换和量化审查工具。适用于发射星云、反射星云、
   星系、星团、行星状星云、暗星云、宽场星野的真实风格美化、拉伸、
   去光害、校色、降噪、缩星、细节增强和最终 JPG 输出。
+license: Proprietary
+metadata:
+  slug: deep-sky-processor
+  version: "0.1.0"
+  displayName: Deep Sky Processor
+  summary: 在真实性约束和分阶段审查下处理深空图像，交付自然版与增强版成片。
+  tags: [astronomy, astrophotography, image-processing, fits]
+  homepage: https://github.com/MZqk/deepsky-skill
 ---
 
 # Deep Sky Processor
@@ -565,8 +573,9 @@ final_color + star_reduce + local_enhance + style)
 首次安装：
 
 ```bash
-/opt/homebrew/bin/python3 -m venv ~/.workbuddy/binaries/python/envs/sys-default
-~/.workbuddy/binaries/python/envs/sys-default/bin/pip install -r requirements.txt
+python3.12 -m venv deep-sky-processor/.venv
+deep-sky-processor/.venv/bin/python -m pip install \
+  -r deep-sky-processor/requirements.txt
 ```
 
-运行脚本时优先使用已安装依赖的 Python；macOS managed Python 若有签名问题，使用 `/opt/homebrew/bin/python3`。
+以上命令从仓库根目录执行；运行脚本时使用该 Skill 自己的 `.venv/bin/python`。

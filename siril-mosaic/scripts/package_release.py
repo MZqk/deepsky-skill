@@ -20,6 +20,7 @@ from typing import Callable, Sequence
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST_PATH = SKILL_ROOT / "release-files.txt"
 EXPECTED_RELEASE_FILES = (
+    "LICENSE.md",
     "SKILL.md",
     "agents/openai.yaml",
     "references/quality.md",
@@ -127,7 +128,7 @@ def validate_release_source(
     skill_root: Path = SKILL_ROOT,
     allowlist_path: Path | None = None,
 ) -> list[ReleaseFile]:
-    """Validate and capture the five exact public files without following links."""
+    """Validate and capture the six exact public files without following links."""
 
     try:
         root = skill_root.expanduser().resolve(strict=True)

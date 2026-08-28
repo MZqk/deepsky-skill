@@ -256,6 +256,25 @@ def test_manifest_authority_counts_and_runtime_file_set_are_recomputed(
         )
 
 
+def test_formal_page_tamper_reports_page_and_tree_hash_mismatches(
+    source_repo: Path,
+    bundle_paths: builder.BundlePaths,
+) -> None:
+    builder.build(source_repo, paths=bundle_paths)
+    page = next(
+        path for path in bundle_paths.knowledge_root.rglob("*.md") if path.name != "index.md"
+    )
+    page.write_bytes(page.read_bytes() + b"\n")
+
+    with pytest.raises(BundleIntegrityError) as captured:
+        load_validated_bundle(bundle_paths.references_root)
+
+    errors = captured.value.errors
+    assert any("page SHA-256 does not match catalog" in error for error in errors)
+    assert any("manifest.bundle.formal_page_sha256" in error for error in errors)
+    assert any("manifest.bundle.knowledge_sha256" in error for error in errors)
+
+
 @pytest.mark.parametrize("failure_point", ("old-catalog", "new-catalog", "new-manifest"))
 def test_transaction_failure_restores_the_previous_artifact_set(
     source_repo: Path,

@@ -1,3 +1,4 @@
+LICENSE.md
 SKILL.md
 agents/openai.yaml
 references/quality.md
