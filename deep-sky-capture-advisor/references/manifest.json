@@ -1,0 +1,64 @@
+{
+  "authority_rule": "A bundled claim is authoritative only when all critical pages are stable, not stale, applicable, and covered by a human: verified.scope.",
+  "bundle": {
+    "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
+    "content_page_count": 51,
+    "formal_page_sha256": "916b8272b73d245f3ed89d12552dafc365d08c64c97de0e5d05c888c64813ac0",
+    "human_verified_page_count": 0,
+    "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
+    "markdown_file_count": 52,
+    "navigation_page_count": 1,
+    "needs_human_review_count": 51,
+    "unbundled_internal_source_count": 7
+  },
+  "distribution_notice": "SkillHub public non-authoritative beta 0.1.0. Source-rights and third-party disclosures are provided in NOTICE.md when present.",
+  "excluded": [
+    "raw/",
+    "archive/",
+    "integrations/",
+    "services/",
+    "scripts/",
+    ".knowledge-catalog/",
+    "内容补充缺口调研-2026-08/",
+    "README.md",
+    "log.md",
+    "llms.txt"
+  ],
+  "included": [
+    "index.md (generated)",
+    "00-知识库规范/**/*.md (excluding index.md)",
+    "01-新人入门/**/*.md (excluding index.md)",
+    "02-器材百科/**/*.md (excluding index.md)",
+    "03-拍摄SOP/**/*.md (excluding index.md)",
+    "04-后期处理/**/*.md (excluding index.md)",
+    "05-目标图鉴/**/*.md (excluding index.md)",
+    "06-选址与环境/**/*.md (excluding index.md)",
+    "07-软件工具/**/*.md (excluding index.md)",
+    "08-FAQ/**/*.md (excluding index.md)",
+    "09-踩坑与复盘/**/*.md (excluding index.md)"
+  ],
+  "packaged_at": "2026-08-28T06:59:50+00:00",
+  "runtime": {
+    "query_network_access": false,
+    "self_contained": true,
+    "source_repository_required": false,
+    "writes_to_bundle": false
+  },
+  "runtime_files": {
+    "NOTICE.md": "f707c9fa5906410414ecfc0940e9a79dfed26fa62274cf1f38b18236c019a86f",
+    "SKILL.md": "4d4d1ccebb789310d974ad4e43d25a4b36b6d5135151900ad5b711d115e5aa16",
+    "agents/openai.yaml": "54ee5f53279c972403e94923ca4912ae6a6be1da521df4f9e1d834ba86864b52",
+    "release-authorization.json": "246385476e6f70938162bde54f527585d1dfcfe0964260729986e5714a7b4cd0",
+    "scripts/knowledge_common.py": "1168ca572881417cbdb0e8b5acada6c3f332b1e08ef5eb117a99efb30e8a1c09",
+    "scripts/query_knowledge.py": "352ab549fadbb193375010e95361ad57e77d2b604b57b72f535fb7a9d464c258"
+  },
+  "schema_version": 2,
+  "skill_name": "deep-sky-capture-advisor",
+  "source": {
+    "git_commit": "d4094fb5e7811f0cea072344f3d1dfae08d3a2b5",
+    "git_commit_date": "2026-08-27T22:21:41+08:00",
+    "name": "StarunWiki",
+    "retrieval_corpus_sha256": "4585dab44a298c1a6afe3501b58f3f9d19549aedf34bd920995ea522a1f22405",
+    "working_tree_dirty": false
+  }
+}

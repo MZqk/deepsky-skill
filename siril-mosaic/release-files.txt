@@ -1,0 +1,5 @@
+SKILL.md
+agents/openai.yaml
+references/quality.md
+references/workflow.md
+scripts/siril_mosaic.py

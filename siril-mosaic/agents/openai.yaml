@@ -1,0 +1,4 @@
+interface:
+  display_name: "Siril Mosaic"
+  short_description: "Automate source-safe astronomical mosaics with Siril"
+  default_prompt: "Use $siril-mosaic to stitch the stacked panels in this directory into a complete astronomical mosaic and review the result."

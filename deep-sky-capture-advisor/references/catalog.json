@@ -1,0 +1,5357 @@
+{
+  "entries": [
+    {
+      "applies_to": {
+        "不适用": [
+          "纯目录页",
+          "无外部事实的本地导航说明"
+        ],
+        "内容类型": [
+          "包含数值、型号能力、软件行为、安全步骤、案例参数或时效性结论的 Wiki 页面"
+        ],
+        "条件": [
+          "主张、来源、适用条件、版本、失效边界和审核范围可逐项追溯"
+        ],
+        "系统": [
+          "包含外部事实或会影响用户决定的正式 Wiki 页面及其问答派生内容"
+        ]
+      },
+      "audience": "知识库维护者、领域审核者、内容作者与使用知识库的 AI Agent",
+      "category": "00-知识库规范",
+      "description": "规定如何让数值、软件行为、器材兼容性和安全步骤就近绑定来源、版本、适用条件、冲突状态与审核范围。",
+      "difficulty": "维护者",
+      "links": [
+        "00-知识库规范/人工审核与证据补齐队列.md",
+        "00-知识库规范/来源许可与发布门禁.md",
+        "00-知识库规范/知识库维护规范.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md"
+      ],
+      "path": "00-知识库规范/主张级引用与适用条件.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "67d2abd8384c9ccef5742c2ff63ceb8241ab8705fd1db0566f0b0634c89d4b8f",
+      "sources": [
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "maintenance-policy",
+          "resource": "/00-知识库规范/知识库维护规范.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库维护规范",
+          "usage": "internal-reference"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "p0-source-record",
+          "resource": "/raw/2026-08-13-P0可追溯知识、采集与自动化来源.md",
+          "rights": "unknown",
+          "title": "P0：可追溯知识、采集参数与自动化恢复来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "okf-spec",
+          "resource": "https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md",
+          "rights": "unknown",
+          "title": "Open Knowledge Format v0.2",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-08-13",
+      "status": "stable",
+      "tags": [
+        "治理",
+        "引用",
+        "适用条件",
+        "证据",
+        "审核",
+        "冲突处理"
+      ],
+      "title": "主张级引用与适用条件",
+      "type": "Governance",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "自动把机器检查等同于领域专家签署",
+          "替代具体法域的法律审查"
+        ],
+        "条件": [
+          "Markdown/Git 是唯一真相源，审核人能访问页面所列来源与验证产物"
+        ],
+        "系统": [
+          "本仓库正式 Wiki 页面、人工审核队列与公开问答发布门禁"
+        ]
+      },
+      "audience": "知识库维护者、领域审核者与发布负责人",
+      "category": "00-知识库规范",
+      "description": "按风险和用户影响安排人工技术核验、主张级引用、来源权利与摘要一致性工作；自动优化不得把页面标记为人工已核验。",
+      "difficulty": "维护者",
+      "links": [
+        "00-知识库规范/主张级引用与适用条件.md",
+        "01-新人入门/新手预算与器材路线.md",
+        "01-新人入门/购买前成像系统设计与兼容性清单.md",
+        "02-器材百科/天文相机选型.md",
+        "02-器材百科/望远镜选型.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/对焦方法.md",
+        "03-拍摄SOP/导星.md",
+        "03-拍摄SOP/板解、翻转与任务恢复.md",
+        "03-拍摄SOP/采集参数试拍与总积分.md",
+        "05-目标图鉴/经典目标推荐参数.md",
+        "07-软件工具/后期软件对比.md",
+        "07-软件工具/采集控制平台与迁移.md",
+        "08-FAQ/高频FAQ汇总.md"
+      ],
+      "path": "00-知识库规范/人工审核与证据补齐队列.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "781906ce26810a978f0fa2b7553e748c0fc4fe78c33b3f773a0dd869af40c35b",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "maintenance-policy",
+          "resource": "/00-知识库规范/知识库维护规范.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库维护规范",
+          "usage": "internal-reference"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "publication-gate",
+          "resource": "/00-知识库规范/来源许可与发布门禁.md",
+          "rights": "unknown",
+          "title": "来源许可与发布门禁",
+          "usage": "internal-reference"
+        }
+      ],
+      "stale_after": "2027-02-01",
+      "status": "stable",
+      "tags": [
+        "治理",
+        "人工审核",
+        "证据",
+        "引用",
+        "质量门禁"
+      ],
+      "title": "人工审核与证据补齐队列",
+      "type": "Governance",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "对具体来源作最终法律许可判断",
+          "授权公开未获许可的原始全文或媒体"
+        ],
+        "条件": [
+          "公开层只发布派生知识、必要书目信息与外链"
+        ],
+        "系统": [
+          "本仓库 raw、正式 Wiki、生成语料与公开问答发布流程"
+        ]
+      },
+      "audience": null,
+      "category": "00-知识库规范",
+      "description": "规定外部来源、原始资料、转载内容、个人数据和公开网站之间的授权边界与发布检查。",
+      "difficulty": null,
+      "links": [],
+      "path": "00-知识库规范/来源许可与发布门禁.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "e5bcae05a1062ba6dbf09b20a1c31440ce2126eafbba69609fedb75c8ddc52dc",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "google-okf-spec",
+          "resource": "https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md",
+          "rights": "unknown",
+          "title": "Open Knowledge Format v0.2",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "local-maintenance-policy",
+          "resource": "/00-知识库规范/知识库维护规范.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库维护规范",
+          "usage": "internal-reference"
+        }
+      ],
+      "stale_after": "2027-08-27",
+      "status": "stable",
+      "tags": [
+        "治理",
+        "来源",
+        "许可",
+        "版权",
+        "隐私",
+        "发布门禁"
+      ],
+      "title": "来源许可与发布门禁",
+      "type": "Governance",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把生命周期 stable 解释为人工核验完成",
+          "允许外部问答系统反向写回 Wiki"
+        ],
+        "条件": [
+          "页面遵循 OKF v0.2、来源追溯、审核与失效日期约定"
+        ],
+        "系统": [
+          "本仓库 Markdown/Git 知识源、维护流程与只读问答派生层"
+        ]
+      },
+      "audience": null,
+      "category": "00-知识库规范",
+      "description": "规定本知识库的 OKF 结构、页面类型、来源追溯、适用条件、审核、时效与 LLM 维护流程。",
+      "difficulty": null,
+      "links": [
+        "00-知识库规范/主张级引用与适用条件.md",
+        "00-知识库规范/来源许可与发布门禁.md"
+      ],
+      "path": "00-知识库规范/知识库维护规范.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "795e1279af2653d1980252b4fa3b928c283f7081e25602d68c824ab168b632f7",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "google-okf-spec",
+          "resource": "https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md",
+          "rights": "unknown",
+          "title": "Open Knowledge Format v0.2",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "llm-wiki-principles",
+          "resource": "https://llmwiki.eztoolab.com/en/docs/",
+          "rights": "unknown",
+          "title": "LLM Wiki Documentation",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "claim-condition-policy",
+          "resource": "/00-知识库规范/主张级引用与适用条件.md",
+          "rights": "unknown",
+          "title": "主张级引用与适用条件",
+          "usage": "internal-reference"
+        }
+      ],
+      "stale_after": "2027-08-27",
+      "status": "stable",
+      "tags": [
+        "治理",
+        "OKF",
+        "LLM-Wiki",
+        "维护"
+      ],
+      "title": "深空天文拍摄知识库维护规范",
+      "type": "Governance",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "替代具体器材兼容性、现场安全或软件版本结论"
+        ],
+        "条件": [
+          "只用于问题分流和术语导航，最终操作回到对应专题页核验"
+        ],
+        "系统": [
+          "首次进入深空摄影知识库、尚未确定学习或排障入口的读者"
+        ]
+      },
+      "audience": "刚接触深空摄影、还无法判断该从器材、现场、目标或后期哪一页开始的爱好者",
+      "category": "01-新人入门",
+      "description": "按“我已有设备、我今晚要拍、我拿到原始数据、我拍坏了”四类问题进入知识库，并用最少术语建立从首拍到首图的共同语言。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/从零到出片学习路径.md",
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "01-新人入门/新手预算与器材路线.md",
+        "01-新人入门/购买前成像系统设计与兼容性清单.md",
+        "03-拍摄SOP/城市阳台首次深空拍摄.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/校准帧现场速查卡.md",
+        "03-拍摄SOP/现场搭建流程.md",
+        "04-后期处理/Siril新手首图工作流.md",
+        "08-FAQ/单张检查与翻车诊断.md"
+      ],
+      "path": "01-新人入门/从问题到首图场景导航与术语地图.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "4cdd7347b3feed4cc2b28bad832fedf15788f9c74d0eec4043208cb9d7c69897",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-user-scenarios",
+          "resource": "/raw/2026-07-30-P0用户场景与首图工作流来源.md",
+          "rights": "unknown",
+          "title": "P0：用户场景、首图工作流与诊断页面来源记录",
+          "usage": "metadata-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "入门",
+        "场景导航",
+        "术语",
+        "首图",
+        "学习路径"
+      ],
+      "title": "从问题到首图场景导航与术语地图",
+      "type": "Learning Path",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把示例器材、曝光或处理步骤直接复制为所有系统的固定参数"
+        ],
+        "条件": [
+          "按设备能力、天空条件和数据状态选择对应分支"
+        ],
+        "系统": [
+          "使用相机、望远镜或智能望远镜开始深空摄影的初学者"
+        ]
+      },
+      "audience": "已购入或准备购入第一套深空器材、希望按阶段系统学会‘拍出第一张干净深空照片’的新手",
+      "category": "01-新人入门",
+      "description": "按概念与连接、架设与极轴、对焦与跟踪、采集与校准、叠加与后期逐步完成第一张可复现的深空照片。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/从问题到首图场景导航与术语地图.md",
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "03-拍摄SOP/校准帧规范.md",
+        "03-拍摄SOP/现场搭建流程.md",
+        "04-后期处理/校准与叠加.md"
+      ],
+      "path": "01-新人入门/从零到出片学习路径.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "5d109f60eaec610c219971af93f64afd3d02d66dd496523185b70cb571573958",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-523671d1",
+          "resource": "https://astrobackyard.com/beginner-astrophotography/",
+          "rights": "unknown",
+          "title": "AstroBackyard：Beginner Astrophotography Tips",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-17d3f6ee",
+          "resource": "https://astrobackyard.com/tutorials/",
+          "rights": "unknown",
+          "title": "AstroBackyard：Tutorials",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-54d78bd3",
+          "resource": "https://zhuanlan.zhihu.com/p/674054523",
+          "rights": "unknown",
+          "title": "知乎：以ZWO全家桶为例 深空摄影教程",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "experience",
+          "id": "src-88ed23d0",
+          "resource": "https://www.toutiao.com/article/7136374531546989090/",
+          "rights": "unknown",
+          "title": "今日头条：深空前期校准帧实操顺序",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-7c8274e7",
+          "resource": "https://www.astronomy.com.cn/bbs/",
+          "rights": "unknown",
+          "title": "牧夫天文论坛（经验交流）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-phd2-basic-use",
+          "resource": "https://openphdguiding.org/man/Basic_use.htm",
+          "rights": "unknown",
+          "title": "PHD2 官方文档：Basic Use",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-calibration",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/calibration.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Calibration",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "入门",
+        "拍摄",
+        "软件",
+        "后期"
+      ],
+      "title": "从零到出片学习路径",
+      "type": "Learning Path",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "在型号、接口或文件状态未知时给出确定兼容性和处理结论"
+        ],
+        "条件": [
+          "先完成设备清单、接口、供电、导出能力与安全边界核对"
+        ],
+        "系统": [
+          "已有相机、镜头、望远镜、赤道仪或智能望远镜的初学者"
+        ]
+      },
+      "audience": "已拥有摄影器材或智能天文设备，希望避免“先买一堆配件再摸索”的深空摄影初学者",
+      "category": "01-新人入门",
+      "description": "从手头的相机、镜头、智能镜、星野赤道仪或完整赤道仪系统出发，确定可验证的第一步、当前边界和升级触发条件。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/从问题到首图场景导航与术语地图.md",
+        "01-新人入门/新手预算与器材路线.md",
+        "01-新人入门/购买前成像系统设计与兼容性清单.md",
+        "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+        "03-拍摄SOP/城市阳台首次深空拍摄.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/智能望远镜首拍与数据交接.md"
+      ],
+      "path": "01-新人入门/已有设备如何开始深空摄影.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "8ea1031c8579aca5e4b84200f2db9742837344d9bc5070d89da54df0bbc0d926",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-user-scenarios",
+          "resource": "/raw/2026-07-30-P0用户场景与首图工作流来源.md",
+          "rights": "unknown",
+          "title": "P0：用户场景、首图工作流与诊断页面来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-ledger",
+          "resource": "/raw/2026-08-26-智能望远镜与深空后期官方资料台账.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官方资料台账",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-captures",
+          "resource": "/raw/受限原始文本捕获说明.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官网受限原始文本捕获说明",
+          "usage": "local-evidence-capture; public-link-only"
+        }
+      ],
+      "stale_after": "2026-11-27",
+      "status": "stable",
+      "tags": [
+        "入门",
+        "已有设备",
+        "单反",
+        "无反",
+        "智能镜",
+        "星野赤道仪",
+        "升级路线"
+      ],
+      "title": "已有设备如何开始深空摄影",
+      "type": "Learning Path",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "实时价格承诺",
+          "未核对承重、接口、供电和驱动的具体购买指令"
+        ],
+        "条件": [
+          "价格、在售状态、保修与兼容性须按地区和查询日期重新核对"
+        ],
+        "系统": [
+          "准备购买深空摄影器材、需要比较系统路线的初学者"
+        ]
+      },
+      "audience": "准备购买第一套深空器材，希望先按目标、场地和复杂度建立预算边界的新手",
+      "category": "01-新人入门",
+      "description": "深空摄影是系统工程；预算应先覆盖可运行的跟踪、光路、供电、控制与数据链路，再按目标和场地选择镜筒、相机与升级路线。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "01-新人入门/购买前成像系统设计与兼容性清单.md",
+        "02-器材百科/天文相机选型.md",
+        "02-器材百科/望远镜选型.md",
+        "02-器材百科/赤道仪选型.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "raw/2026-07-30-P0运行安全与可复现性来源.md"
+      ],
+      "path": "01-新人入门/新手预算与器材路线.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "b9fb63d6109c1a54c63bdfeedc34d1a4f5ef1dba453d37635ff80c611bf315a1",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-8802da80",
+          "resource": "https://astrobackyard.com/deep-sky-astrophotography-kit/",
+          "rights": "unknown",
+          "title": "AstroBackyard：Building a Deep Sky Astrophotography Kit",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-46d3c303",
+          "resource": "https://www.touptek-astro.com.cn/blog/deep-space-astrophotography-equipment-guide",
+          "rights": "unknown",
+          "title": "Touptek 图谱天文：新手必读 深空天文摄影器材配置指南",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-e133513d",
+          "resource": "https://post.smzdm.com/p/arzoeq9z/",
+          "rights": "unknown",
+          "title": "什么值得买：深空摄影入门全指南 不同预算组合",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "experience",
+          "id": "src-34594d5f",
+          "resource": "https://www.bilibili.com/list/10210340?oid=114359678274370&bvid=BV1CU57zCEa3",
+          "rights": "unknown",
+          "title": "B站：从￥300到￥100000 不同价位预算器材横评（Nebula Photos）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nina-requirements",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/requirements/",
+          "rights": "unknown",
+          "title": "N.I.N.A. 官方文档：System Requirements and Device Support",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-celestron-back-focus",
+          "resource": "https://www.celestron.com/blogs/knowledgebase/understanding-your-telescope-s-back-focus",
+          "rights": "unknown",
+          "title": "Celestron：Understanding Your Telescope’s Back Focus",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-02-01",
+      "status": "stable",
+      "tags": [
+        "器材",
+        "入门",
+        "拍摄"
+      ],
+      "title": "新手预算与器材路线",
+      "type": "Buying Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "作为器材采购、曝光参数或无人值守安全的直接依据"
+        ],
+        "条件": [
+          "用于概念解释，不替代具体设备或现场操作说明"
+        ],
+        "系统": [
+          "需要理解深空摄影基本对象、数据链和学习成本的初学者"
+        ]
+      },
+      "audience": "刚接触天文摄影、想了解深空方向的新手",
+      "category": "01-新人入门",
+      "description": "深空天文拍摄以星云、星系和星团等深空目标为对象，可使用固定三脚架、星野跟踪器、赤道仪、智能望远镜或完整成像系统；设备与曝光方式取决于目标、焦距和预期结果。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/从零到出片学习路径.md",
+        "01-新人入门/新手预算与器材路线.md"
+      ],
+      "path": "01-新人入门/深空摄影是什么.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "f291def6915f62d2baf1775bfd7f526d8f7f2b547c23e98f231daba8fd37578a",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-e1ae54d5",
+          "resource": "https://www.sohu.com/a/752937174_100247170",
+          "rights": "unknown",
+          "title": "搜狐：深空摄影器材从观望到破产（一）入门指南",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-72a68919",
+          "resource": "https://www.touptek-astro.com.cn/blog/blog-details-35",
+          "rights": "unknown",
+          "title": "Touptek 图谱天文：行星摄影和深空摄影的区别",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-87840b44",
+          "resource": "https://zhuanlan.zhihu.com/p/513869685",
+          "rights": "unknown",
+          "title": "知乎：从零开始的深空摄影01 天文摄影的分类",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-523671d1",
+          "resource": "https://astrobackyard.com/beginner-astrophotography/",
+          "rights": "unknown",
+          "title": "AstroBackyard：Beginner Astrophotography Tips",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nasa-smartphone",
+          "resource": "https://science.nasa.gov/solar-system/skywatching/night-sky-network/astrophotography-with-your-smartphone/",
+          "rights": "unknown",
+          "title": "NASA Science：Astrophotography With Your Smartphone",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "入门",
+        "拍摄",
+        "器材"
+      ],
+      "title": "深空摄影是什么",
+      "type": "Concept",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "仅凭品牌或接口名称推断兼容",
+          "未完成白天干跑的无人值守系统"
+        ],
+        "条件": [
+          "所有机械、电气、光学和软件接口均以厂商当前规格及实物测量复核"
+        ],
+        "系统": [
+          "由望远镜、相机、改正镜、滤镜、调焦器、导星与控制设备组成的成像系统"
+        ]
+      },
+      "audience": "准备购买第一套深空成像系统，或准备向既有系统增加相机、滤镜轮、OAG、控制器等部件的爱好者",
+      "category": "01-新人入门",
+      "description": "在下单前把目标、光路、机械、供电、控制软件、数据和安全边界写成一份可验收的系统清单，避免“单件能用、整套不能运行”。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/新手预算与器材路线.md",
+        "02-器材百科/成像光路：后截距、像圈与接口预算.md",
+        "02-器材百科/赤道仪选型.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "raw/2026-07-30-P0运行安全与可复现性来源.md"
+      ],
+      "path": "01-新人入门/购买前成像系统设计与兼容性清单.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "feebe7bd7fc7b160ed04e5b2c031f5547b781ed4cd6194ef0a9247895cd7f567",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-celestron-back-focus",
+          "resource": "https://www.celestron.com/blogs/knowledgebase/understanding-your-telescope-s-back-focus",
+          "rights": "unknown",
+          "title": "Celestron：Understanding Your Telescope’s Back Focus",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nina-requirements",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/requirements/",
+          "rights": "unknown",
+          "title": "N.I.N.A. 官方文档：System Requirements and Device Support",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-ascom-docs",
+          "resource": "https://ascom-standards.org/Documentation/Index.htm",
+          "rights": "unknown",
+          "title": "ASCOM 官方文档中心",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-zwo-faq",
+          "resource": "https://www.zwoastro.com/product-faqs/",
+          "rights": "unknown",
+          "title": "ZWO 官方产品 FAQ",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "入门",
+        "系统设计",
+        "兼容性",
+        "采购",
+        "检查清单"
+      ],
+      "title": "购买前成像系统设计与兼容性清单",
+      "type": "Buying Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "不经系统预算直接推荐具体附件",
+          "把经验性搭配视为厂商兼容保证"
+        ],
+        "条件": [
+          "附件选择须与载荷、后截距、接口、供电和控制平台共同核对"
+        ],
+        "系统": [
+          "需要导星、调焦、滤镜切换、供电或防露附件的深空成像系统"
+        ]
+      },
+      "audience": "主镜+赤道仪+相机已就位，需要补齐光学校正、导星、对焦与供电链路的新手",
+      "category": "02-器材百科",
+      "description": "关键附件连接光学、导星、对焦、供电与数据链路；选择时应核对实际光路、机械刚性、设备手册和带载验收，而不是套用焦距、电流或电池容量的固定门槛。",
+      "difficulty": "新手",
+      "links": [
+        "02-器材百科/成像光路：后截距、像圈与接口预算.md",
+        "02-器材百科/望远镜选型.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/现场搭建流程.md",
+        "raw/2026-07-30-P0运行安全与可复现性来源.md"
+      ],
+      "path": "02-器材百科/关键附件.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "b17c883c6e3bb70b90dfa7d846427e0a3319ccb8d9f8f8372727b8c6fe617a49",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-43b1d5ef",
+          "resource": "https://optcorp.com/blogs/deep-sky-imaging/guide-scope-vs-off-axis-guider",
+          "rights": "unknown",
+          "title": "OPT 导星镜 vs OAG 对比",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-d0ddbef3",
+          "resource": "https://astrophotographylens.com/blogs/astro/oag-off-axis-guider-vs-guide-scope",
+          "rights": "unknown",
+          "title": "AstroPhotographyLens OAG vs 导星镜",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-74260f44",
+          "resource": "https://scopetrader.com/guide-scope-vs-off-axis-guiding-in-astrophotography/",
+          "rights": "unknown",
+          "title": "Scopetrader 导星方式分析",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-5125778b",
+          "resource": "https://www.zwoastro.com/",
+          "rights": "unknown",
+          "title": "ZWO 官网(相机/滤镜/电机)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-52efd217",
+          "resource": "https://starfieldview.com/astrophotography-gear/off-axis-guider-vs-guide-scope-comparison/",
+          "rights": "unknown",
+          "title": "StarfieldView OAG vs 导星镜",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "器材",
+        "附件",
+        "减焦镜",
+        "平场镜",
+        "OAG",
+        "导星镜",
+        "电调焦",
+        "供电",
+        "USB集线器"
+      ],
+      "title": "关键附件",
+      "type": "Equipment Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "跨型号固定增益、温度或曝光推荐",
+          "用单一参数决定最终购买"
+        ],
+        "条件": [
+          "采样、视场、满阱、读噪与滤镜需求按具体传感器模式和光学系统计算"
+        ],
+        "系统": [
+          "用于长曝光深空摄影的制冷或非制冷 CMOS/CCD 相机"
+        ]
+      },
+      "audience": "准备购买第一台深空冷冻相机，或想从 OSC 升级到单色系统的进阶玩家",
+      "category": "02-器材百科",
+      "description": "按目标、光路、传感器尺寸、采样、噪声、温控能力和工作流选择深空相机；制冷 CMOS 常用于可重复的长曝光，但不是所有场景的硬门槛。",
+      "difficulty": "进阶",
+      "links": [
+        "02-器材百科/滤镜系统.md",
+        "03-拍摄SOP/校准帧规范.md"
+      ],
+      "path": "02-器材百科/天文相机选型.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "319946a21f530ae73c553b67f9a98f521fc9876607ea60c28ecee7ae7ed3a9b8",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-e7c0e7cf",
+          "resource": "https://i.zwoastro.com/wp-content/uploads/2024/12/661fa4748a2fd93dd6ccad5bbe6bf671.pdf",
+          "rights": "unknown",
+          "title": "ZWO ASI2600MC/MM Pro 手册",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-dc12dc71",
+          "resource": "https://www.zwoastro.com/product/asi294/",
+          "rights": "unknown",
+          "title": "ZWO ASI294 产品页(4.63μm)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-de353674",
+          "resource": "https://www.qhyccd.com/astronomical-camera-qhy268/",
+          "rights": "unknown",
+          "title": "QHY268M/C 相机页(IMX571,3.76μm)",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-f16d1914",
+          "resource": "https://astrobackyard.com/zwo-asi533mc-pro/",
+          "rights": "unknown",
+          "title": "AstroBackyard ASI533MC Pro 测试",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-7d074c6d",
+          "resource": "https://tavcso.hu/en/productgroup/asi2600mcp",
+          "rights": "unknown",
+          "title": "ASI2600MC Pro 参数(Budapest Telescope)",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "器材",
+        "相机",
+        "CMOS",
+        "OSC",
+        "单色",
+        "冷冻相机",
+        "采样定理",
+        "读出噪声"
+      ],
+      "title": "天文相机选型",
+      "type": "Buying Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "实时价格或库存、App/固件菜单、文件导出能力、设备增益曲线、实际成像表现或购买结论"
+        ],
+        "机型": [
+          "Starun 规格表访问日列出的 DWARF 3、DWARF mini、Seestar S30、Seestar S30 Pro、Seestar S50、Seestar S50 Pro"
+        ],
+        "条件": [
+          "只用于型号识别与初筛，具体能力在使用或购买前回到厂商当前资料复核"
+        ],
+        "来源与时间": [
+          "第三方汇编页面在 2026-08-27T03:23:18Z 的当前快照；表格和厂商资料更新后须重新核验"
+        ],
+        "用途": [
+          "型号识别、字段解释、初步比较和定位下一份厂商资料"
+        ],
+        "系统": [
+          "页面列出的 DWARF 与 Seestar 智能望远镜及其来源快照"
+        ]
+      },
+      "audience": "需要辨认常见 DWARF 与 Seestar 型号、阅读跨品牌规格对照表，并准备进一步核验实际设备条件的用户",
+      "category": "02-器材百科",
+      "description": "说明如何把 Starun 的市场智能望远镜规格快照用于型号识别与初筛，并在采购、App/固件、导出和性能判断前回到厂商当前资料复核。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+        "03-拍摄SOP/智能望远镜首拍与数据交接.md",
+        "04-后期处理/智能望远镜导出数据的Siril工作流.md"
+      ],
+      "path": "02-器材百科/常见智能望远镜参数规格对照与使用边界.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "c54f9b104d1126fb52a30bde6aa71ff855d97b4fd0eca4670da1ef1c6fc0b936",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-starun-telescope-specs-ledger",
+          "resource": "/raw/2026-08-27-Starun智能望远镜规格表来源记录.md",
+          "rights": "unknown",
+          "title": "Starun 智能望远镜参数规格表来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-starun-telescope-specs-capture",
+          "resource": "/raw/受限原始文本捕获说明.md",
+          "rights": "unknown",
+          "title": "Starun 智能望远镜规格表受限原始文本捕获说明",
+          "usage": "local-evidence-capture; public-link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-starun-telescope-specs",
+          "resource": "https://starun.cloud/telescope",
+          "rights": "unknown",
+          "title": "Starun：智能望远镜参数规格对比",
+          "usage": "link-only",
+          "version": "HTTP Last-Modified: 2026-08-27T03:23:18Z；浏览器访问快照"
+        }
+      ],
+      "stale_after": "2026-11-27",
+      "status": "stable",
+      "tags": [
+        "智能望远镜",
+        "参数规格",
+        "DWARF",
+        "Seestar",
+        "器材选型",
+        "来源核验"
+      ],
+      "title": "常见智能望远镜参数规格对照与使用边界",
+      "type": "Equipment Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把 55 mm 等示例值视为所有改正镜的通用要求",
+          "忽略实物公差和传感器尺寸"
+        ],
+        "条件": [
+          "从厂商指定参考面测量，并计入转接环、滤镜与调焦行程"
+        ],
+        "系统": [
+          "包含平场镜、减焦镜、彗差改正镜、滤镜和相机的可更换光路"
+        ]
+      },
+      "audience": "要组合或升级改正镜、减焦镜、相机、滤镜轮、OAG、抽屉和接环的深空摄影爱好者",
+      "category": "02-器材百科",
+      "description": "用改正镜参考面、传感器面、附件长度和有效通光口径建立可计算、可验收的成像光路，避免把 55 mm 或滤镜尺寸当作通用规则。",
+      "difficulty": "进阶",
+      "links": [
+        "01-新人入门/购买前成像系统设计与兼容性清单.md",
+        "02-器材百科/关键附件.md",
+        "02-器材百科/滤镜系统.md",
+        "03-拍摄SOP/现场搭建流程.md",
+        "raw/2026-07-30-P0运行安全与可复现性来源.md"
+      ],
+      "path": "02-器材百科/成像光路：后截距、像圈与接口预算.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "e2d671a896ccc03fa98b56853d534789e2ce558663baabdbc4701f4e6c28ead2",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-celestron-back-focus",
+          "resource": "https://www.celestron.com/blogs/knowledgebase/understanding-your-telescope-s-back-focus",
+          "rights": "unknown",
+          "title": "Celestron：Understanding Your Telescope’s Back Focus",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-william-optics-image-plane",
+          "resource": "https://support.williamoptics.com/academy/image-plane-calibration",
+          "rights": "unknown",
+          "title": "William Optics：Image Plane Calibration",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-zwo-55mm-example",
+          "resource": "https://us.zwoastro.com/blogs/usage-tutorials/asi6200-guide-5-connection-methods-to-get-55mm-back-focus-length",
+          "rights": "unknown",
+          "title": "ZWO：ASI6200 55 mm 连接示例",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "器材",
+        "光路",
+        "后截距",
+        "像圈",
+        "接环",
+        "暗角",
+        "倾斜"
+      ],
+      "title": "成像光路：后截距、像圈与接口预算",
+      "type": "Equipment Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "从其他型号、旧截图或文件名推断未明示的格式、校准帧、叠加状态或桌面软件兼容性"
+        ],
+        "数据": [
+          "已合法导出的本地文件，且原始副本仍被保留"
+        ],
+        "条件": [
+          "App、固件、导出说明和实际文件状态与页面所引来源一致，并保留原始副本"
+        ],
+        "系统": [
+          "DWARF mini、DWARF 3 与页面明确列出的 Seestar 智能望远镜"
+        ],
+        "设备": [
+          "DWARF mini / DWARF 3：以中文帮助中心在 2026-08-27 的目录归属为准",
+          "Seestar S30 / S30 Pro / S50：以 Seestar 学堂单教程列出的适用设备为准"
+        ],
+        "软件与服务": [
+          "DWARFLAB App、设备固件与 Seestar App 的访问日快照；安装前须重新核对当前说明"
+        ]
+      },
+      "audience": "使用一体式智能望远镜拍摄深空，准备把设备或 App 中的结果交给电脑端后期软件的用户",
+      "category": "02-器材百科",
+      "description": "为 DWARF mini、DWARF 3 与 Seestar 用户区分厂商成图、已堆栈结果和可供桌面软件处理的原始数据，并建立导出前的可回退检查。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "02-器材百科/常见智能望远镜参数规格对照与使用边界.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/智能望远镜首拍与数据交接.md",
+        "04-后期处理/智能望远镜导出数据的Siril工作流.md"
+      ],
+      "path": "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "0026fcdd80d72fd3705f4f47c3e7fe04582acda3b7ca9dfb946f3d6b18a1e1d8",
+      "sources": [
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-ledger",
+          "resource": "/raw/2026-08-26-智能望远镜与深空后期官方资料台账.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官方资料台账",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-captures",
+          "resource": "/raw/受限原始文本捕获说明.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官网受限原始文本捕获说明",
+          "usage": "local-evidence-capture; public-link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-dwarf-raw-phone",
+          "resource": "https://help.dwarflab.com/zh/docs/How-to-View-and-Edit-DWARF-3-Files-on-Your-Phone",
+          "rights": "unknown",
+          "title": "DWARF 官方：如何用手机导出 RAW 图",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-dwarf-raw-computer",
+          "resource": "https://help.dwarflab.com/zh/docs/How-to-View-and-Edit-DWARF-3-Files-Wirelessly-on-Your-Computer",
+          "rights": "unknown",
+          "title": "DWARF 官方：如何用电脑导出 RAW 图",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-dwarf-file-rules",
+          "resource": "https://help.dwarflab.com/zh/docs/Files-Naming-Rules",
+          "rights": "unknown",
+          "title": "DWARF 官方：DWARF 设备文件规则",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-seestar-file-transfer",
+          "resource": "https://h5.seestar.com/course/295008?locale=zh-CN",
+          "rights": "unknown",
+          "title": "Seestar 学堂：使用 Wi-Fi 传输文件",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-seestar-batch-export",
+          "resource": "https://h5.seestar.com/course/400260?locale=zh-CN",
+          "rights": "unknown",
+          "title": "Seestar 学堂：批量导出",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-seestar-storage",
+          "resource": "https://h5.seestar.com/course/79046?locale=zh-CN",
+          "rights": "unknown",
+          "title": "Seestar 学堂：文件存储路径",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2026-11-27",
+      "status": "stable",
+      "tags": [
+        "智能望远镜",
+        "DWARF mini",
+        "DWARF 3",
+        "Seestar",
+        "文件导出",
+        "RAW",
+        "后期边界"
+      ],
+      "title": "智能望远镜：产品边界、文件导出与桌面后期前提",
+      "type": "Equipment Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "仅按口径或焦比作绝对排名",
+          "未核对相机传感器与机械承载的型号推荐"
+        ],
+        "条件": [
+          "焦距、焦比、像场、改正器、载荷和目标视场需作为完整系统评估"
+        ],
+        "系统": [
+          "用于深空摄影的折射、牛顿反射及复合式望远镜"
+        ]
+      },
+      "audience": "深空天文摄影初学者与计划升级主镜的进阶玩家",
+      "category": "02-器材百科",
+      "description": "深空主镜应结合目标角尺度、焦距与传感器视场、口径、焦比、像场修正、机械稳定性和赤道仪能力选择；焦比不直接决定视场，口径也不是实拍分辨率的唯一决定因素。",
+      "difficulty": "新手",
+      "links": [
+        "02-器材百科/关键附件.md",
+        "05-目标图鉴/经典目标推荐参数.md"
+      ],
+      "path": "02-器材百科/望远镜选型.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "a42bf488e26f014e2d5edcbd537113f8a02dacc7c4a150c805171458dd0f9d71",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-c849fd3e",
+          "resource": "https://www.skywatcher.com/product/quattro-200-cf/",
+          "rights": "unknown",
+          "title": "Sky-Watcher Quattro 200 CF 官方产品页",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-08db1f54",
+          "resource": "https://www.365astronomy.com/askar-120apo-triplet-f-7-apochromatic-refractor-telescope",
+          "rights": "unknown",
+          "title": "Askar 120APO 三片式折射(f/7, 840mm)",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-28d2286c",
+          "resource": "https://astrobackyard.com/astrophotography-telescope/",
+          "rights": "unknown",
+          "title": "AstroBackyard 望远镜选购指南",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-97c20712",
+          "resource": "https://skywatcher.com/product/eq6r-pro/",
+          "rights": "unknown",
+          "title": "Sky-Watcher 官网",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "器材",
+        "望远镜",
+        "折射APO",
+        "牛顿反射",
+        "RC",
+        "折反",
+        "焦比"
+      ],
+      "title": "望远镜选型",
+      "type": "Buying Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把固定带宽或滤镜组合视为所有焦比和目标的最优选择"
+        ],
+        "条件": [
+          "透过曲线、入射角、焦比、目标发射线和天空背景须与厂商数据共同评估"
+        ],
+        "系统": [
+          "单色相机或彩色相机使用的宽带、窄带及多波段滤镜"
+        ]
+      },
+      "audience": "已用单色或 OSC 相机、想系统化提升出图质量与抗光污染能力的进阶玩家",
+      "category": "02-器材百科",
+      "description": "滤镜分宽带(LRGB，用于彩色合成与细节)与窄带(Ha 656.3nm / OIII 500.7nm / SII 671.6nm，只放行发射线)。",
+      "difficulty": "进阶",
+      "links": [
+        "02-器材百科/天文相机选型.md",
+        "04-后期处理/窄带SHO映射.md"
+      ],
+      "path": "02-器材百科/滤镜系统.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "e629c330d2f462d25951c082294a894bd06481f5e0d4d07f1b1b253711c98c8c",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-e93231aa",
+          "resource": "https://astrocompare.com/narrowband-filters-light-pollution-guide.html",
+          "rights": "unknown",
+          "title": "AstroCompare 窄带滤镜与光污染指南",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-909f1897",
+          "resource": "https://theastromanual.com/narrowband-astrophotography-ha-oiii-sii/",
+          "rights": "unknown",
+          "title": "The Astro Manual 窄带(Ha/OIII/SII)",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-c75c647e",
+          "resource": "https://www.skyshare-astro.com/blog/narrowband-imaging-guide",
+          "rights": "unknown",
+          "title": "SkyShare Astro 窄带成像解释",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-5670dcc2",
+          "resource": "https://www.opticalmechanics.com/mastering-narrowband-astrophotography-ha-oiii-sii/",
+          "rights": "unknown",
+          "title": "Optical Mechanics 窄带 SHO/HOO 处理",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "primary",
+          "id": "src-antlia-highspeed",
+          "resource": "https://www.antliafilter.com/pd.jsp?fromColId=153&id=149",
+          "rights": "unknown",
+          "title": "Antlia 官方：3nm Pro Highspeed 窄带滤镜",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-zwo-narrowband-filters",
+          "resource": "https://www.zwoastro.com/product/narrowband-filters/",
+          "rights": "unknown",
+          "title": "ZWO：Narrowband Filters",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "器材",
+        "滤镜",
+        "LRGB",
+        "窄带",
+        "Ha",
+        "OIII",
+        "SII",
+        "双窄带",
+        "光污染"
+      ],
+      "title": "滤镜系统",
+      "type": "Equipment Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "只按厂商最大载荷决定成像能力",
+          "用他人 RMS 数值承诺本地系统表现"
+        ],
+        "条件": [
+          "按完整摄影载荷、力矩、焦距、导星表现、风载和移动需求验证"
+        ],
+        "系统": [
+          "承担深空长曝光跟踪的德式赤道仪、谐波赤道仪及同类支撑系统"
+        ]
+      },
+      "audience": "准备搭建固定台址长曝光深空系统的新手与升级负载的进阶玩家",
+      "category": "02-器材百科",
+      "description": "深空长曝光通常采用赤道仪（GEM）跟踪；经纬仪系统若具备可靠的视场旋转补偿，也可用于相应场景。选型应以厂家载荷定义、实际力矩与刚性、风荷载和实拍星点为准。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/导星.md",
+        "03-拍摄SOP/极轴校准.md"
+      ],
+      "path": "02-器材百科/赤道仪选型.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "f0b7af41b8225040c64b963d2a3e7b9537b3d10b0b59e5ca88e28efdb12bd879",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "evidence_level": "primary",
+          "id": "src-b46a07e3",
+          "resource": "https://www.skywatcher.com/product/heq5-r-pro/",
+          "rights": "unknown",
+          "title": "Sky-Watcher HEQ5-R Pro 负载 15kg(astro)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-97c20712",
+          "resource": "https://skywatcher.com/product/eq6r-pro/",
+          "rights": "unknown",
+          "title": "Sky-Watcher EQ6-R Pro 产品页",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "primary",
+          "id": "src-5fb30ded",
+          "resource": "https://ioptron.com/v/Manuals/C70_CEM70_Manual.pdf",
+          "rights": "unknown",
+          "title": "iOptron CEM70 手册(负载 70lb)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-64689e3a",
+          "resource": "https://www.darkframeoptics.com/blog/mount-performance-charts-1",
+          "rights": "unknown",
+          "title": "DarkFrame 赤道仪 RMS 性能数据",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "器材",
+        "赤道仪",
+        "GEM",
+        "经纬仪",
+        "极轴校准",
+        "导星",
+        "跟踪精度"
+      ],
+      "title": "赤道仪选型",
+      "type": "Buying Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "自行设计市电或电池保护电路",
+          "雷暴、进水、过热或无人可接管时继续运行"
+        ],
+        "条件": [
+          "遵守厂商电压、电流、极性、环境和线缆运动要求，并在白天完成带载干跑"
+        ],
+        "系统": [
+          "户外或固定台站中的望远镜、赤道仪、相机、加热带和控制设备"
+        ]
+      },
+      "audience": "在户外、阳台或固定台址运行赤道仪、制冷相机、控制电脑与防露设备的深空摄影爱好者",
+      "category": "03-拍摄SOP",
+      "description": "按设备手册建立电源清单、带载验证压降和线缆运动包络，并定义天气、进水、过热、掉电与机械干涉时的安全停机边界。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/购买前成像系统设计与兼容性清单.md",
+        "02-器材百科/关键附件.md",
+        "03-拍摄SOP/拍摄序列计划.md",
+        "03-拍摄SOP/现场搭建流程.md",
+        "08-FAQ/高频FAQ汇总.md",
+        "raw/2026-07-30-P0运行安全与可复现性来源.md"
+      ],
+      "path": "03-拍摄SOP/供电、线缆与现场运行安全.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "42ef4027fd4296360c3efca6cc57adcb0d9a62050ded13e746435110ba71425c",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-pegasus-cable",
+          "resource": "https://pegasusastro.com/cable-management-recommendations/",
+          "rights": "unknown",
+          "title": "Pegasus Astro：Cable Management Recommendations",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-pegasus-powerbox",
+          "resource": "https://pegasusastro.com/troubleshooting/powerbox-troubleshooting-guide/",
+          "rights": "unknown",
+          "title": "Pegasus Astro：Powerbox Troubleshooting Guide",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nws-lightning",
+          "resource": "https://www.weather.gov/safety/lightning-safety-overview",
+          "rights": "unknown",
+          "title": "U.S. National Weather Service：Lightning Safety",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "primary",
+          "id": "src-cpsc-battery",
+          "resource": "https://www.cpsc.gov/Newsroom/News-Releases/2021/CPSC-Issues-Consumer-Safety-Warning-Serious-Injury-or-Death-Can-Occur-if-Lithium-Ion-Battery-Cells-Are-Separated-from-Battery-Packs-and-Used-to-Power-Devices?language=en",
+          "rights": "unknown",
+          "title": "CPSC：锂离子电芯安全警示",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-zwo-faq",
+          "resource": "https://www.zwoastro.com/product-faqs/",
+          "rights": "unknown",
+          "title": "ZWO 官方产品 FAQ",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "供电",
+        "线缆",
+        "电池",
+        "防露",
+        "安全",
+        "检查清单"
+      ],
+      "title": "供电、线缆与现场运行安全",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "无人值守运行",
+          "存在坠落、雷暴、强风或公共安全风险的场地"
+        ],
+        "条件": [
+          "视野、承重、坠物、邻里光线、天气和设备运动边界已现场检查"
+        ],
+        "系统": [
+          "城市阳台或住宅附近、有人值守的首次深空拍摄"
+        ]
+      },
+      "audience": "主要在住宅阳台、屋顶平台或城市近郊固定点位拍摄，且希望把第一晚的失败风险降到可控范围的爱好者",
+      "category": "03-拍摄SOP",
+      "description": "在城市光害、建筑遮挡和可能看不见北极星的条件下，先完成安全、天空开口、目标选择和测试帧验收，再开始首个深空项目。",
+      "difficulty": "新手",
+      "links": [
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/拍摄序列计划.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/极轴校准.md",
+        "03-拍摄SOP/校准帧现场速查卡.md",
+        "03-拍摄SOP/现场搭建流程.md",
+        "05-目标图鉴/四季目标推荐.md",
+        "06-选址与环境/光污染地图与Bortle.md",
+        "06-选址与环境/月相-季节窗口-远程台.md",
+        "08-FAQ/单张检查与翻车诊断.md"
+      ],
+      "path": "03-拍摄SOP/城市阳台首次深空拍摄.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "cdff9f642258d5e2ac54e19064497cd8a6a09d740eaf97f514d15a35d2a68f0f",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-user-scenarios",
+          "resource": "/raw/2026-07-30-P0用户场景与首图工作流来源.md",
+          "rights": "unknown",
+          "title": "P0：用户场景、首图工作流与诊断页面来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-stellarium",
+          "resource": "https://stellarium.org/",
+          "rights": "unknown",
+          "title": "Stellarium Astronomy Software",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-light-pollution-map",
+          "resource": "https://lightpollutionmap.info/",
+          "rights": "unknown",
+          "title": "Light Pollution Map",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "城市阳台",
+        "首拍",
+        "光污染",
+        "极轴",
+        "目标规划",
+        "安全"
+      ],
+      "title": "城市阳台首次深空拍摄",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "跨设备固定 HFR/FWHM 阈值",
+          "仅凭单次曲线远程确诊机械问题"
+        ],
+        "条件": [
+          "使用当前软件版本和真实星场检查焦点曲线、回差、温漂与星形"
+        ],
+        "系统": [
+          "支持手动、Bahtinov 掩模或自动调焦的深空成像系统"
+        ]
+      },
+      "audience": "需要获得锐利星点、避免「虚焦」导致星点发胖或拉线的深空拍摄者",
+      "category": "03-拍摄SOP",
+      "description": "对焦是在当前视宁度、光学、采样与跟踪条件下寻找稳定的最佳焦点，并用连续原片或 HFR/FWHM 趋势验收，而不是假定单帧星点能达到衍射极限。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/现场搭建流程.md",
+        "07-软件工具/N.I.N.A 使用要点.md"
+      ],
+      "path": "03-拍摄SOP/对焦方法.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "3dd34334d0f2256164cdd2291b58fc45e89754c3b49e26912b5d0c4cd5371c8c",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-ced01269",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/advanced/autofocus/",
+          "rights": "unknown",
+          "title": "N.I.N.A Docs - Auto-Focus",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-49dba141",
+          "resource": "https://astrocompare.com/how-to-focus-telescope-astrophotography.html",
+          "rights": "unknown",
+          "title": "AstroCompare - How to Focus a Telescope",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-c3854f7d",
+          "resource": "https://www.stellarnomads.com/astrophotography-focusing/",
+          "rights": "unknown",
+          "title": "Stellar Nomads - Astrophotography Focusing",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-3ec2d9aa",
+          "resource": "https://handwiki.org/wiki/Astronomy:Bahtinov_mask",
+          "rights": "unknown",
+          "title": "HandWiki - Bahtinov mask",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "新手",
+        "对焦",
+        "Bahtinov",
+        "FWHM",
+        "HFR",
+        "自动对焦",
+        "NINA"
+      ],
+      "title": "对焦方法",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把固定 RMS 或算法参数套用于所有焦距、采样和视宁度",
+          "仅凭图表远程确诊"
+        ],
+        "条件": [
+          "完成正确标定、Guiding Assistant 检查，并以主相机星点和导星日志共同验收"
+        ],
+        "系统": [
+          "通过 PHD2 或兼容平台进行导星的赤道仪深空长曝光系统"
+        ]
+      },
+      "audience": "已完成极轴与对焦、准备用 PHD2 做长曝光跟踪修正的进阶拍摄者",
+      "category": "03-拍摄SOP",
+      "description": "导星通过监测导星星并向赤道仪发送 RA/DEC 修正，减小可被控制系统补偿的跟踪误差；它不能消除场旋转、失焦、差动挠曲或所有大气影响。",
+      "difficulty": "进阶",
+      "links": [
+        "03-拍摄SOP/极轴校准.md",
+        "07-软件工具/PHD2 导星软件.md"
+      ],
+      "path": "03-拍摄SOP/导星.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "d5dff17f8db000835478513329291e1906db990550b1421b6b9b4ba102b90fd3",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-0675eac6",
+          "resource": "https://telescope.live/blog/phd2-guiding-updated-2024",
+          "rights": "unknown",
+          "title": "Telescope Live - PHD2 Guiding (Updated 2024)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-14b9418c",
+          "resource": "https://openphdguiding.org/PHD2_BestPractices_2019-12.pdf",
+          "rights": "unknown",
+          "title": "Open PHD Guiding - Best Practices (PDF)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-43b1d5ef",
+          "resource": "https://optcorp.com/blogs/deep-sky-imaging/guide-scope-vs-off-axis-guider",
+          "rights": "unknown",
+          "title": "OPT - Guide Scope vs Off-Axis Guider",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-422bb30a",
+          "resource": "https://www.cloudynights.com/forums/topic/637246-phd2-rms-value-what-qualifies-as-good-guiding/",
+          "rights": "unknown",
+          "title": "CloudyNights - PHD2 RMS value, what qualifies as good guiding",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "experience",
+          "id": "src-559a36cb",
+          "resource": "https://ssr.app.astrobin.com/forum/topic/32907/open-phd-guiding-project-phd2/what-is-good-enough-guiding",
+          "rights": "unknown",
+          "title": "AstroBin - What is good enough guiding",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-phd2-basic-use",
+          "resource": "https://openphdguiding.org/man/Basic_use.htm",
+          "rights": "unknown",
+          "title": "PHD2 官方文档：Basic Use",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-phd2-advanced-settings",
+          "resource": "https://openphdguiding.org/manual/",
+          "rights": "unknown",
+          "title": "PHD2 官方用户手册：Advanced Settings",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "进阶",
+        "导星",
+        "PHD2",
+        "RMS",
+        "OAG",
+        "导星镜",
+        "校准"
+      ],
+      "title": "导星",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "未经干跑直接无人值守",
+          "把示例序列导入不同设备后直接执行"
+        ],
+        "条件": [
+          "设备连接、时间地点、限位、停泊、天气与恢复路径已在当前版本白天验证"
+        ],
+        "系统": [
+          "使用 N.I.N.A. 或同类采集平台安排目标、滤镜、导星和安全动作的任务"
+        ]
+      },
+      "audience": "希望用 N.I.N.A 做一夜自动化拍摄(多目标/多滤镜/LRGB/窄带)、减少现场值守的进阶用户",
+      "category": "03-拍摄SOP",
+      "description": "N.I.N.A 序列把冷却、停泊/解锁、解析居中、导星、滤镜拍摄、抖动、自动复焦与子午线翻转编排为计划；只有在安全互锁、供电和运动包络已验证后才考虑无人值守。",
+      "difficulty": "进阶",
+      "links": [
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/对焦方法.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/板解、翻转与任务恢复.md",
+        "03-拍摄SOP/采集参数试拍与总积分.md",
+        "07-软件工具/N.I.N.A 使用要点.md"
+      ],
+      "path": "03-拍摄SOP/拍摄序列计划.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "53d4895e59ebb9c8650cd7a1fa29cd3427b850501c9762e1feef56cefcbaabf5",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-0232a4c5",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/tabs/sequence/",
+          "rights": "unknown",
+          "title": "N.I.N.A Docs - Sequence Tab",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-aabaeaf1",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/sequencer/simple/simple/",
+          "rights": "unknown",
+          "title": "N.I.N.A Docs - Simple Sequencer Overview",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-2f048082",
+          "resource": "https://blog.briangweber.com/nina-mono/",
+          "rights": "unknown",
+          "title": "Brian G Weber - N.I.N.A Templates for Mono",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-cd2987a3",
+          "resource": "https://blog.briangweber.com/2024-10-29-nina/",
+          "rights": "unknown",
+          "title": "Brian G Weber - N.I.N.A. Templates",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "进阶",
+        "序列",
+        "NINA",
+        "多目标",
+        "多滤镜",
+        "自动平场",
+        "子午线翻转"
+      ],
+      "title": "拍摄序列计划",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把同步当作备份",
+          "在未校验恢复前删除唯一原始副本"
+        ],
+        "条件": [
+          "保留不可变原始数据、校验和、设备与处理版本，并验证至少一份恢复副本"
+        ],
+        "系统": [
+          "FITS/XISF/RAW 原始帧、校准帧、日志、配置和处理产物的归档"
+        ]
+      },
+      "audience": "已经开始积累多夜 Lights、校准帧和处理工程，且不希望因掉盘、混组或忘记参数而失去数据的爱好者",
+      "category": "03-拍摄SOP",
+      "description": "为每次深空拍摄保存原始数据、会话清单、校验信息、处理配方和独立备份，使数据可恢复、可追溯、可复处理。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/拍摄序列计划.md",
+        "03-拍摄SOP/校准帧规范.md",
+        "03-拍摄SOP/采集参数试拍与总积分.md",
+        "04-后期处理/校准与叠加.md",
+        "raw/2026-07-30-P0运行安全与可复现性来源.md"
+      ],
+      "path": "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "66b8a841b2dd2e47ae6aa33cff5d86e4d5a9d246438967f071693dc74b055d3b",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-fits-standard",
+          "resource": "https://fits.gsfc.nasa.gov/fits_standard.html",
+          "rights": "unknown",
+          "title": "NASA/IAU：FITS Standard Document",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-fits",
+          "resource": "https://siril.readthedocs.io/en/latest/file-formats/FITS.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：FITS",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-scripts",
+          "resource": "https://siril.readthedocs.io/en/latest/scripts/Script-files.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Script Files",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "数据管理",
+        "FITS",
+        "备份",
+        "命名",
+        "可复现"
+      ],
+      "title": "数据管理、命名、备份与可复现归档",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "无人值守、远程控制、太阳观测或未按厂商安全要求配置的特殊场景"
+        ],
+        "场景": [
+          "首次连接、版本更新后复拍或把一晚数据移交给电脑端后期"
+        ],
+        "条件": [
+          "有人在场，厂商 App、固件和帮助内容已按当前版本核对，原始数据可回退"
+        ],
+        "系统": [
+          "DWARF mini、DWARF 3 与页面明确列出的 Seestar 智能望远镜"
+        ],
+        "设备": [
+          "DWARF mini / DWARF 3：以对应中文帮助中心的产品目录为准",
+          "Seestar S30 / S30 Pro / S50：以 Seestar 学堂当前教程的适用设备字段为准"
+        ],
+        "软件与服务": [
+          "厂商 App、设备固件、账户、网络和在线帮助内容均为访问日快照"
+        ]
+      },
+      "audience": "第一次或在版本更新后重新使用智能望远镜拍深空，需要把设备端结果安全交给后期流程的用户",
+      "category": "03-拍摄SOP",
+      "description": "将智能望远镜的 App/固件前置检查、在场首拍、数据导出与可回退记录整理为不依赖某个固定菜单的最小 SOP。",
+      "difficulty": "新手",
+      "links": [
+        "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+        "03-拍摄SOP/城市阳台首次深空拍摄.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "04-后期处理/智能望远镜导出数据的Siril工作流.md"
+      ],
+      "path": "03-拍摄SOP/智能望远镜首拍与数据交接.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "f1cb25744e7641b769fd7552d0cdd2177b97278d8de95bb3be8993d59dc7c260",
+      "sources": [
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-ledger",
+          "resource": "/raw/2026-08-26-智能望远镜与深空后期官方资料台账.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官方资料台账",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-captures",
+          "resource": "/raw/受限原始文本捕获说明.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官网受限原始文本捕获说明",
+          "usage": "local-evidence-capture; public-link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-dwarf-quick-setup",
+          "resource": "https://help.dwarflab.com/zh/docs/Quick-Setup",
+          "rights": "unknown",
+          "title": "DWARF 官方：如何连接 App",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-dwarf-firmware",
+          "resource": "https://help.dwarflab.com/zh/docs/How-to-Update-the-Firmware-of-DWARF-3",
+          "rights": "unknown",
+          "title": "DWARF 官方：DWARF 设备怎样更新固件？",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-seestar-app",
+          "resource": "https://h5.seestar.com/course/80100?locale=zh-CN",
+          "rights": "unknown",
+          "title": "Seestar 学堂：快速了解 Seestar App",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-seestar-auto-update",
+          "resource": "https://h5.seestar.com/course/284013?locale=zh-CN",
+          "rights": "unknown",
+          "title": "Seestar 学堂：如何关闭自动更新",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-seestar-deep-sky",
+          "resource": "https://h5.seestar.com/course/151529?locale=zh-CN",
+          "rights": "unknown",
+          "title": "Seestar 学堂：如何拍摄星系星云等深空天体",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-seestar-log",
+          "resource": "https://h5.seestar.com/course/79219?locale=zh-CN",
+          "rights": "unknown",
+          "title": "Seestar 学堂：如何提交设备日志",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2026-11-27",
+      "status": "stable",
+      "tags": [
+        "智能望远镜",
+        "首拍",
+        "DWARF",
+        "Seestar",
+        "App",
+        "固件",
+        "数据交接",
+        "回退"
+      ],
+      "title": "智能望远镜首拍与数据交接",
+      "type": "Capture SOP",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "没有安全停泊能力的无人值守设备",
+          "不需要跨子午线的短时手动采集",
+          "将经纬仪流程直接套用为德式赤道仪翻转"
+        ],
+        "条件": [
+          "当前软件版本、时间地点、限位、线缆、停泊和恢复路径已用真实镜组完成白天干跑"
+        ],
+        "系统": [
+          "德式赤道仪",
+          "具备板解、停泊、跟踪、对焦与导星恢复能力的深空采集系统"
+        ],
+        "观测条件": [
+          "已完成真实镜组、线缆、露带、控制盒的东/西侧运动包络与停泊干跑"
+        ],
+        "软件与版本": [
+          "N.I.N.A 或 Ekos 等可编排翻转恢复的平台；具体行为以当前版本手册和真实测试为准"
+        ]
+      },
+      "audience": "使用德式赤道仪和采集控制软件，准备让长目标跨子午线或在有人在场条件下验证自动恢复流程的深空摄影者",
+      "category": "03-拍摄SOP",
+      "description": "将板解居中、子午线翻转、重新对焦/导星和失败后的停机或人工恢复组织为可在真实镜组上验收的自动化闭环。",
+      "difficulty": "进阶",
+      "links": [
+        "00-知识库规范/主张级引用与适用条件.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/对焦方法.md",
+        "03-拍摄SOP/导星.md",
+        "03-拍摄SOP/拍摄序列计划.md",
+        "07-软件工具/采集控制平台与迁移.md"
+      ],
+      "path": "03-拍摄SOP/板解、翻转与任务恢复.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "37802a24ac3d322c1a8021998bff318010ddc34e9b78c3e526eccf64fccc1200",
+      "sources": [
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "p0-source-record",
+          "resource": "/raw/2026-08-13-P0可追溯知识、采集与自动化来源.md",
+          "rights": "unknown",
+          "title": "P0：可追溯知识、采集参数与自动化恢复来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "nina-manual",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/pdf/Manual.pdf",
+          "rights": "unknown",
+          "title": "N.I.N.A. User Manual",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "ekos-meridian-flip",
+          "resource": "https://stellarmate.com/support/ekos/mount/mount.html",
+          "rights": "unknown",
+          "title": "Ekos Mount Control: Meridian Flip",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "system-compatibility",
+          "resource": "/01-新人入门/购买前成像系统设计与兼容性清单.md",
+          "rights": "unknown",
+          "title": "购买前成像系统设计与兼容性清单",
+          "usage": "internal-reference"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "field-safety",
+          "resource": "/03-拍摄SOP/供电、线缆与现场运行安全.md",
+          "rights": "unknown",
+          "title": "供电、线缆与现场运行安全",
+          "usage": "internal-reference"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "platform-matrix",
+          "resource": "/07-软件工具/采集控制平台与迁移.md",
+          "rights": "unknown",
+          "title": "采集控制平台选择与迁移",
+          "usage": "internal-reference"
+        }
+      ],
+      "stale_after": "2027-02-13",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "板解",
+        "子午线翻转",
+        "自动化",
+        "恢复",
+        "NINA",
+        "Ekos",
+        "安全"
+      ],
+      "title": "板解、翻转与任务恢复",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "经纬仪流程",
+          "把单一角秒数作为所有焦距和曝光的绝对合格线"
+        ],
+        "条件": [
+          "方法与半球、可见天空、赤道仪机械状态和采集软件版本一致"
+        ],
+        "系统": [
+          "需要极轴对准的赤道仪深空长曝光系统"
+        ]
+      },
+      "audience": "使用赤道仪做长曝光深空拍摄、希望获得圆星点与低导星负担的爱好者",
+      "category": "03-拍摄SOP",
+      "description": "说明如何用极轴镜、板解极轴或漂移法对准赤道仪赤经轴，并按实际焦距、曝光和主相机星点验收残余误差。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/导星.md",
+        "03-拍摄SOP/现场搭建流程.md"
+      ],
+      "path": "03-拍摄SOP/极轴校准.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "1741d1e873a04a3f2a2ade0c25d472bf7103b09968ae48dbdd4b7db926b38724",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-6f1a86fe",
+          "resource": "https://docs.sharpcap.co.uk/4.1/9_PolarAlignment.htm",
+          "rights": "unknown",
+          "title": "SharpCap 4.1 官方手册：Polar Alignment",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-799426b9",
+          "resource": "https://astrobackyard.com/polar-alignment-in-sharpcap/",
+          "rights": "unknown",
+          "title": "AstroBackyard - Polar Alignment in SharpCap",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-ea390350",
+          "resource": "https://www.opticalmechanics.com/mastering-polar-alignment-methods-tools-and-fixes/",
+          "rights": "unknown",
+          "title": "Optical Mechanics - Mastering Polar Alignment",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-c0c07658",
+          "resource": "https://astroimagery.com/techniques/imaging/an-easy-step-by-step-guide-to-polar-aligning-your-telescope/",
+          "rights": "unknown",
+          "title": "AstroImagery - Step-by-step polar alignment guide",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "新手",
+        "极轴校准",
+        "漂移法",
+        "PoleMaster",
+        "SharpCap",
+        "跟踪"
+      ],
+      "title": "极轴校准",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把不同模式或不同光路的校准帧混用",
+          "设备专用流程明确不允许校准时强行套用"
+        ],
+        "条件": [
+          "按相机模式、增益/偏置、曝光、温度和光路状态匹配主数据及处理软件要求"
+        ],
+        "系统": [
+          "需要拍摄 bias、dark、flat 或 dark-flat 的深空原始数据集"
+        ]
+      },
+      "audience": "已经拍完或正在拍 Lights，需要在拆机前快速决定该拍哪些校准帧并避免错误混用的爱好者",
+      "category": "03-拍摄SOP",
+      "description": "把校准帧的匹配关系、拍摄时机、重拍条件和最小验收压缩为现场可执行清单；详细原理以校准帧规范为准。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/校准帧规范.md",
+        "04-后期处理/Siril新手首图工作流.md",
+        "04-后期处理/校准与叠加.md"
+      ],
+      "path": "03-拍摄SOP/校准帧现场速查卡.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "f2d5eff89ac152d91e9c5d9d4d9494a6d46fc5e9b36847db5b6e1f3c53cd0330",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-user-scenarios",
+          "resource": "/raw/2026-07-30-P0用户场景与首图工作流来源.md",
+          "rights": "unknown",
+          "title": "P0：用户场景、首图工作流与诊断页面来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-calibration",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/calibration.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Calibration",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "校准帧",
+        "Flat",
+        "Dark",
+        "Bias",
+        "Dark Flat",
+        "速查"
+      ],
+      "title": "校准帧现场速查卡",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "跨设备固定数量或曝光阈值",
+          "对机内处理或专用数据链强制套用传统校准"
+        ],
+        "条件": [
+          "校准帧类型和匹配字段以相机行为及当前处理软件文档为准"
+        ],
+        "系统": [
+          "使用可导出原始子帧的深空摄影相机和相应校准处理流程"
+        ]
+      },
+      "audience": "准备做校准叠加(WBPP/DSS/Siril)以获得干净背景、去除热噪与暗角的深空拍摄者",
+      "category": "03-拍摄SOP",
+      "description": "校准帧用于修正传感器与光路的系统误差：暗场(Dark)去热噪/偏置、平场(Flat)去暗角与灰尘阴影、偏置(Bias)去读出噪声、暗平场(Dark Flat)去平场里的噪声。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/校准帧现场速查卡.md",
+        "03-拍摄SOP/现场搭建流程.md",
+        "04-后期处理/校准与叠加.md"
+      ],
+      "path": "03-拍摄SOP/校准帧规范.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "150fe93278ff882b4197b737ee4644a2fd5c254785005f1feb02abceb06b32b8",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-665f52ac",
+          "resource": "https://www.celestron.com/blogs/knowledgebase/the-ultimate-guide-to-calibration-frames-for-astrophotography",
+          "rights": "unknown",
+          "title": "Celestron - The Ultimate Guide to Calibration Frames",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-b6c27be4",
+          "resource": "https://www.galactic-hunter.com/post/calibration-frames",
+          "rights": "unknown",
+          "title": "Galactic Hunter - How to Take Calibration Frames",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-ae05d5b5",
+          "resource": "https://www.opticalmechanics.com/mastering-calibration-frames-for-deep-sky-imaging/",
+          "rights": "unknown",
+          "title": "Optical Mechanics - Mastering Calibration Frames",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-aeeec048",
+          "resource": "https://mypetstars.com/tutorials/astrophotography/calibration",
+          "rights": "unknown",
+          "title": "MyPetStars - Calibration Frames in Astrophotography",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-calibration",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/calibration.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Calibration",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "新手",
+        "校准帧",
+        "平场",
+        "暗场",
+        "偏置",
+        "暗平场",
+        "叠加"
+      ],
+      "title": "校准帧规范",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "雷暴、强风、地面不稳或公众可触碰的危险场地",
+          "未经干跑的无人值守系统"
+        ],
+        "条件": [
+          "场地、三脚架、载荷、线缆、供电、天气和运动包络均完成检查"
+        ],
+        "系统": [
+          "有人值守的便携式深空摄影设备现场搭建"
+        ]
+      },
+      "audience": "刚入手赤道仪+望远镜+冷冻相机/导星系统的深空拍摄新手，以及需要标准化出队流程的团队",
+      "category": "03-拍摄SOP",
+      "description": "从抵达场地到按下第一张曝光，应按「选址供电→三脚架水平→赤道仪装机供电→镜组与平场镜安装→RA/DEC 平衡→相机/滤镜/导星连接→APP初始化→粗对焦→极轴校准→目标解析对焦→导星校准→序列开拍」的固定顺序操作。",
+      "difficulty": "新手",
+      "links": [
+        "02-器材百科/成像光路：后截距、像圈与接口预算.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/对焦方法.md",
+        "03-拍摄SOP/导星.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/极轴校准.md",
+        "raw/2026-07-30-P0运行安全与可复现性来源.md"
+      ],
+      "path": "03-拍摄SOP/现场搭建流程.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "a99b7e968fd2a72c5088e2c25b26d6d731ae665d0f920ec46dcaa640288fb160",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-95fc999d",
+          "resource": "https://astrobackyard.com/deep-sky-astrophotography-how-to/",
+          "rights": "unknown",
+          "title": "AstroBackyard - Deep-Sky Astrophotography How-To",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-74472d07",
+          "resource": "https://optcorp.com/blogs/astronomy-gear/deep-sky-astrophotography-setups",
+          "rights": "unknown",
+          "title": "OPT - Deep Sky Astrophotography Setups",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-43b1d5ef",
+          "resource": "https://optcorp.com/blogs/deep-sky-imaging/guide-scope-vs-off-axis-guider",
+          "rights": "unknown",
+          "title": "OPT - Guide Scope vs Off-Axis Guider",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-operability",
+          "resource": "/raw/2026-07-30-P0运行安全与可复现性来源.md",
+          "rights": "unknown",
+          "title": "P0：成像系统可运行性与数据可复现性来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nws-lightning",
+          "resource": "https://www.weather.gov/safety/lightning-safety-overview",
+          "rights": "unknown",
+          "title": "U.S. National Weather Service：Lightning Safety",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "新手",
+        "现场搭建",
+        "赤道仪",
+        "平衡",
+        "检查清单"
+      ],
+      "title": "现场搭建流程",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "将其他设备或天气下的参数表直接复制为最终设置",
+          "没有主相机测试帧和现场记录的远程确诊"
+        ],
+        "条件": [
+          "同一设备模式、目标、滤镜、相近高度和稳定光路下保存可复查测试帧与现场记录"
+        ],
+        "系统": [
+          "可记录增益/ISO、偏置或黑电平、曝光、读出模式与温度的深空相机",
+          "也适用于 DSLR/MILC 的 ISO 与曝光比较"
+        ],
+        "观测条件": [
+          "同一目标、相近高度、同一滤镜和稳定光路下的候选参数试拍"
+        ]
+      },
+      "audience": "已能完成基本对焦、极轴和测试帧，准备为自己的相机、滤镜、目标和天空条件建立可复跑采集参数的深空摄影者",
+      "category": "03-拍摄SOP",
+      "description": "用传感器模式、实测天空背景、星点与跟踪表现、开销和有效积分比较增益、偏置、单张曝光与抖动策略。",
+      "difficulty": "进阶",
+      "links": [
+        "00-知识库规范/主张级引用与适用条件.md",
+        "02-器材百科/天文相机选型.md",
+        "03-拍摄SOP/拍摄序列计划.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/校准帧规范.md"
+      ],
+      "path": "03-拍摄SOP/采集参数试拍与总积分.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "43d6c0be1328c127636c7d9276f2366c52c6a3fec666ca6593cc4250679053d2",
+      "sources": [
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "p0-source-record",
+          "resource": "/raw/2026-08-13-P0可追溯知识、采集与自动化来源.md",
+          "rights": "unknown",
+          "title": "P0：可追溯知识、采集参数与自动化恢复来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "sharpcap-sensor-analysis",
+          "resource": "https://docs.sharpcap.co.uk/3.2/19_SensorAnalysis.htm",
+          "rights": "unknown",
+          "title": "SharpCap Sensor Analysis",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "sharpcap-smart-histogram",
+          "resource": "https://docs.sharpcap.co.uk/4.0/15_SmartHistogram.htm",
+          "rights": "unknown",
+          "title": "SharpCap Smart Histogram",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "calibration-frames",
+          "resource": "/03-拍摄SOP/校准帧规范.md",
+          "rights": "unknown",
+          "title": "校准帧规范",
+          "usage": "internal-reference"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "data-manifest",
+          "resource": "/03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+          "rights": "unknown",
+          "title": "数据管理、命名、备份与可复现归档",
+          "usage": "internal-reference"
+        }
+      ],
+      "stale_after": "2027-08-13",
+      "status": "stable",
+      "tags": [
+        "拍摄",
+        "曝光",
+        "增益",
+        "偏置",
+        "抖动",
+        "总积分",
+        "试拍",
+        "CMOS"
+      ],
+      "title": "采集参数试拍与总积分",
+      "type": "Playbook",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把审美性调色宣称为唯一物理真色",
+          "来源或通道映射不明的数据"
+        ],
+        "条件": [
+          "通道对应关系、线性状态、采样、背景和色彩校准输入已确认"
+        ],
+        "系统": [
+          "单色相机获得且已正确校准、配准的 L/R/G/B 数据"
+        ]
+      },
+      "audience": "已掌握叠加、想要做宽带彩色（星系/星云）并正确合成亮度与色彩通道的拍摄者。",
+      "category": "04-后期处理",
+      "description": "LRGB 把高分辨的 L（亮度）通道与 R/G/B 彩色通道合成，兼顾细节与色彩。",
+      "difficulty": "进阶",
+      "links": [
+        "04-后期处理/校准与叠加.md",
+        "07-软件工具/后期软件对比.md"
+      ],
+      "path": "04-后期处理/LRGB处理与调色.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "1dda97f2af4310d92f57525c66673423862246bfb66840d00859733bc0858e09",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-effe6809",
+          "resource": "https://chaoticnebula.com/pixinsight-lrgb-workflow/",
+          "rights": "unknown",
+          "title": "ChaoticNebula：Broadband LRGB 完整流程",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-0d4ce7ff",
+          "resource": "https://www.theastrogeek.com/dark_sky_journal/pixinsight-lrgb-combine-tutorial",
+          "rights": "unknown",
+          "title": "The Astro Geek：PixInsight LRGB 合成分步教程",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-674f4c45",
+          "resource": "https://chaoticnebula.com/pixinsight-scnr/",
+          "rights": "unknown",
+          "title": "ChaoticNebula：SCNR 与色彩平衡说明",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-333fed7b",
+          "resource": "https://chaoticnebula.com/color-balancing-with-pixinsight-spectrophotometric-color-calibration/",
+          "rights": "unknown",
+          "title": "ChaoticNebula：Photometric/Spectrophotometric 色彩校准",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "后期",
+        "进阶",
+        "LRGB",
+        "调色",
+        "PixInsight",
+        "SCNR",
+        "拉伸"
+      ],
+      "title": "LRGB处理与调色",
+      "type": "Method",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "替代校准、配准或科学测量流程",
+          "用生成式内容冒充原始天文信号"
+        ],
+        "条件": [
+          "保留线性母版和可回退副本，所有局部操作在全分辨率检查星点与背景"
+        ],
+        "系统": [
+          "已完成天文专用校准、叠加和基础拉伸的展示候选图像"
+        ]
+      },
+      "audience": "已在 PixInsight/Siril 完成主流程、需要进入 Photoshop（或 Affinity Photo）做最终拉伸、降噪、星点管理与局部润色的用户。",
+      "category": "04-后期处理",
+      "description": "Photoshop 是窄带/宽带主图完成后的精修终端：用 16-bit 模式与曲线/色阶做最终拉伸，配合 RC Astro 的 NoiseXTerminator（AI 降噪）、StarXTerminator（星点分离）与 StarShrink（星点缩小）管理星点，再用蒙版做局部亮度/色彩增强。",
+      "difficulty": "进阶",
+      "links": [
+        "04-后期处理/LRGB处理与调色.md",
+        "04-后期处理/校准与叠加.md"
+      ],
+      "path": "04-后期处理/Photoshop精修.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "e3531fd987191819791a20150e1f973336e7f87b614edc1f4346583590b33561",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-0d0bff07",
+          "resource": "https://www.rc-astro.com/software/photoshop-bundle/",
+          "rights": "unknown",
+          "title": "RC Astro：Photoshop Bundle 工具说明（降噪/去星/梯度/缩星）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-e1ba7dc2",
+          "resource": "https://www.rc-astro.com/software/nxt/",
+          "rights": "unknown",
+          "title": "RC Astro：NoiseXTerminator 官方页",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-493930e8",
+          "resource": "https://macobservatory.com/ai-astrophotography-image-processing/",
+          "rights": "unknown",
+          "title": "MacObservatory：AI 天文图像处理（RC Astro/GraXpert/StarNet++）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-6fe46cc1",
+          "resource": "https://www.opticalmechanics.com/mastering-deep-sky-astrophotography-processing/",
+          "rights": "unknown",
+          "title": "Optical Mechanics：Mastering Deep-Sky 处理（降噪/星点/局部增强）",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "后期",
+        "进阶",
+        "Photoshop",
+        "降噪",
+        "星点",
+        "局部增强",
+        "NoiseXTerminator"
+      ],
+      "title": "Photoshop精修",
+      "type": "Method",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "只剩 JPEG 或厂商成图",
+          "未知通道映射、混合数据或设备专用流程"
+        ],
+        "条件": [
+          "先确认文件类型、相机模式、目录、校准关系和磁盘空间"
+        ],
+        "系统": [
+          "Siril 当前稳定版本可读取的深空原始子帧及匹配校准数据"
+        ]
+      },
+      "audience": "已保留 Lights 和匹配校准帧，希望用 Siril 完成首张基础成图、但不想靠不透明的一键脚本猜测结果的拍摄者",
+      "category": "04-后期处理",
+      "description": "面向单次或多夜 OSC/单反原始数据，以“分组、校准、配准、筛选、整合、线性主图、基础处理、可复现导出”为验收节点完成第一张图。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/校准帧现场速查卡.md",
+        "03-拍摄SOP/校准帧规范.md",
+        "04-后期处理/LRGB处理与调色.md",
+        "04-后期处理/智能望远镜导出数据的Siril工作流.md",
+        "04-后期处理/校准与叠加.md",
+        "04-后期处理/窄带SHO映射.md",
+        "07-软件工具/后期软件对比.md",
+        "08-FAQ/单张检查与翻车诊断.md"
+      ],
+      "path": "04-后期处理/Siril新手首图工作流.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "c4cc3bfbf9c44d247101c929ac05565947b0fa2b0fcc21da97b10a363bf8160e",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-user-scenarios",
+          "resource": "/raw/2026-07-30-P0用户场景与首图工作流来源.md",
+          "rights": "unknown",
+          "title": "P0：用户场景、首图工作流与诊断页面来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-docs",
+          "resource": "https://siril.readthedocs.io/",
+          "rights": "unknown",
+          "title": "Siril 官方文档",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-calibration",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/calibration.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Calibration",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-stacking",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/stacking.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Stacking",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-scripts",
+          "resource": "https://siril.readthedocs.io/en/latest/scripts/Script-files.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Script Files",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-siril-seestar",
+          "resource": "https://siril.org/tutorials/seestar/",
+          "rights": "unknown",
+          "title": "Siril 官方：Processing ZWO Seestar images",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-ledger",
+          "resource": "/raw/2026-08-26-智能望远镜与深空后期官方资料台账.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官方资料台账",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-captures",
+          "resource": "/raw/受限原始文本捕获说明.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官网受限原始文本捕获说明",
+          "usage": "local-evidence-capture; public-link-only"
+        }
+      ],
+      "stale_after": "2026-11-27",
+      "status": "stable",
+      "tags": [
+        "后期",
+        "Siril",
+        "首图",
+        "OSC",
+        "单反",
+        "校准",
+        "叠加",
+        "线性处理"
+      ],
+      "title": "Siril 新手首图工作流",
+      "type": "Method",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "厂商成图、已堆栈结果、格式/处理状态不明文件，或设备说明已要求其他专用流程的数据"
+        ],
+        "数据": [
+          "未混入 JPEG、截图或二次导出的独立工作副本"
+        ],
+        "条件": [
+          "Siril 版本、设备导出说明和实际文件状态均与页面来源一致，并使用独立工作副本"
+        ],
+        "系统": [
+          "Seestar 导出的多张光帧，以及仅使用本页数据状态门禁的其他智能望远镜数据"
+        ],
+        "设备": [
+          "Seestar 导出的多张光帧：以 Siril 的 Seestar 专用教程和设备当前导出说明均能对应为前提",
+          "其他智能望远镜：仅可使用本页的数据状态门禁，不自动继承 Seestar 脚本或校准结论"
+        ],
+        "软件与版本": [
+          "Siril 1.4.0 或更高版本：专用教程在访问日如此说明；以已安装版本实际可见的脚本和文档为准"
+        ]
+      },
+      "audience": "已经从智能望远镜导出文件，想判断是否以及如何把其中的 Seestar 数据交给 Siril 的用户",
+      "category": "04-后期处理",
+      "description": "以数据状态为门禁，说明 Seestar 专用 Siril 教程的适用范围、目录与后续处理边界，避免把通用校准流程错误套用于设备专用导出数据。",
+      "difficulty": "新手",
+      "links": [
+        "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "04-后期处理/Siril新手首图工作流.md",
+        "04-后期处理/校准与叠加.md"
+      ],
+      "path": "04-后期处理/智能望远镜导出数据的Siril工作流.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "deabef5aab46c49e957314464f9bfc1dc62354ae61306417daa060cdda867f70",
+      "sources": [
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-ledger",
+          "resource": "/raw/2026-08-26-智能望远镜与深空后期官方资料台账.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官方资料台账",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-captures",
+          "resource": "/raw/受限原始文本捕获说明.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官网受限原始文本捕获说明",
+          "usage": "local-evidence-capture; public-link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-siril-seestar",
+          "resource": "https://siril.org/tutorials/seestar/",
+          "rights": "unknown",
+          "title": "Siril 官方：Processing ZWO Seestar images",
+          "usage": "link-only",
+          "version": "教程写明脚本要求 Siril 1.4.0 或更高版本"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-siril-script-files",
+          "resource": "https://siril.readthedocs.io/en/latest/scripts/Script-files.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Script Files",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-seestar-file-transfer",
+          "resource": "https://h5.seestar.com/course/295008?locale=zh-CN",
+          "rights": "unknown",
+          "title": "Seestar 学堂：使用 Wi-Fi 传输文件",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2026-11-27",
+      "status": "stable",
+      "tags": [
+        "Siril",
+        "Seestar",
+        "智能望远镜",
+        "数据导出",
+        "预处理",
+        "校准边界",
+        "可回退"
+      ],
+      "title": "智能望远镜导出数据的 Siril 工作流",
+      "type": "Method",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "将一种拒绝参数用于所有帧数和异常分布",
+          "对专用机内堆栈强制重新校准"
+        ],
+        "条件": [
+          "校准匹配、配准参考、拒绝算法和权重按数据分布及软件版本验证"
+        ],
+        "系统": [
+          "可导出原始子帧并由 Siril、PixInsight 或同类软件处理的数据集"
+        ]
+      },
+      "audience": "所有深空拍摄者（新手到进阶），需要把一夜到多夜采集的亮场合成一张高信噪比主图。",
+      "category": "04-后期处理",
+      "description": "叠加（Stacking/Integration）是把多张亮场通过校准（暗场/平场/偏置）与配准后做像素级平均，从而大幅提升信噪比的核心步骤。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/校准帧规范.md",
+        "04-后期处理/LRGB处理与调色.md",
+        "04-后期处理/Siril新手首图工作流.md",
+        "04-后期处理/窄带SHO映射.md"
+      ],
+      "path": "04-后期处理/校准与叠加.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "e5ba7f0e652b32495cad5259f45ff453486694770a0f7c9140ce7e7a8ea4afc2",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-20774678",
+          "resource": "https://utahdesertremote.com/improve-your-astrophotography-with-weighted-batch-preprocessing/",
+          "rights": "unknown",
+          "title": "Utah Desert Remote：WBPP 校准/配准/拒绝/加权详解",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-13a79c0c",
+          "resource": "https://astrobackyard.com/astrophotography-image-stacking-software/",
+          "rights": "unknown",
+          "title": "AstroBackyard：三款叠加软件对比（DSS/Siril/WBPP）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-ba96d4b2",
+          "resource": "https://astrobackyard.com/astrophotography-processing-workflow/",
+          "rights": "unknown",
+          "title": "AstroBackyard：PixInsight 处理工作流（含 WBPP）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-3c5af41c",
+          "resource": "https://chaoticnebula.com/quickly-review-image-quality-with-pixinsight-blink/",
+          "rights": "unknown",
+          "title": "ChaoticNebula：叠加前 Blink 检查与坏帧剔除",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-calibration",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/calibration.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Calibration",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-stacking",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/stacking.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Stacking",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "后期",
+        "叠加",
+        "校准",
+        "WBPP",
+        "DSS",
+        "Siril",
+        "PixInsight"
+      ],
+      "title": "校准与叠加",
+      "type": "Method",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把 SHO 色彩称为肉眼真实颜色",
+          "缺失通道或通道身份不明时伪造映射"
+        ],
+        "条件": [
+          "通道身份、线性状态、信噪比和映射目的明确，并保留原始通道"
+        ],
+        "系统": [
+          "已校准配准的 SII、Hα、OIII 单色窄带数据"
+        ]
+      },
+      "audience": "使用 Ha/SII/OIII 窄带滤镜拍摄星云，希望把单色信号映射成科学/艺术化彩色（哈勃调色板）或把窄带融入宽带的进阶用户。",
+      "category": "04-后期处理",
+      "description": "窄带映射是把 Ha、SII、OIII 三个单色通道按规则分配到 R/G/B，最经典是 SHO（SII→红、Ha→绿、OIII→蓝）即哈勃调色板。",
+      "difficulty": "高手",
+      "links": [
+        "02-器材百科/滤镜系统.md",
+        "04-后期处理/校准与叠加.md"
+      ],
+      "path": "04-后期处理/窄带SHO映射.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "c1d07ca2fdc63d7bb63ce3f664441c1b406ac5f587ac613d2fa0f7be3e84031d",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-da4c8fce",
+          "resource": "https://thecoldestnights.com/2020/06/pixinsight-dynamic-narrowband-combinations-with-pixelmath/",
+          "rights": "unknown",
+          "title": "The Coldest Nights：Dynamic narrowband combinations with PixelMath",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-ed6a671f",
+          "resource": "https://astroimagery.com/techniques/post-processing/hubble-palette-colours/",
+          "rights": "unknown",
+          "title": "AstroImagery：Hubble Palette 颜色映射（Ha/SII/OIII→RGB）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-bdcdbfd5",
+          "resource": "https://nightskypics.com/sho-vs-dynamic-narrowband-combinations/",
+          "rights": "unknown",
+          "title": "NightSkyPics：SHO 与动态窄带组合对比",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-e9e0e88b",
+          "resource": "https://www.highpointscientific.com/astronomy-hub/post/astro-photography-guides/combining-narrowband-data-pixinsight",
+          "rights": "unknown",
+          "title": "High Point Scientific：PixInsight 合成窄带数据教程",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "后期",
+        "高手",
+        "窄带",
+        "SHO",
+        "HaRGB",
+        "PixelMath",
+        "哈勃调色板",
+        "PixInsight"
+      ],
+      "title": "窄带SHO映射",
+      "type": "Method",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "全球通用季节表",
+          "不考虑南北半球、纬度和本地地平线的确定推荐"
+        ],
+        "条件": [
+          "目标高度、月相、方位遮挡和可见窗口须用当前地点与日期重新计算"
+        ],
+        "系统": [
+          "按观察地点、日期、纬度、视场和设备能力规划深空目标"
+        ]
+      },
+      "audience": "深空天文拍摄新手与进阶爱好者，需要做季节拍摄计划、按可见窗口安排目标的人群",
+      "category": "05-目标图鉴",
+      "description": "北半球深空目标随季节高度可预测：春季是「星系季」（M51/M81/M101 等），夏季是「银河季」（M8/M16/M17/NGC7000 等），秋季以仙女座星系与双星团为代表，冬季则是猎户座大星云与玫瑰星云等亮星云主场。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/城市阳台首次深空拍摄.md",
+        "05-目标图鉴/经典目标推荐参数.md",
+        "06-选址与环境/月相-季节窗口-远程台.md"
+      ],
+      "path": "05-目标图鉴/四季目标推荐.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "9e75391f37de1a873abacadc242beffa812e9bc45b4b83f4b40b535fbad54aac",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-907b2ffa",
+          "resource": "https://astrobackyard.com/astrophotography-targets-by-season/",
+          "rights": "unknown",
+          "title": "AstroBackyard - Astrophotography Targets by Season（四季目标与焦距/滤镜建议）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-b39ea026",
+          "resource": "https://astrobackyard.com/bodes-galaxy/",
+          "rights": "unknown",
+          "title": "AstroBackyard - Bode's Galaxy M81（2–5 月可见窗口与 Bortle 7 实拍）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-4eaca355",
+          "resource": "https://camerasettings.com/tools/deep-sky-objects/",
+          "rights": "unknown",
+          "title": "Camera Settings - Deep Sky Objects Catalog（56 个目标的季节/亮度/视尺寸/难度）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-32776405",
+          "resource": "https://www.zwoastro.com/2026/04/22/astrophotography-targets-by-season/",
+          "rights": "unknown",
+          "title": "ZWO Astro - Best Astrophotography Targets by Season",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "目标图鉴",
+        "季节",
+        "星系季",
+        "银河季",
+        "规划"
+      ],
+      "title": "四季目标推荐",
+      "type": "Target Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把案例参数直接复制为其他系统最终设置",
+          "未计算视场和未试拍即给出保证"
+        ],
+        "条件": [
+          "示例焦距、曝光、滤镜和积分仅在记录的设备与天空条件下成立"
+        ],
+        "系统": [
+          "用于学习目标规模和参数设计方法的典型深空目标案例"
+        ]
+      },
+      "audience": "需要从公开实拍案例建立测试计划，并愿意根据传感器、焦比、天空背景、滤镜和直方图重新验收参数的拍摄者",
+      "category": "05-目标图鉴",
+      "description": "汇总 M42、M31、M51、M81 与 NGC 7000 的公开实拍案例，并把焦距、单张曝光、滤镜和积分时间改写为带条件的测试起点，而不是可直接套用的通用参数。",
+      "difficulty": "新手",
+      "links": [
+        "05-目标图鉴/四季目标推荐.md",
+        "07-软件工具/规划与解析工具.md"
+      ],
+      "path": "05-目标图鉴/经典目标推荐参数.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "6be6fbd913fc9ef2759e31dc609e867fb07f8e37fd25b1618f629a4df3993641",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-90ee7271",
+          "resource": "https://astrobackyard.com/orion-nebula/",
+          "rights": "unknown",
+          "title": "AstroBackyard - The Orion Nebula（M42 焦距/曝光/HDR 建议）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-2785c1bd",
+          "resource": "https://astrobackyard.com/andromeda-galaxy/",
+          "rights": "unknown",
+          "title": "AstroBackyard - The Andromeda Galaxy（M31 多套实拍参数）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-a750c67a",
+          "resource": "https://astrobackyard.com/m51-whirlpool-galaxy/",
+          "rights": "unknown",
+          "title": "AstroBackyard - The Whirlpool Galaxy M51（Esprit150 @1050mm，6h LRGB）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-b39ea026",
+          "resource": "https://astrobackyard.com/bodes-galaxy/",
+          "rights": "unknown",
+          "title": "AstroBackyard - Bode's Galaxy M81（EdgeHD11 @~2000mm，80×3min=4h）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-24652484",
+          "resource": "https://astrobackyard.com/north-america-nebula/",
+          "rights": "unknown",
+          "title": "AstroBackyard - North America Nebula NGC7000（135mm/RedCat/ED80 实战与窄带滤镜）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-4eaca355",
+          "resource": "https://camerasettings.com/tools/deep-sky-objects/",
+          "rights": "unknown",
+          "title": "Camera Settings - Deep Sky Objects Catalog（目标亮度/视尺寸/难度/季节）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-simbad-m42",
+          "resource": "https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=M+42&submit=SIMBAD+search",
+          "rights": "unknown",
+          "title": "SIMBAD：M 42",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-simbad-m31",
+          "resource": "https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=M+31&submit=SIMBAD+search",
+          "rights": "unknown",
+          "title": "SIMBAD：M 31",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-simbad-m51",
+          "resource": "https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=M+51&submit=SIMBAD+search",
+          "rights": "unknown",
+          "title": "SIMBAD：M 51",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nasa-m81",
+          "resource": "https://science.nasa.gov/image-detail/m81-print/",
+          "rights": "unknown",
+          "title": "NASA Science：M81",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-simbad-ngc7000",
+          "resource": "https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=NGC+7000&submit=SIMBAD+search",
+          "rights": "unknown",
+          "title": "SIMBAD：NGC 7000",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "目标图鉴",
+        "参数",
+        "曝光",
+        "滤镜",
+        "焦距",
+        "积分时间"
+      ],
+      "title": "经典目标案例与参数起点",
+      "type": "Target Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把地图颜色或 Bortle 等级当作精确实时测量",
+          "据此保证成像结果"
+        ],
+        "条件": [
+          "地图数据日期、分辨率、天气、局地灯光和实际天空测量共同解释"
+        ],
+        "系统": [
+          "使用地图和现场观测评估深空拍摄天空背景的规划场景"
+        ]
+      },
+      "audience": "刚入门、准备第一次出摊或寻找拍摄点的深空爱好者",
+      "category": "06-选址与环境",
+      "description": "光污染地图提供区域夜光或模型估计，Bortle 等级描述现场视觉条件；两者可用于拍摄点初筛，但不能替代现场天空背景、地平线灯光、透明度和安全检查。",
+      "difficulty": "新手",
+      "links": [
+        "06-选址与环境/月相-季节窗口-远程台.md",
+        "06-选址与环境/视宁度-透明度-云量.md"
+      ],
+      "path": "06-选址与环境/光污染地图与Bortle.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "17b3df506fe3541b53a4132b3ab4a75b0a1e24e55a752ba82ba49c5aec527bec",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-24170615",
+          "resource": "https://lightpollutionmap.info/",
+          "rights": "unknown",
+          "title": "Light Pollution Map 官网",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-132241b7",
+          "resource": "https://astrophotographylens.com/blogs/astro/bortle-scale",
+          "rights": "unknown",
+          "title": "Bortle Scale 详解（Astrophotography Lens）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-30da6572",
+          "resource": "https://baike.baidu.com/item/%E6%B3%A2%E7%89%B9%E5%B0%94%E6%9A%97%E7%A9%BA%E5%88%86%E7%B1%BB%E6%B3%95/3811822",
+          "rights": "unknown",
+          "title": "波特尔暗空分类法（百度百科）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-e93231aa",
+          "resource": "https://astrocompare.com/narrowband-filters-light-pollution-guide.html",
+          "rights": "unknown",
+          "title": "城市窄带滤镜应对光污染指南（AstroCompare）",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "选址",
+        "入门",
+        "光污染",
+        "Bortle"
+      ],
+      "title": "光污染地图与Bortle",
+      "type": "Planning Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "静态页面给出实时可拍保证",
+          "未验证安全与恢复路径的无人值守运行"
+        ],
+        "条件": [
+          "天体位置、月距、天气、设备状态和远程接管机制按当前时刻复核"
+        ],
+        "系统": [
+          "按目标、地点、日期、月相和远程设施能力规划深空拍摄窗口"
+        ]
+      },
+      "audience": "需要按月份规划目标、安排新月/满月拍摄策略，或考虑租用远程台的深空爱好者",
+      "category": "06-选址与环境",
+      "description": "月光会抬升夜空背景；宽带弱目标通常优先安排在月亮较暗、较低或离目标较远时。窄带可压低部分连续背景，但仍需结合月亮几何、透明度、带宽和目标面亮度规划。",
+      "difficulty": "进阶",
+      "links": [
+        "05-目标图鉴/四季目标推荐.md",
+        "06-选址与环境/视宁度-透明度-云量.md"
+      ],
+      "path": "06-选址与环境/月相-季节窗口-远程台.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "2f7ff3b7f59740cd46a90b34e7b4dccf07a962cce1f8f030c037cb87dc604938",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-1bf695ce",
+          "resource": "https://celestialarchivesau.com/guides/how-moonlight-affects-deep-sky-imaging",
+          "rights": "unknown",
+          "title": "How Moonlight Affects Deep Sky Imaging（Celestial Archives）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-907b2ffa",
+          "resource": "https://astrobackyard.com/astrophotography-targets-by-season/",
+          "rights": "unknown",
+          "title": "Astrophotography Targets by Season（AstroBackyard）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-c766ae02",
+          "resource": "http://www.chilescope.com/about/chilescope",
+          "rights": "unknown",
+          "title": "ChileScope 远程天文台介绍",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-a0858187",
+          "resource": "https://zh.welcome.astrobin.com/sponsors-and-partners/deepskychile",
+          "rights": "unknown",
+          "title": "DeepSkyChile 远程托管（AstroBin）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-916c407e",
+          "resource": "https://www.opticalmechanics.com/deep-sky-astrophotography-workflow-guide/",
+          "rights": "unknown",
+          "title": "Deep-Sky Workflow（月相关注说明，Optical Mechanics）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-background",
+          "resource": "https://siril.readthedocs.io/en/latest/processing/background.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Background Extraction",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nasa-moon-phases",
+          "resource": "https://science.nasa.gov/moon/moon-phases/",
+          "rights": "unknown",
+          "title": "NASA Science：Moon Phases",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nasa-moonlight",
+          "resource": "https://science.nasa.gov/moon/moonlight/",
+          "rights": "unknown",
+          "title": "NASA Science：Moonlight",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "月相",
+        "季节窗口",
+        "远程台",
+        "规划"
+      ],
+      "title": "月相/季节窗口/远程台",
+      "type": "Planning Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把单一预报值视为现场事实",
+          "在危险天气下依据天文评分继续运行"
+        ],
+        "条件": [
+          "多个预报来源与现场星点、天空背景和云况交叉验证"
+        ],
+        "系统": [
+          "用于拍摄前判断分辨率、背景和云风险的天气与天空条件评估"
+        ]
+      },
+      "audience": "需要判断当晚是否适合出摊、如何读气象预报的深空与行星拍摄者",
+      "category": "06-选址与环境",
+      "description": "决定一夜成败的三大气象要素是视宁度（seeing，大气湍流导致的星点抖动，单位角秒）、透明度（transparency，大气洁净/水汽程度）与云量（cloud cover）。",
+      "difficulty": "进阶",
+      "links": [
+        "06-选址与环境/光污染地图与Bortle.md",
+        "06-选址与环境/月相-季节窗口-远程台.md"
+      ],
+      "path": "06-选址与环境/视宁度-透明度-云量.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "0619e1452b577c7131d9e067633b119045306a2cb48843f7ee071b649d8bee17",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-7c39ed31",
+          "resource": "https://clearoutside.com/",
+          "rights": "unknown",
+          "title": "ClearOutside 官网",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-be1362f2",
+          "resource": "https://twtapp.com/",
+          "rights": "unknown",
+          "title": "天文通官网",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-7bb6114f",
+          "resource": "https://astroimagery.com/astronomy/what-does-seeing-mean-in-astrophotography/",
+          "rights": "unknown",
+          "title": "What does seeing mean in astrophotography (AstroImagery)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-c562ea49",
+          "resource": "https://github.com/coderGo93/windy-plugin-astronomy-seeing",
+          "rights": "unknown",
+          "title": "Windy astronomy-seeing 插件（GitHub）",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-8248bf81",
+          "resource": "https://zhuanlan.zhihu.com/p/599888696",
+          "rights": "unknown",
+          "title": "天文通小程序使用指南（知乎）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-eso-observing-conditions",
+          "resource": "https://www.eso.org/sci/observing/phase2/ObsConditions.SPHERE.html",
+          "rights": "unknown",
+          "title": "ESO：Observing Conditions Definitions",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nws-sky-cover",
+          "resource": "https://www.weather.gov/media/directives/010_pdfs_archived/pd01008013a.pdf",
+          "rights": "unknown",
+          "title": "U.S. National Weather Service：TAF Sky Cover Definitions",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "天气",
+        "视宁度",
+        "透明度",
+        "云量",
+        "入门"
+      ],
+      "title": "视宁度/透明度/云量",
+      "type": "Planning Reference",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "将 develop 文档直接视为稳定版行为",
+          "未经白天干跑的无人值守自动化"
+        ],
+        "条件": [
+          "菜单、插件、设备支持与序列行为以当前官方文档和本机版本复核"
+        ],
+        "系统": [
+          "Windows 上使用当前 N.I.N.A. 稳定版及兼容 ASCOM/原生驱动的采集系统"
+        ]
+      },
+      "audience": "已拥有赤道仪/相机/导星设备、希望用一台 Windows 电脑完成从对星到拍摄全流程自动化的深空摄影者；也适合从 APT、SGP 等迁移的进阶用户。",
+      "category": "07-软件工具",
+      "description": "N.I.N.A（Nighttime Imaging 'N' Astronomy）是一款免费、开源、模块化的 Windows 深空拍摄控制软件，覆盖对星、构帧、对焦、居中、解析、导星与序列拍摄全流程。",
+      "difficulty": "进阶",
+      "links": [
+        "03-拍摄SOP/拍摄序列计划.md",
+        "03-拍摄SOP/板解、翻转与任务恢复.md",
+        "07-软件工具/PHD2 导星软件.md",
+        "07-软件工具/采集控制平台与迁移.md"
+      ],
+      "path": "07-软件工具/N.I.N.A 使用要点.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "6705372354308647eabb8a4354f0e116d6c2949cd45a18eb6cc9eb6cffeb07e6",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-cfce4141",
+          "resource": "https://nighttime-imaging.eu/",
+          "rights": "unknown",
+          "title": "N.I.N.A 官网/下载与更新说明",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-e587bbb6",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/contributing/plugins/",
+          "rights": "unknown",
+          "title": "N.I.N.A 插件系统官方文档",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-b938f0f6",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/advanced/advancedsequence/",
+          "rights": "unknown",
+          "title": "N.I.N.A 高级序列官方文档",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-48cec40f",
+          "resource": "https://nighttime-imaging.eu/docs/develop/site/advanced/guiding/",
+          "rights": "unknown",
+          "title": "N.I.N.A 导星官方文档(PHD2集成)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-de0cdf97",
+          "resource": "https://pi.bestxtech.com/nina/",
+          "rights": "unknown",
+          "title": "N.I.N.A 中文使用指南",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-581bf38e",
+          "resource": "https://nighttime-imaging.eu/news/",
+          "rights": "unknown",
+          "title": "N.I.N.A 3.0 版本更新日志示例",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "软件",
+        "NINA",
+        "ASCOM",
+        "序列",
+        "自动化",
+        "深空拍摄"
+      ],
+      "title": "N.I.N.A 使用要点",
+      "type": "Software Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "跨设备固定算法、曝光或 RMS 目标",
+          "仅凭截图替代日志和主相机验收"
+        ],
+        "条件": [
+          "配置向导、标定、Guiding Assistant 和日志分析均针对当前设备与天空完成"
+        ],
+        "系统": [
+          "PHD2 当前稳定版连接兼容导星相机和赤道仪的导星系统"
+        ]
+      },
+      "audience": "使用导星相机+导星镜/主镜离轴导星、需要提高跟踪精度（压低 RA/Dec 漂移与周期误差）的深空摄影者；通常与 N.I.N.A、SGP、APT 等拍摄软件联动。",
+      "category": "07-软件工具",
+      "description": "PHD2（Open PHD Guiding）是免费开源的导星软件，负责锁定一颗（或多颗）导星并向赤道仪发送修正指令以消除跟踪误差。",
+      "difficulty": "进阶",
+      "links": [
+        "03-拍摄SOP/导星.md",
+        "07-软件工具/N.I.N.A 使用要点.md"
+      ],
+      "path": "07-软件工具/PHD2 导星软件.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "66c9f20a9495d910fead5f1814c714997b1184e553d3f6cdf5ca98125644519a",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-56468e00",
+          "resource": "https://openphdguiding.org/",
+          "rights": "unknown",
+          "title": "Open PHD Guiding 官网",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-63fdabf7",
+          "resource": "https://openphdguiding.org/PHD2_User_Guide.pdf",
+          "rights": "unknown",
+          "title": "PHD2 用户指南(含 Multi-star 说明)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-96cc784c",
+          "resource": "https://openphdguiding.org/man-dev/Guide_algorithms.htm",
+          "rights": "unknown",
+          "title": "PHD2 Guide Algorithms 官方文档",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-91b0ee48",
+          "resource": "https://adgsoftware.com/phd2/archive/man-2.5.0dev8/Trouble_shooting.htm",
+          "rights": "unknown",
+          "title": "PHD2 故障排查文档(calibration step-size)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-48cec40f",
+          "resource": "https://nighttime-imaging.eu/docs/develop/site/advanced/guiding/",
+          "rights": "unknown",
+          "title": "N.I.N.A 导星(PHD2)官方集成文档",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "experience",
+          "id": "src-1eb81c43",
+          "resource": "https://www.astrobin.com/forum/post/166538/",
+          "rights": "unknown",
+          "title": "AstroBin 论坛 Star Lost 实际案例",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-phd2-basic-use",
+          "resource": "https://openphdguiding.org/man/Basic_use.htm",
+          "rights": "unknown",
+          "title": "PHD2 官方文档：Basic Use",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-phd2-advanced-settings",
+          "resource": "https://openphdguiding.org/manual/",
+          "rights": "unknown",
+          "title": "PHD2 官方用户手册：Advanced Settings",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "软件",
+        "PHD2",
+        "导星",
+        "赤道仪",
+        "周期误差",
+        "NINA"
+      ],
+      "title": "PHD2 导星软件",
+      "type": "Software Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "将 FAQ 分类或本页导航当作任何数据集的官方处理步骤、参数配方或插件效果承诺"
+        ],
+        "平台": [
+          "Linux、macOS、Windows：FAQ 在访问日列为支持范围，实际系统要求必须在安装前重新确认"
+        ],
+        "条件": [
+          "安装或购买前重新核对当前 FAQ、系统要求、许可和下载页面"
+        ],
+        "用途": [
+          "安装、许可、更新、文档与支持导航"
+        ],
+        "系统": [
+          "PixInsight 官方安装、许可、平台支持、文档与支持入口"
+        ],
+        "软件与版本": [
+          "PixInsight：以 2026-08-27 访问的 FAQ（页面标注 Updated 2024 July 1）和当前官方下载/文档页面为准"
+        ]
+      },
+      "audience": "准备安装、更新、购买或寻求 PixInsight 官方文档与支持入口的深空摄影用户",
+      "category": "07-软件工具",
+      "description": "用 PixInsight FAQ 作为安装、许可、平台支持、文档和支持入口的边界导航，不将 FAQ 或目录伪造为官方处理配方。",
+      "difficulty": "新手",
+      "links": [
+        "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "04-后期处理/Siril新手首图工作流.md",
+        "04-后期处理/智能望远镜导出数据的Siril工作流.md",
+        "07-软件工具/后期软件对比.md"
+      ],
+      "path": "07-软件工具/PixInsight使用、安装与官方文档导航.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "b14f8ed846cfa439f4f49d9833bab8773eb24559968744cd858f0f271f561009",
+      "sources": [
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-ledger",
+          "resource": "/raw/2026-08-26-智能望远镜与深空后期官方资料台账.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官方资料台账",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-captures",
+          "resource": "/raw/受限原始文本捕获说明.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官网受限原始文本捕获说明",
+          "usage": "local-evidence-capture; public-link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-pixinsight-faq",
+          "resource": "https://pixinsight.com/faq/index.html",
+          "rights": "unknown",
+          "title": "PixInsight FAQ",
+          "usage": "link-only",
+          "version": "FAQ 页面标注 Updated 2024 July 1"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-pixinsight-docs",
+          "resource": "https://www.pixinsight.com/resources/",
+          "rights": "unknown",
+          "title": "PixInsight Resources",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-pixinsight-tutorials",
+          "resource": "https://pixinsight.com/tutorials/",
+          "rights": "unknown",
+          "title": "PixInsight Tutorials",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2026-11-27",
+      "status": "stable",
+      "tags": [
+        "PixInsight",
+        "安装",
+        "许可",
+        "平台支持",
+        "文档",
+        "支持",
+        "后期软件"
+      ],
+      "title": "PixInsight 使用、安装与官方文档导航",
+      "type": "Software Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "永久性的最强软件排名",
+          "用不同数据或不同熟练度的案例作绝对性能结论"
+        ],
+        "条件": [
+          "功能、平台、许可和版本以查询时官方资料及同一测试数据集复核"
+        ],
+        "系统": [
+          "比较 Siril、PixInsight、DeepSkyStacker 等深空处理工具的任务适配性"
+        ]
+      },
+      "audience": "拿到亮/暗/平/偏场校准帧与大量亮场后，需要做叠加（Stacking）与后期处理的深空摄影者；从只想一键叠加的新手，到追求极致细节处理的高手都在此选型范围内。",
+      "category": "07-软件工具",
+      "description": "按平台、费用、可复现性、预处理能力、复杂工程支持和学习成本比较 DeepSkyStacker、Siril 与 PixInsight；不使用“算法最强”或固定用户等级代替具体任务评估。",
+      "difficulty": "新手",
+      "links": [
+        "04-后期处理/Photoshop精修.md",
+        "04-后期处理/校准与叠加.md",
+        "07-软件工具/PixInsight使用、安装与官方文档导航.md"
+      ],
+      "path": "07-软件工具/后期软件对比.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "ce3c804fce1e9c5f64793f440cc0c22857d7fc8cca8371d44007018264b53cb6",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-96e42590",
+          "resource": "https://siril.org/",
+          "rights": "unknown",
+          "title": "Siril 官网(含 1.4.4 版本信息)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-847b6a49",
+          "resource": "https://siril.readthedocs.io/",
+          "rights": "unknown",
+          "title": "Siril 官方文档",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-62ab6b49",
+          "resource": "https://pixinsight.com/",
+          "rights": "unknown",
+          "title": "PixInsight 官网",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-17db8e44",
+          "resource": "https://github.com/deepskystacker/DSS",
+          "rights": "unknown",
+          "title": "DeepSkyStacker 官方源码仓库",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-68fe76b9",
+          "resource": "https://astroimagingtoolbox.com/blog/deepskystacker-vs-siril-vs-astro-imaging-toolbox.html",
+          "rights": "unknown",
+          "title": "DSS vs Siril 对比文章",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-197c27cf",
+          "resource": "https://zipdo.co/best/astro-stacking-software/",
+          "rights": "unknown",
+          "title": "Astro Stacking Software 对比(2026)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "primary",
+          "id": "src-pixinsight-faq",
+          "resource": "https://pixinsight.com/faq/index.html",
+          "rights": "unknown",
+          "title": "PixInsight FAQ",
+          "usage": "link-only",
+          "version": "FAQ 页面标注 Updated 2024 July 1"
+        },
+        {
+          "accessed_at": "2026-08-26",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-ledger",
+          "resource": "/raw/2026-08-26-智能望远镜与深空后期官方资料台账.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官方资料台账",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-smart-telescope-official-captures",
+          "resource": "/raw/受限原始文本捕获说明.md",
+          "rights": "unknown",
+          "title": "智能望远镜与深空后期官网受限原始文本捕获说明",
+          "usage": "local-evidence-capture; public-link-only"
+        }
+      ],
+      "stale_after": "2026-11-27",
+      "status": "stable",
+      "tags": [
+        "软件",
+        "PixInsight",
+        "Siril",
+        "DeepSkyStacker",
+        "后期",
+        "叠加",
+        "对比"
+      ],
+      "title": "后期软件对比",
+      "type": "Comparison",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把一次解析失败归因于单一原因",
+          "在参数未知时保证解析成功"
+        ],
+        "条件": [
+          "星表、时间地点、相机像素、焦距和视场参数正确且版本兼容"
+        ],
+        "系统": [
+          "使用 Stellarium、SkySafari、ASTAP 或同类工具进行目标规划与板解"
+        ]
+      },
+      "audience": "需要‘拍前规划（何时、朝哪、构图）’与‘拍中解析对齐（确认指向、GoTo 校准）’的所有深空摄影者，从刚入门到做马赛克/远程天文台的高手都依赖此类工具。",
+      "category": "07-软件工具",
+      "description": "深空工作流有两类关键辅助软件：解析（Plate Solving）类如 ASTAP、PlateSolve2，用来把一张照片反算出精确天球坐标，实现自动居中、GoTo 校准与拼接；规划（Planetarium）类如 Stellarium、SkySafari，用来模拟夜空、查看目标高度/时间窗、做构图与（通过 ASCOM/INDI）控制赤道仪。",
+      "difficulty": "新手",
+      "links": [
+        "05-目标图鉴/四季目标推荐.md",
+        "07-软件工具/N.I.N.A 使用要点.md"
+      ],
+      "path": "07-软件工具/规划与解析工具.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "969cf5b0c63882f77cac18181429997bec5cda675e44229bc59d2871ffbae7ae",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-03aabae0",
+          "resource": "https://www.hnsky.org/astap.htm",
+          "rights": "unknown",
+          "title": "ASTAP 官网",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-206f5ba7",
+          "resource": "https://www.hnsky.org/astap_astrometric_solving.htm",
+          "rights": "unknown",
+          "title": "ASTAP 解析算法官方文档",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-c8b18352",
+          "resource": "https://stellarium.org/",
+          "rights": "unknown",
+          "title": "Stellarium 官网",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-70b05db4",
+          "resource": "https://skysafariastronomy.com/",
+          "rights": "unknown",
+          "title": "SkySafari 官网",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-40de0018",
+          "resource": "https://astroisk.nl/blog/2024/08/08/guide-to-plate-solving-astronomical-images/",
+          "rights": "unknown",
+          "title": "ASTAP 解析教程(ASTROISK)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-58f289d4",
+          "resource": "https://pi.bestxtech.com/nina/tabs/options/platesolving/",
+          "rights": "unknown",
+          "title": "N.I.N.A 解析设置中文指南",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "软件",
+        "ASTAP",
+        "PlateSolve2",
+        "Stellarium",
+        "SkySafari",
+        "解析",
+        "规划"
+      ],
+      "title": "规划与解析工具",
+      "type": "Software Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "只有手动三脚架且不使用设备控制软件的单张拍摄",
+          "未核对厂商兼容列表的具体型号推荐"
+        ],
+        "条件": [
+          "迁移前后保存版本与设备矩阵，并以真实镜组完成连接、运动、停泊和回滚干跑"
+        ],
+        "系统": [
+          "使用赤道仪、相机、调焦器、滤镜轮或导星设备的深空采集系统"
+        ],
+        "观测条件": [
+          "升级或迁移前可在白天以真实镜组完成设备、运动与停泊干跑"
+        ],
+        "软件与版本": [
+          "N.I.N.A、ASIAIR、KStars/Ekos/INDI、ASCOM/Alpaca 或厂商控制软件；具体支持范围以访问日的官方资料为准"
+        ]
+      },
+      "audience": "准备购买控制器、从一种采集平台迁移，或为远程/自动化系统维护软件和驱动版本的深空摄影者",
+      "category": "07-软件工具",
+      "description": "用版本化能力矩阵比较 N.I.N.A、ASIAIR、KStars/Ekos/INDI 与手动/厂商流程，并规定升级、干跑、日志和回滚的最小闭环。",
+      "difficulty": "进阶",
+      "links": [
+        "00-知识库规范/主张级引用与适用条件.md",
+        "01-新人入门/购买前成像系统设计与兼容性清单.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/板解、翻转与任务恢复.md",
+        "07-软件工具/N.I.N.A 使用要点.md"
+      ],
+      "path": "07-软件工具/采集控制平台与迁移.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "d17c2e6e229e107df63d70f3313a957ead90326ec5ee11cd999391b307a35348",
+      "sources": [
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "internal-ledger",
+          "id": "p0-source-record",
+          "resource": "/raw/2026-08-13-P0可追溯知识、采集与自动化来源.md",
+          "rights": "unknown",
+          "title": "P0：可追溯知识、采集参数与自动化恢复来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "ascom-master-interfaces",
+          "resource": "https://www.ascom-standards.org/newdocs/index.html",
+          "rights": "unknown",
+          "title": "ASCOM Master Interfaces (Alpaca and COM)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "indi-alpaca-interop",
+          "resource": "https://docs.indilib.org/drivers/basics/coming-from-ascom.html",
+          "rights": "unknown",
+          "title": "INDI: Coming from ASCOM / Alpaca Interoperability",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "asiair-software",
+          "resource": "https://www.zwoastro.com/software/asiair/",
+          "rights": "unknown",
+          "title": "ZWO ASIAIR Software Download and Update Log",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "nina-manual",
+          "resource": "https://nighttime-imaging.eu/docs/master/site/pdf/Manual.pdf",
+          "rights": "unknown",
+          "title": "N.I.N.A. User Manual",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-13",
+          "evidence_level": "primary",
+          "id": "ekos-manual",
+          "resource": "https://stellarmate.com/help/manual/stellarmate-app/ekos/index.html",
+          "rights": "unknown",
+          "title": "StellarMate Manual: Ekos",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-02-13",
+      "status": "stable",
+      "tags": [
+        "软件",
+        "采集控制",
+        "NINA",
+        "ASIAIR",
+        "Ekos",
+        "INDI",
+        "ASCOM",
+        "Alpaca",
+        "迁移"
+      ],
+      "title": "采集控制平台选择与迁移",
+      "type": "Comparison",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "仅凭压缩截图作最终确诊",
+          "忽略供电、碰撞、雷暴等立即停止条件"
+        ],
+        "条件": [
+          "保留原始文件、FITS 头、日志、设备状态和拍摄条件供后续核验"
+        ],
+        "系统": [
+          "具有一张原始帧、预览图或处理结果并需要初步分流的故障场景"
+        ]
+      },
+      "audience": "正在拍摄或刚结束一夜拍摄，发现星点、背景、构图或设备状态异常，想知道下一步如何安全排查的爱好者",
+      "category": "08-FAQ",
+      "description": "从连续原始帧的可见症状出发，先判断是否应立即停止，再用最小变量测试排查拖线、失焦、结露、光路不均、背景异常和供电/连接问题。",
+      "difficulty": "新手",
+      "links": [
+        "02-器材百科/成像光路：后截距、像圈与接口预算.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/城市阳台首次深空拍摄.md",
+        "03-拍摄SOP/对焦方法.md",
+        "03-拍摄SOP/导星.md",
+        "03-拍摄SOP/拍摄序列计划.md",
+        "03-拍摄SOP/极轴校准.md",
+        "03-拍摄SOP/校准帧现场速查卡.md",
+        "04-后期处理/校准与叠加.md",
+        "06-选址与环境/月相-季节窗口-远程台.md",
+        "08-FAQ/高频FAQ汇总.md",
+        "09-踩坑与复盘/新手常见踩坑与复盘.md"
+      ],
+      "path": "08-FAQ/单张检查与翻车诊断.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "84c4b7a7689f43d2d864d7d52bc18f8450e41c288341a8ba401bcc0f5c3f3c1c",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-p0-user-scenarios",
+          "resource": "/raw/2026-07-30-P0用户场景与首图工作流来源.md",
+          "rights": "unknown",
+          "title": "P0：用户场景、首图工作流与诊断页面来源记录",
+          "usage": "metadata-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-phd2-basic",
+          "resource": "https://openphdguiding.org/man/Basic_use.htm",
+          "rights": "unknown",
+          "title": "PHD2 官方文档：Basic Use",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-calibration",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/calibration.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Calibration",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "FAQ",
+        "故障诊断",
+        "翻车",
+        "拖线",
+        "失焦",
+        "结露",
+        "平场",
+        "供电"
+      ],
+      "title": "单张检查与翻车诊断",
+      "type": "Troubleshooting Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把候选原因写成确定诊断",
+          "在设备、版本和环境未知时给出固定参数"
+        ],
+        "条件": [
+          "短答案必须回到专题页，并用区分测试、日志或原始帧确认"
+        ],
+        "系统": [
+          "深空拍摄中常见的跟踪、对焦、校准、供电、结露和处理问题初筛"
+        ]
+      },
+      "audience": "全体爱好者",
+      "category": "08-FAQ",
+      "description": "本文汇总深空天文拍摄中最常遇到的 8 类故障现象（拖线/星点拖尾、结露除雾、跟踪漂移、平场不均、电调焦回差、色彩偏色、电源不足、极轴不准），每条给出明确结论与可立即执行的一句话操作。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/现场搭建流程.md",
+        "08-FAQ/单张检查与翻车诊断.md",
+        "09-踩坑与复盘/新手常见踩坑与复盘.md"
+      ],
+      "path": "08-FAQ/高频FAQ汇总.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "9784ae3b7e5c3b282f538422c02e05190b1e689755c26ad0f93bf7949dff9e1b",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-7baf66a4",
+          "resource": "https://astrobackyard.com/tracking-astrophotography/",
+          "rights": "unknown",
+          "title": "AstroBackyard - How Do I Reduce Tracking Errors",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-d4667049",
+          "resource": "https://astrobackyard.com/dew-heaters-astrophotography/",
+          "rights": "unknown",
+          "title": "AstroBackyard - Dew Heaters for Astrophotography",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-fd864823",
+          "resource": "https://astrobackyard.com/white-balance-astrophotography/",
+          "rights": "unknown",
+          "title": "AstroBackyard - White Balance for Astrophotography",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-ea390350",
+          "resource": "https://www.opticalmechanics.com/mastering-polar-alignment-methods-tools-and-fixes/",
+          "rights": "unknown",
+          "title": "Optical Mechanics - Mastering Polar Alignment",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-e493ed61",
+          "resource": "https://www.stellarnomads.com/polar-alignment/",
+          "rights": "unknown",
+          "title": "Stellar Nomads - Polar Alignment Complete Guide",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-ffec61eb",
+          "resource": "https://www.astroshop.eu/magazine/practical-tips/weigand-s-technical-tips/the-perfect-flat-field/i,1520",
+          "rights": "unknown",
+          "title": "Astroshop - The Perfect Flat Field",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-64827a99",
+          "resource": "https://www.nighttime-imaging.eu/docs/master/site/advanced/backlashmeasurement/",
+          "rights": "unknown",
+          "title": "N.I.N.A. Docs - Focuser Backlash Measurement",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-87295360",
+          "resource": "https://skyandtelescope.org/astronomomy-blogs/imaging-foundations-richard-wright/finding-your-color-balance/",
+          "rights": "unknown",
+          "title": "Sky & Telescope - Finding Your Color Balance",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-67770d88",
+          "resource": "https://astropix.com/html/astrophotography/customwb.html",
+          "rights": "unknown",
+          "title": "AstroPix - Custom White Balance for Astrophotography",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-a9be2cf1",
+          "resource": "https://pegasusastro.zendesk.com/hc/en-us/articles/23897753147037-Cable-management-recommendations",
+          "rights": "unknown",
+          "title": "Pegasus Astro - Cable Management Recommendations（电源/线损）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-35ec009a",
+          "resource": "https://www.astropix.com/books/BGAIP/chapter3/303l2.html",
+          "rights": "unknown",
+          "title": "AstroPix - Repair Trailed Stars",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-731ab9c8",
+          "resource": "https://www.cloudynights.com/forums/forum/80-beginning-deep-sky-imaging/",
+          "rights": "unknown",
+          "title": "CloudyNights - Beginning Deep Sky Imaging 论坛",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-phd2-basic-use",
+          "resource": "https://openphdguiding.org/man/Basic_use.htm",
+          "rights": "unknown",
+          "title": "PHD2 官方文档：Basic Use",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-calibration",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/calibration.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Calibration",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-01-30",
+      "status": "stable",
+      "tags": [
+        "FAQ",
+        "拍摄",
+        "入门",
+        "结露",
+        "拖线",
+        "跟踪",
+        "平场",
+        "电调焦",
+        "偏色",
+        "电源",
+        "极轴"
+      ],
+      "title": "高频FAQ汇总",
+      "type": "FAQ",
+      "updated": "2026-08-27",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
+          "把社区个案推广为通用故障规律",
+          "仅凭结果图远程确诊硬件"
+        ],
+        "条件": [
+          "案例与当前设备、软件、环境和日志相匹配，并保留替代解释"
+        ],
+        "系统": [
+          "用于复盘深空拍摄失败并形成下一次检查清单的有人值守场景"
+        ]
+      },
+      "audience": "新手与进阶爱好者",
+      "category": "09-踩坑与复盘",
+      "description": "深空拍摄的失败大多来自可预测的'低级失误'而非设备不行：结露、拖线、回差、平场缺失、电源不足、对焦不实、极轴不准、导星掉星、远程失控是九大高频坑。",
+      "difficulty": "新手",
+      "links": [
+        "03-拍摄SOP/现场搭建流程.md",
+        "08-FAQ/高频FAQ汇总.md"
+      ],
+      "path": "09-踩坑与复盘/新手常见踩坑与复盘.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "5901ddc435b618e1f19fcb0a2ef1292711c09c0a9c26a6ec8367bb4517014cb0",
+      "sources": [
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "internal-ledger",
+          "id": "raw-research",
+          "resource": "/raw/素材调研报告.md",
+          "rights": "unknown",
+          "title": "深空天文拍摄知识库素材调研报告",
+          "usage": "metadata-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-e86274d7",
+          "resource": "https://www.cloudynights.com/forums/topic/962457-astrophotography-mishaps-lessons-learned-to-help-others/",
+          "rights": "unknown",
+          "title": "CloudyNights - Astrophotography Mishaps: Lessons Learned to Help Others",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-22a472b6",
+          "resource": "https://www.cloudynights.com/forums/topic/938418-astro-mistakes-care-to-share-yours/",
+          "rights": "unknown",
+          "title": "CloudyNights - Astro Mistakes. Care to share yours?",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "experience",
+          "id": "src-0571fc59",
+          "resource": "https://www.cloudynights.com/forums/topic/963319-troubleshooting-remotely-focuser-and-camera/",
+          "rights": "unknown",
+          "title": "CloudyNights - Troubleshooting remotely: focuser and camera",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-d4667049",
+          "resource": "https://astrobackyard.com/dew-heaters-astrophotography/",
+          "rights": "unknown",
+          "title": "AstroBackyard - Dew Heaters for Astrophotography",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-0e291869",
+          "resource": "https://astrobackyard.com/how-to-take-flat-frames/",
+          "rights": "unknown",
+          "title": "AstroBackyard - How to Take Flat Frames",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-19dd7768",
+          "resource": "https://www.astropix.com/html/astrophotography/diagnosing_trailed_stars.html",
+          "rights": "unknown",
+          "title": "astropix - Diagnosing Trailed Stars",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-b63c54da",
+          "resource": "https://www.stellarnomads.com/telescope-mount-backlash/",
+          "rights": "unknown",
+          "title": "StellarNomads - Telescope Mount Backlash: Causes & Fixes",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-ea390350",
+          "resource": "https://www.opticalmechanics.com/mastering-polar-alignment-methods-tools-and-fixes/",
+          "rights": "unknown",
+          "title": "Optical Mechanics - Mastering Polar Alignment",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "secondary",
+          "id": "src-ba606297",
+          "resource": "https://www.opticalmechanics.com/telescope-dew-control-and-power-in-the-field/",
+          "rights": "unknown",
+          "title": "Optical Mechanics - Telescope Dew Control and Power in the Field",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "experience",
+          "id": "src-c12701c5",
+          "resource": "https://www.astrobin.com/forum/c/astrophotography/equipment/zwo-power-issues/",
+          "rights": "unknown",
+          "title": "AstroBin - ZWO Power Issues (camera disconnecting under load)",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "experience",
+          "id": "src-a0980def",
+          "resource": "https://bbs.zwoastro.com/d/24834-diagnosing-and-fixing-asi2600mm-disconnects",
+          "rights": "unknown",
+          "title": "ZWO Forum - Diagnosing and fixing ASI2600mm disconnects",
+          "usage": "link-only"
+        },
+        {
+          "evidence_level": "secondary",
+          "id": "src-ca814f1b",
+          "resource": "https://astrophotographyexpert.com/setting-up-a-remote-astrophotography-rig/",
+          "rights": "unknown",
+          "title": "Astrophotography Expert - Setting Up a Remote Astrophotography Rig",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-phd2-basic-use",
+          "resource": "https://openphdguiding.org/man/Basic_use.htm",
+          "rights": "unknown",
+          "title": "PHD2 官方文档：Basic Use",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-siril-calibration",
+          "resource": "https://siril.readthedocs.io/en/latest/preprocessing/calibration.html",
+          "rights": "unknown",
+          "title": "Siril 官方文档：Calibration",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-08-27",
+          "evidence_level": "primary",
+          "id": "src-nws-lightning",
+          "resource": "https://www.weather.gov/safety/lightning-safety-overview",
+          "rights": "unknown",
+          "title": "U.S. National Weather Service：Lightning Safety",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-07-30",
+      "status": "stable",
+      "tags": [
+        "踩坑",
+        "复盘",
+        "入门",
+        "结露",
+        "拖线",
+        "回差",
+        "平场",
+        "电源",
+        "对焦",
+        "极轴",
+        "导星",
+        "远程"
+      ],
+      "title": "新手常见踩坑与复盘",
+      "type": "Troubleshooting Guide",
+      "updated": "2026-08-27",
+      "verified": null
+    }
+  ],
+  "schema_version": 1,
+  "unbundled_internal_sources": [
+    {
+      "path": "raw/2026-07-30-P0用户场景与首图工作流来源.md",
+      "reason": "Raw evidence ledger intentionally excluded from the portable knowledge snapshot.",
+      "referrers": [
+        "01-新人入门/从问题到首图场景导航与术语地图.md",
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "03-拍摄SOP/城市阳台首次深空拍摄.md",
+        "03-拍摄SOP/校准帧现场速查卡.md",
+        "04-后期处理/Siril新手首图工作流.md",
+        "08-FAQ/单张检查与翻车诊断.md"
+      ],
+      "source_ids": [
+        "raw-p0-user-scenarios"
+      ],
+      "titles": [
+        "P0：用户场景、首图工作流与诊断页面来源记录"
+      ]
+    },
+    {
+      "path": "raw/2026-07-30-P0运行安全与可复现性来源.md",
+      "reason": "Raw evidence ledger intentionally excluded from the portable knowledge snapshot.",
+      "referrers": [
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "01-新人入门/新手预算与器材路线.md",
+        "01-新人入门/购买前成像系统设计与兼容性清单.md",
+        "02-器材百科/关键附件.md",
+        "02-器材百科/成像光路：后截距、像圈与接口预算.md",
+        "03-拍摄SOP/供电、线缆与现场运行安全.md",
+        "03-拍摄SOP/城市阳台首次深空拍摄.md",
+        "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
+        "03-拍摄SOP/现场搭建流程.md"
+      ],
+      "source_ids": [
+        "raw-p0-operability"
+      ],
+      "titles": [
+        "P0：成像系统可运行性与数据可复现性来源记录"
+      ]
+    },
+    {
+      "path": "raw/2026-08-13-P0可追溯知识、采集与自动化来源.md",
+      "reason": "Raw evidence ledger intentionally excluded from the portable knowledge snapshot.",
+      "referrers": [
+        "00-知识库规范/主张级引用与适用条件.md",
+        "03-拍摄SOP/板解、翻转与任务恢复.md",
+        "03-拍摄SOP/采集参数试拍与总积分.md",
+        "07-软件工具/采集控制平台与迁移.md"
+      ],
+      "source_ids": [
+        "p0-source-record"
+      ],
+      "titles": [
+        "P0：可追溯知识、采集参数与自动化恢复来源记录"
+      ]
+    },
+    {
+      "path": "raw/2026-08-26-智能望远镜与深空后期官方资料台账.md",
+      "reason": "Raw evidence ledger intentionally excluded from the portable knowledge snapshot.",
+      "referrers": [
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+        "03-拍摄SOP/智能望远镜首拍与数据交接.md",
+        "04-后期处理/Siril新手首图工作流.md",
+        "04-后期处理/智能望远镜导出数据的Siril工作流.md",
+        "07-软件工具/PixInsight使用、安装与官方文档导航.md",
+        "07-软件工具/后期软件对比.md"
+      ],
+      "source_ids": [
+        "raw-smart-telescope-official-ledger"
+      ],
+      "titles": [
+        "智能望远镜与深空后期官方资料台账"
+      ]
+    },
+    {
+      "path": "raw/2026-08-27-Starun智能望远镜规格表来源记录.md",
+      "reason": "Raw evidence ledger intentionally excluded from the portable knowledge snapshot.",
+      "referrers": [
+        "02-器材百科/常见智能望远镜参数规格对照与使用边界.md"
+      ],
+      "source_ids": [
+        "raw-starun-telescope-specs-ledger"
+      ],
+      "titles": [
+        "Starun 智能望远镜参数规格表来源记录"
+      ]
+    },
+    {
+      "path": "raw/受限原始文本捕获说明.md",
+      "reason": "Raw evidence ledger intentionally excluded from the portable knowledge snapshot.",
+      "referrers": [
+        "01-新人入门/已有设备如何开始深空摄影.md",
+        "02-器材百科/常见智能望远镜参数规格对照与使用边界.md",
+        "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+        "03-拍摄SOP/智能望远镜首拍与数据交接.md",
+        "04-后期处理/Siril新手首图工作流.md",
+        "04-后期处理/智能望远镜导出数据的Siril工作流.md",
+        "07-软件工具/PixInsight使用、安装与官方文档导航.md",
+        "07-软件工具/后期软件对比.md"
+      ],
+      "source_ids": [
+        "raw-smart-telescope-official-captures",
+        "raw-starun-telescope-specs-capture"
+      ],
+      "titles": [
+        "Starun 智能望远镜规格表受限原始文本捕获说明",
+        "智能望远镜与深空后期官网受限原始文本捕获说明"
+      ]
+    },
+    {
+      "path": "raw/素材调研报告.md",
+      "reason": "Raw evidence ledger intentionally excluded from the portable knowledge snapshot.",
+      "referrers": [
+        "01-新人入门/从零到出片学习路径.md",
+        "01-新人入门/新手预算与器材路线.md",
+        "01-新人入门/深空摄影是什么.md",
+        "02-器材百科/关键附件.md",
+        "02-器材百科/天文相机选型.md",
+        "02-器材百科/望远镜选型.md",
+        "02-器材百科/滤镜系统.md",
+        "02-器材百科/赤道仪选型.md",
+        "03-拍摄SOP/对焦方法.md",
+        "03-拍摄SOP/导星.md",
+        "03-拍摄SOP/拍摄序列计划.md",
+        "03-拍摄SOP/极轴校准.md",
+        "03-拍摄SOP/校准帧规范.md",
+        "03-拍摄SOP/现场搭建流程.md",
+        "04-后期处理/LRGB处理与调色.md",
+        "04-后期处理/Photoshop精修.md",
+        "04-后期处理/校准与叠加.md",
+        "04-后期处理/窄带SHO映射.md",
+        "05-目标图鉴/四季目标推荐.md",
+        "05-目标图鉴/经典目标推荐参数.md",
+        "06-选址与环境/光污染地图与Bortle.md",
+        "06-选址与环境/月相-季节窗口-远程台.md",
+        "06-选址与环境/视宁度-透明度-云量.md",
+        "07-软件工具/N.I.N.A 使用要点.md",
+        "07-软件工具/PHD2 导星软件.md",
+        "07-软件工具/后期软件对比.md",
+        "07-软件工具/规划与解析工具.md",
+        "08-FAQ/高频FAQ汇总.md",
+        "09-踩坑与复盘/新手常见踩坑与复盘.md"
+      ],
+      "source_ids": [
+        "raw-research"
+      ],
+      "titles": [
+        "深空天文拍摄知识库素材调研报告"
+      ]
+    }
+  ]
+}

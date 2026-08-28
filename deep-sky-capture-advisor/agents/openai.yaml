@@ -1,0 +1,4 @@
+interface:
+  display_name: "深空摄影知识顾问"
+  short_description: "基于内置可追溯知识库回答深空摄影规划、拍摄、后期与排障问题"
+  default_prompt: "使用 $deep-sky-capture-advisor 根据我的器材与观测条件制定一套可核查的深空摄影方案。"
