@@ -1,4 +1,0 @@
-interface:
-  display_name: "定制简历"
-  short_description: "基于已验证经历定制简历，并生成公司调研与面试准备材料"
-  default_prompt: "Use $tailor-resume to match my verified career history to this JD, create the application bundle, and prepare targeted interview materials."
