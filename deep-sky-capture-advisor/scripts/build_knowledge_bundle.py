@@ -8,16 +8,21 @@ This maintainer command never executes code from the source repository. Runtime 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import contextvars
 import datetime as dt
 import hashlib
 import json
 import os
 import re
+import selectors
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 import urllib.parse
 import uuid
@@ -52,6 +57,9 @@ except ImportError as exc:  # pragma: no cover - exercised by the command-line e
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 INCLUDED_DIRS = FORMAL_CATEGORIES
+LEGACY_SOURCE_PACK_ROOT = PurePosixPath(".")
+SOURCE_PACK_ROOT = PurePosixPath("knowledge-packs/deep-sky")
+SUPPORTED_SOURCE_PACK_ROOTS = (LEGACY_SOURCE_PACK_ROOT, SOURCE_PACK_ROOT)
 EXCLUDED_PATHS = (
     "raw/",
     "archive/",
@@ -68,6 +76,30 @@ LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 SOURCE_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
 FORMAL_SHA_RE = re.compile(r"[0-9a-f]{64}\Z")
 COMMIT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+SCP_REMOTE_RE = re.compile(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s\x00]+\Z")
+GIT_COMMAND_TIMEOUT_SECONDS = 30.0
+SOURCE_OPERATION_TIMEOUT_SECONDS = 120.0
+GIT_STDOUT_LIMIT_BYTES = 8 * 1024 * 1024
+GIT_STDERR_LIMIT_BYTES = 1024 * 1024
+FORMAL_PAGE_LIMIT_BYTES = 2 * 1024 * 1024
+FORMAL_BUNDLE_LIMIT_BYTES = 32 * 1024 * 1024
+FORMAL_PAGE_COUNT_LIMIT = 128
+WORKTREE_ENTRY_LIMIT = 4096
+JSON_SAFE_DEPTH_LIMIT = 64
+JSON_SAFE_NODE_LIMIT = 10_000
+YAML_NODE_TOKEN_LIMIT = JSON_SAFE_NODE_LIMIT
+SOURCE_REMOTE_NAME = "origin"
+TRUSTED_SOURCE_REMOTES = frozenset(
+    {
+        "git@github.com:MZqk/StarunWiki.git",
+        "https://github.com/MZqk/StarunWiki.git",
+    }
+)
+MACOS_GIT_EXECUTABLE = "/Library/Developer/CommandLineTools/usr/bin/git"
+_SOURCE_OPERATION_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "deep_sky_source_operation_deadline",
+    default=None,
+)
 DOMAIN_SLUGS = {
     "00-知识库规范": "governance",
     "01-新人入门": "getting-started",
@@ -100,6 +132,13 @@ DIGEST_KEYS = {"catalog_file_sha256", "knowledge_sha256", "manifest_file_sha256"
 
 class BundleError(RuntimeError):
     """Raised when the requested snapshot cannot be built or recovered safely."""
+
+
+class _GitOutputLimitExceeded(RuntimeError):
+    def __init__(self, stream_name: str, limit: int) -> None:
+        self.stream_name = stream_name
+        self.limit = limit
+        super().__init__(f"Git {stream_name} exceeded {limit} bytes")
 
 
 @dataclass(frozen=True)
@@ -135,11 +174,14 @@ DEFAULT_PATHS = BundlePaths(SKILL_ROOT)
 @dataclass(frozen=True)
 class SourceSnapshot:
     source: Path
+    remote: str
     commit: str
     commit_date: str
     blobs: dict[str, bytes]
     formal_page_sha256: str
     retrieval_corpus_sha256: str
+    isolation: str
+    source_layout: str
 
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
@@ -185,11 +227,34 @@ def _lexists(path: Path) -> bool:
     return os.path.lexists(path)
 
 
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
+def _json_safe(
+    value: Any,
+    *,
+    _depth: int = 0,
+    _state: dict[str, Any] | None = None,
+) -> Any:
+    state = _state if _state is not None else {"nodes": 0, "active": set()}
+    state["nodes"] += 1
+    if state["nodes"] > JSON_SAFE_NODE_LIMIT:
+        raise BundleError(f"Metadata exceeds the {JSON_SAFE_NODE_LIMIT}-node limit")
+    if _depth > JSON_SAFE_DEPTH_LIMIT:
+        raise BundleError(f"Metadata exceeds the {JSON_SAFE_DEPTH_LIMIT}-level depth limit")
+    if isinstance(value, (dict, list, tuple)):
+        identity = id(value)
+        if identity in state["active"]:
+            raise BundleError("Metadata contains a cyclic object graph")
+        state["active"].add(identity)
+        try:
+            if isinstance(value, dict):
+                return {
+                    str(key): _json_safe(item, _depth=_depth + 1, _state=state)
+                    for key, item in value.items()
+                }
+            return [
+                _json_safe(item, _depth=_depth + 1, _state=state) for item in value
+            ]
+        finally:
+            state["active"].remove(identity)
     if isinstance(value, (dt.date, dt.datetime)):
         return value.isoformat()
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -232,33 +297,330 @@ def _atomic_write_json(path: Path, value: Any) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _git_command(arguments: list[str]) -> list[str]:
-    return [
-        "git",
+def _resolve_executable(candidate: str | None, label: str) -> Path:
+    if not candidate:
+        raise BundleError(f"Required {label} executable was not found")
+    try:
+        resolved = Path(candidate).resolve(strict=True)
+    except OSError as exc:
+        raise BundleError(f"Required {label} executable cannot be resolved: {candidate}") from exc
+    metadata = resolved.stat()
+    if not stat.S_ISREG(metadata.st_mode) or not os.access(resolved, os.X_OK):
+        raise BundleError(f"Required {label} executable is not a regular executable: {resolved}")
+    if metadata.st_uid != 0 or stat.S_IMODE(metadata.st_mode) & 0o022:
+        raise BundleError(f"Required {label} executable is not root-owned and write-protected: {resolved}")
+    return resolved
+
+
+def _git_executable() -> Path:
+    if sys.platform == "darwin":
+        return _resolve_executable(MACOS_GIT_EXECUTABLE, "Apple Command Line Tools Git")
+    git = _resolve_executable(shutil.which("git"), "Git")
+    if not any(git.is_relative_to(root) for root in (Path("/usr"), Path("/bin"))):
+        raise BundleError(f"Git executable must be below /usr or /bin for OS isolation: {git}")
+    return git
+
+
+def _git_isolation() -> tuple[str, Path]:
+    if sys.platform == "darwin":
+        return "macos-sandbox-exec", _resolve_executable("/usr/bin/sandbox-exec", "sandbox-exec")
+    if sys.platform.startswith("linux"):
+        return "linux-bwrap", _resolve_executable(shutil.which("bwrap"), "Bubblewrap")
+    raise BundleError(
+        "OS-level Git isolation is required; supported backends are macOS sandbox-exec "
+        "and Linux Bubblewrap"
+    )
+
+
+def _macos_sandbox_command(
+    sandbox: Path,
+    git: Path,
+    source: Path,
+    base: list[str],
+) -> list[str]:
+    ancestors = list(reversed(source.parents))
+    ancestor_rules = "\n".join(
+        f'  (literal (param "SOURCE_ANCESTOR_{index}"))'
+        for index, _ in enumerate(ancestors)
+    )
+    profile = f'''(version 1)
+(deny default)
+(allow process-fork)
+(allow process-exec (literal (param "GIT")))
+(allow sysctl-read)
+(allow file-read*
+  (literal "/")
+  (literal "/Library")
+  (literal "/private")
+  (literal "/dev")
+  (literal "/dev/null")
+  (literal "/dev/urandom")
+  (subpath "/System")
+  (subpath "/usr")
+  (subpath "/Library/Developer/CommandLineTools")
+  (subpath "/private/etc")
+{ancestor_rules}
+  (subpath (param "SOURCE")))
+(allow file-write-data (literal "/dev/null"))
+'''
+    parameters = ["-D", f"GIT={git}", "-D", f"SOURCE={source}"]
+    for index, ancestor in enumerate(ancestors):
+        parameters.extend(("-D", f"SOURCE_ANCESTOR_{index}={ancestor}"))
+    return [str(sandbox), *parameters, "-p", profile, *base]
+
+
+def _git_command(arguments: list[str], source: Path) -> tuple[str, list[str], Path]:
+    git = _git_executable()
+    base = [
+        str(git),
+        "--no-pager",
+        "--no-replace-objects",
+        "--no-lazy-fetch",
+        "--no-optional-locks",
+        "--literal-pathspecs",
         "-c",
         "core.fsmonitor=false",
         "-c",
         "core.hooksPath=/dev/null",
+        "-c",
+        "core.pager=cat",
         *arguments,
     ]
+    isolation, sandbox = _git_isolation()
+    if isolation == "macos-sandbox-exec":
+        command = _macos_sandbox_command(sandbox, git, source, base)
+    else:
+        command = [
+            str(sandbox),
+            "--die-with-parent",
+            "--new-session",
+            "--unshare-all",
+            "--cap-drop",
+            "ALL",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+            "--tmpfs",
+            "/tmp",
+            "--ro-bind",
+            str(source),
+            "/src",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--chdir",
+            "/src",
+            "--",
+            *base,
+        ]
+        for path in ("/bin", "/lib", "/lib64", "/sbin"):
+            candidate = Path(path)
+            if not candidate.exists() and not candidate.is_symlink():
+                continue
+            insertion = command.index("--chdir")
+            if candidate.is_symlink():
+                command[insertion:insertion] = ["--symlink", os.readlink(candidate), path]
+            else:
+                command[insertion:insertion] = ["--ro-bind", path, path]
+    return isolation, command, git
 
 
-def _run_git_bytes(arguments: list[str], source: Path) -> bytes:
-    environment = os.environ.copy()
-    environment["GIT_OPTIONAL_LOCKS"] = "0"
-    completed = subprocess.run(
-        _git_command(arguments),
-        cwd=source,
-        env=environment,
-        check=False,
+def _git_environment(git: Path) -> dict[str, str]:
+    safe_path = os.pathsep.join(
+        dict.fromkeys((str(git.parent), "/usr/bin", "/bin", "/usr/sbin", "/sbin"))
+    )
+    environment = {
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_LITERAL_PATHSPECS": "1",
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_PAGER": "cat",
+        "GIT_PROTOCOL_FROM_USER": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PATH": safe_path,
+        "TZ": "UTC",
+    }
+    if os.name == "nt" and os.environ.get("SYSTEMROOT"):
+        environment["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    return environment
+
+
+@contextlib.contextmanager
+def _source_operation_budget() -> Any:
+    existing = _SOURCE_OPERATION_DEADLINE.get()
+    if existing is not None:
+        yield
+        return
+    token = _SOURCE_OPERATION_DEADLINE.set(
+        time.monotonic() + SOURCE_OPERATION_TIMEOUT_SECONDS
+    )
+    try:
+        yield
+    finally:
+        _SOURCE_OPERATION_DEADLINE.reset(token)
+
+
+def _remaining_git_timeout() -> float:
+    deadline = _SOURCE_OPERATION_DEADLINE.get()
+    if deadline is None:
+        return GIT_COMMAND_TIMEOUT_SECONDS
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise BundleError(
+            f"Source operation exceeded the {SOURCE_OPERATION_TIMEOUT_SECONDS:g}s total budget"
+        )
+    return min(GIT_COMMAND_TIMEOUT_SECONDS, remaining)
+
+
+def _record_worktree_entry(counter: list[int]) -> None:
+    counter[0] += 1
+    if counter[0] > WORKTREE_ENTRY_LIMIT:
+        raise BundleError(
+            f"Formal worktree inventory exceeds the {WORKTREE_ENTRY_LIMIT}-entry limit"
+        )
+    deadline = _SOURCE_OPERATION_DEADLINE.get()
+    if deadline is not None and time.monotonic() >= deadline:
+        raise BundleError(
+            f"Source operation exceeded the {SOURCE_OPERATION_TIMEOUT_SECONDS:g}s total budget"
+        )
+
+
+def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    else:  # pragma: no cover - unsupported isolation platforms fail before process creation
+        process.kill()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:  # pragma: no cover - SIGKILL should make this unreachable
+        process.kill()
+        process.wait()
+
+
+def _run_bounded_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    timeout: float,
+    stdout_limit: int,
+    stderr_limit: int,
+) -> subprocess.CompletedProcess[bytes]:
+    if stdout_limit <= 0 or stderr_limit <= 0:
+        raise BundleError("Git output limits must be positive")
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=dict(env),
+        close_fds=True,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        bufsize=0,
     )
+    assert process.stdout is not None
+    assert process.stderr is not None
+    streams = {
+        "stdout": (process.stdout, stdout_limit),
+        "stderr": (process.stderr, stderr_limit),
+    }
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    deadline = time.monotonic() + timeout
+    try:
+        with selectors.DefaultSelector() as selector:
+            for stream_name, (stream, _) in streams.items():
+                os.set_blocking(stream.fileno(), False)
+                selector.register(stream, selectors.EVENT_READ, stream_name)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                events = selector.select(remaining)
+                if not events:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                for key, _ in events:
+                    stream_name = str(key.data)
+                    stream, limit = streams[stream_name]
+                    try:
+                        chunk = os.read(stream.fileno(), 64 * 1024)
+                    except BlockingIOError:
+                        continue
+                    if not chunk:
+                        selector.unregister(stream)
+                        continue
+                    buffer = buffers[stream_name]
+                    if len(buffer) + len(chunk) > limit:
+                        raise _GitOutputLimitExceeded(stream_name, limit)
+                    buffer.extend(chunk)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(command, timeout)
+        returncode = process.wait(timeout=remaining)
+    except BaseException:
+        _terminate_process_group(process)
+        raise
+    finally:
+        process.stdout.close()
+        process.stderr.close()
+    return subprocess.CompletedProcess(
+        command,
+        returncode,
+        bytes(buffers["stdout"]),
+        bytes(buffers["stderr"]),
+    )
+
+
+def _run_git_bytes(
+    arguments: list[str],
+    source: Path,
+    *,
+    stdout_limit: int = GIT_STDOUT_LIMIT_BYTES,
+) -> bytes:
+    isolation, command, git = _git_command(arguments, source)
+    timeout = _remaining_git_timeout()
+    try:
+        completed = _run_bounded_process(
+            command,
+            cwd=source,
+            env=_git_environment(git),
+            timeout=timeout,
+            stdout_limit=stdout_limit,
+            stderr_limit=GIT_STDERR_LIMIT_BYTES,
+        )
+    except subprocess.TimeoutExpired as exc:
+        deadline = _SOURCE_OPERATION_DEADLINE.get()
+        if deadline is not None and timeout < GIT_COMMAND_TIMEOUT_SECONDS:
+            raise BundleError(
+                f"Source operation exceeded the {SOURCE_OPERATION_TIMEOUT_SECONDS:g}s total "
+                f"budget under {isolation} ({' '.join(arguments)})"
+            ) from exc
+        raise BundleError(
+            f"Git command timed out after {GIT_COMMAND_TIMEOUT_SECONDS:g}s under {isolation} "
+            f"({' '.join(arguments)})"
+        ) from exc
+    except _GitOutputLimitExceeded as exc:
+        raise BundleError(
+            f"Git command {exc.stream_name} exceeded the {exc.limit}-byte limit under "
+            f"{isolation} ({' '.join(arguments)})"
+        ) from exc
     if completed.returncode != 0:
         detail = completed.stderr.decode("utf-8", errors="replace").strip()
         if not detail:
             detail = completed.stdout.decode("utf-8", errors="replace").strip()
-        raise BundleError(f"Git command failed ({' '.join(arguments)}): {detail}")
+        raise BundleError(
+            f"Git command failed under {isolation} ({' '.join(arguments)}): {detail}"
+        )
     return completed.stdout
 
 
@@ -269,7 +631,39 @@ def _run_git_text(arguments: list[str], source: Path) -> str:
         raise BundleError(f"Git command returned non-UTF-8 text: {' '.join(arguments)}") from exc
 
 
-def _resolve_clean_source(source: Path) -> tuple[Path, str, str]:
+def _validate_expected_source_remote(value: str | None) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise BundleError("--expect-source-remote is required and must be an exact remote URL")
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise BundleError("--expect-source-remote must not contain control characters")
+    if value not in TRUSTED_SOURCE_REMOTES:
+        raise BundleError("--expect-source-remote is not an approved StarunWiki repository identity")
+    if not SCP_REMOTE_RE.fullmatch(value):
+        try:
+            parsed = urllib.parse.urlsplit(value)
+        except ValueError as exc:
+            raise BundleError("--expect-source-remote is not a valid approved remote URL") from exc
+        if (
+            parsed.scheme not in {"https", "ssh"}
+            or not parsed.hostname
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise BundleError(
+                "--expect-source-remote must be an exact credential-free HTTPS or SSH remote URL"
+            )
+        if parsed.scheme == "https" and parsed.username is not None:
+            raise BundleError("--expect-source-remote HTTPS URLs must not contain credentials")
+    return value
+
+
+def _resolve_clean_source(
+    source: Path,
+    expected_remote: str,
+    *,
+    expected_commit: str | None = None,
+) -> tuple[Path, str, str]:
     expanded = source.expanduser()
     if expanded.is_symlink():
         raise BundleError(f"Source path must not be a symbolic link: {expanded}")
@@ -277,23 +671,41 @@ def _resolve_clean_source(source: Path) -> tuple[Path, str, str]:
         resolved = expanded.resolve(strict=True)
     except FileNotFoundError as exc:
         raise BundleError(f"Source repository does not exist: {expanded}") from exc
+    if any(ord(character) < 32 or ord(character) == 127 for character in str(resolved)):
+        raise BundleError("Source path must not contain control characters")
     metadata = resolved.lstat()
     if not stat.S_ISDIR(metadata.st_mode):
         raise BundleError(f"Source must be a directory: {resolved}")
-    top_level = Path(_run_git_text(["rev-parse", "--show-toplevel"], resolved)).resolve()
-    if top_level != resolved:
-        raise BundleError(f"Source must be the Git worktree root, got {resolved}; root is {top_level}")
+    top_level = _run_git_text(["rev-parse", "--show-toplevel"], resolved)
+    expected_top_level = "/src" if sys.platform.startswith("linux") else str(resolved)
+    if top_level != expected_top_level:
+        raise BundleError(
+            f"Source must be the Git worktree root, got {resolved}; sandbox root is {top_level}"
+        )
+    try:
+        remote_urls = _run_git_text(
+            ["remote", "get-url", "--all", SOURCE_REMOTE_NAME], resolved
+        ).splitlines()
+    except BundleError as exc:
+        raise BundleError(f"Source {SOURCE_REMOTE_NAME!r} remote could not be verified") from exc
+    if remote_urls != [expected_remote]:
+        raise BundleError(
+            f"Source {SOURCE_REMOTE_NAME!r} remote does not exactly match --expect-source-remote"
+        )
+    commit = _run_git_text(["rev-parse", "--verify", "HEAD^{commit}"], resolved)
+    if not COMMIT_RE.fullmatch(commit):
+        raise BundleError(f"Git returned an invalid commit id: {commit!r}")
+    if expected_commit is not None and commit != expected_commit:
+        raise BundleError(
+            f"Source commit mismatch: expected {expected_commit}, got {commit}"
+        )
     status = _run_git_bytes(
         ["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"],
         resolved,
     )
     if status:
         raise BundleError("Source working tree must be completely clean; commit or remove all changes first")
-    commit = _run_git_text(["rev-parse", "--verify", "HEAD^{commit}"], resolved)
-    if not COMMIT_RE.fullmatch(commit):
-        raise BundleError(f"Git returned an invalid commit id: {commit!r}")
-    commit_date = _run_git_text(["show", "-s", "--format=%cI", commit], resolved)
-    return resolved, commit, commit_date
+    return resolved, expected_remote, commit
 
 
 def _parse_ls_tree(data: bytes) -> dict[str, tuple[str, str, str]]:
@@ -313,51 +725,149 @@ def _parse_ls_tree(data: bytes) -> dict[str, tuple[str, str, str]]:
     return entries
 
 
-def _commit_formal_entries(source: Path, commit: str) -> dict[str, tuple[str, str, str]]:
+def _source_layout_name(source_pack_root: PurePosixPath) -> str:
+    return "repository-root" if not source_pack_root.parts else source_pack_root.as_posix()
+
+
+def _source_category_path(source_pack_root: PurePosixPath, directory: str) -> str:
+    return (source_pack_root / directory).as_posix()
+
+
+def _tree_has_source_layout(
+    tree: Mapping[str, tuple[str, str, str]],
+    source_pack_root: PurePosixPath,
+) -> bool:
+    category_roots = tuple(
+        _source_category_path(source_pack_root, directory) for directory in INCLUDED_DIRS
+    )
+    return any(
+        path == category_root or path.startswith(f"{category_root}/")
+        for path in tree
+        for category_root in category_roots
+    )
+
+
+def _commit_formal_entries(
+    source: Path,
+    commit: str,
+) -> tuple[PurePosixPath, dict[str, tuple[str, str, str]]]:
+    source_directories = [
+        _source_category_path(source_pack_root, directory)
+        for source_pack_root in SUPPORTED_SOURCE_PACK_ROOTS
+        for directory in INCLUDED_DIRS
+    ]
     raw = _run_git_bytes(
-        ["ls-tree", "-r", "-z", "--full-tree", commit, "--", *INCLUDED_DIRS],
+        ["ls-tree", "-r", "-z", "--full-tree", commit, "--", *source_directories],
         source,
     )
     tree = _parse_ls_tree(raw)
+    present_layouts = [
+        source_pack_root
+        for source_pack_root in SUPPORTED_SOURCE_PACK_ROOTS
+        if _tree_has_source_layout(tree, source_pack_root)
+    ]
+    if not present_layouts:
+        raise BundleError(
+            "No supported source knowledge layout was found in the committed tree"
+        )
+    if len(present_layouts) != 1:
+        rendered = ", ".join(_source_layout_name(root) for root in present_layouts)
+        raise BundleError(f"Ambiguous source knowledge layouts in committed tree: {rendered}")
+    source_pack_root = present_layouts[0]
     formal: dict[str, tuple[str, str, str]] = {}
     for directory in INCLUDED_DIRS:
-        prefix = f"{directory}/"
+        prefix = f"{_source_category_path(source_pack_root, directory)}/"
         category_pages: list[str] = []
         for path, entry in tree.items():
             if not path.startswith(prefix) or not path.lower().endswith(".md"):
                 continue
-            relative_parts = PurePosixPath(path).parts
+            relative = PurePosixPath(path).relative_to(source_pack_root).as_posix()
+            relative_parts = PurePosixPath(relative).parts
             if len(relative_parts) != 2:
-                raise BundleError(f"Nested formal Markdown is not supported: {path}")
+                raise BundleError(f"Nested formal Markdown is not supported: {relative}")
             if relative_parts[-1] == "index.md":
                 continue
             mode, kind, _ = entry
             if mode == "120000" or kind != "blob" or mode not in {"100644", "100755"}:
-                raise BundleError(f"Formal page must be a regular Git blob, not a symlink: {path}")
-            category_pages.append(path)
-            formal[path] = entry
+                raise BundleError(
+                    f"Formal page must be a regular Git blob, not a symlink: {relative}"
+                )
+            category_pages.append(relative)
+            formal[relative] = entry
+            if len(formal) > FORMAL_PAGE_COUNT_LIMIT:
+                raise BundleError(
+                    f"Formal page count exceeds the {FORMAL_PAGE_COUNT_LIMIT}-page limit"
+                )
         if not category_pages:
             raise BundleError(f"No formal knowledge pages were found in committed category: {directory}")
-    return dict(sorted(formal.items()))
+    return source_pack_root, dict(sorted(formal.items()))
 
 
-def _scan_nested_markdown(directory: Path, category_root: Path) -> list[str]:
+def _scan_nested_markdown(
+    directory: Path,
+    category_root: Path,
+    entry_counter: list[int],
+) -> list[str]:
     nested: list[str] = []
-    for child in os.scandir(directory):
-        path = Path(child.path)
-        if child.is_symlink():
-            raise BundleError(f"Symbolic links are not allowed below formal categories: {path}")
-        if child.is_dir(follow_symlinks=False):
-            nested.extend(_scan_nested_markdown(path, category_root))
-        elif child.is_file(follow_symlinks=False) and path.suffix.lower() == ".md":
-            nested.append(path.relative_to(category_root.parent).as_posix())
+    pending = [directory]
+    while pending:
+        current = pending.pop()
+        for child in os.scandir(current):
+            _record_worktree_entry(entry_counter)
+            path = Path(child.path)
+            if child.is_symlink():
+                raise BundleError(f"Symbolic links are not allowed below formal categories: {path}")
+            if child.is_dir(follow_symlinks=False):
+                pending.append(path)
+            elif child.is_file(follow_symlinks=False) and path.suffix.lower() == ".md":
+                nested.append(path.relative_to(category_root.parent).as_posix())
     return nested
 
 
-def _worktree_formal_paths(source: Path) -> set[str]:
+def _worktree_has_source_layout(source: Path, source_pack_root: PurePosixPath) -> bool:
+    if not source_pack_root.parts:
+        return any(_lexists(source / directory) for directory in INCLUDED_DIRS)
+    current = source
+    for part in source_pack_root.parts:
+        current = current / part
+        if not _lexists(current):
+            return False
+        if current.is_symlink():
+            return True
+    return True
+
+
+def _detect_worktree_source_pack_root(source: Path) -> PurePosixPath:
+    present_layouts = [
+        source_pack_root
+        for source_pack_root in SUPPORTED_SOURCE_PACK_ROOTS
+        if _worktree_has_source_layout(source, source_pack_root)
+    ]
+    if not present_layouts:
+        raise BundleError("No supported source knowledge layout was found in the worktree")
+    if len(present_layouts) != 1:
+        rendered = ", ".join(_source_layout_name(root) for root in present_layouts)
+        raise BundleError(f"Ambiguous source knowledge layouts in worktree: {rendered}")
+    return present_layouts[0]
+
+
+def _worktree_formal_paths(
+    source: Path,
+    source_pack_root: PurePosixPath,
+) -> set[str]:
+    pack_root = source
+    for part in source_pack_root.parts:
+        pack_root = pack_root / part
+        try:
+            pack_metadata = pack_root.lstat()
+        except FileNotFoundError as exc:
+            raise BundleError(f"Source knowledge pack root is missing: {pack_root}") from exc
+        if stat.S_ISLNK(pack_metadata.st_mode) or not stat.S_ISDIR(pack_metadata.st_mode):
+            raise BundleError(f"Source knowledge pack root must be a real directory: {pack_root}")
     paths: set[str] = set()
+    entry_counter = [0]
     for directory in INCLUDED_DIRS:
-        category = source / directory
+        category = pack_root / directory
         try:
             metadata = category.lstat()
         except FileNotFoundError as exc:
@@ -365,6 +875,7 @@ def _worktree_formal_paths(source: Path) -> set[str]:
         if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
             raise BundleError(f"Formal category must be a real directory: {category}")
         for child in os.scandir(category):
+            _record_worktree_entry(entry_counter)
             path = Path(child.path)
             if child.name == "index.md":
                 # Category indexes are intentionally outside the trusted build input.
@@ -372,12 +883,12 @@ def _worktree_formal_paths(source: Path) -> set[str]:
             if child.is_symlink():
                 raise BundleError(f"Symbolic links are not allowed below formal categories: {path}")
             if child.is_dir(follow_symlinks=False):
-                nested = _scan_nested_markdown(path, category)
+                nested = _scan_nested_markdown(path, category, entry_counter)
                 if nested:
                     raise BundleError("Nested formal Markdown is not supported: " + ", ".join(sorted(nested)))
                 continue
             if child.is_file(follow_symlinks=False) and path.suffix.lower() == ".md":
-                paths.add(path.relative_to(source).as_posix())
+                paths.add(path.relative_to(pack_root).as_posix())
     return paths
 
 
@@ -386,8 +897,28 @@ def _read_commit_blobs(
     entries: Mapping[str, tuple[str, str, str]],
 ) -> dict[str, bytes]:
     blobs: dict[str, bytes] = {}
+    total_bytes = 0
     for path, (_, _, object_id) in entries.items():
-        blobs[path] = _run_git_bytes(["cat-file", "blob", object_id], source)
+        remaining = FORMAL_BUNDLE_LIMIT_BYTES - total_bytes
+        if remaining <= 0:
+            raise BundleError(
+                f"Formal bundle exceeds the {FORMAL_BUNDLE_LIMIT_BYTES}-byte limit"
+            )
+        blob = _run_git_bytes(
+            ["cat-file", "blob", object_id],
+            source,
+            stdout_limit=min(FORMAL_PAGE_LIMIT_BYTES, remaining),
+        )
+        if len(blob) > FORMAL_PAGE_LIMIT_BYTES:
+            raise BundleError(
+                f"Formal page exceeds the {FORMAL_PAGE_LIMIT_BYTES}-byte limit: {path}"
+            )
+        if len(blob) > remaining:
+            raise BundleError(
+                f"Formal bundle exceeds the {FORMAL_BUNDLE_LIMIT_BYTES}-byte limit"
+            )
+        total_bytes += len(blob)
+        blobs[path] = blob
     return blobs
 
 
@@ -405,12 +936,59 @@ def _split_frontmatter(raw: bytes, relative: str) -> tuple[dict[str, Any], str]:
     marker = text.find("\n---\n", 4)
     if marker < 0:
         raise BundleError(f"Formal page has unterminated YAML frontmatter: {relative}")
+    frontmatter = text[4:marker]
     try:
-        metadata = yaml.load(text[4:marker], Loader=_UniqueKeySafeLoader)
-    except yaml.YAMLError as exc:
+        node_tokens = 0
+        collection_stack: list[str] = []
+        for token in yaml.scan(frontmatter):
+            if isinstance(token, (yaml.tokens.AnchorToken, yaml.tokens.AliasToken)):
+                raise BundleError(
+                    f"Formal page frontmatter must not use YAML anchors or aliases: {relative}"
+                )
+            if isinstance(
+                token,
+                (
+                    yaml.tokens.ScalarToken,
+                    yaml.tokens.BlockSequenceStartToken,
+                    yaml.tokens.BlockMappingStartToken,
+                    yaml.tokens.FlowSequenceStartToken,
+                    yaml.tokens.FlowMappingStartToken,
+                ),
+            ):
+                node_tokens += 1
+                if node_tokens > YAML_NODE_TOKEN_LIMIT:
+                    raise BundleError(
+                        f"Formal page frontmatter exceeds the {YAML_NODE_TOKEN_LIMIT}-node "
+                        f"pre-load limit: {relative}"
+                    )
+            if isinstance(token, (yaml.tokens.BlockSequenceStartToken, yaml.tokens.BlockMappingStartToken)):
+                collection_stack.append("block")
+            elif isinstance(token, yaml.tokens.FlowSequenceStartToken):
+                collection_stack.append("flow-sequence")
+            elif isinstance(token, yaml.tokens.FlowMappingStartToken):
+                collection_stack.append("flow-mapping")
+            elif isinstance(token, yaml.tokens.BlockEndToken):
+                if collection_stack and collection_stack[-1] == "block":
+                    collection_stack.pop()
+            elif isinstance(token, yaml.tokens.FlowSequenceEndToken):
+                if collection_stack and collection_stack[-1] == "flow-sequence":
+                    collection_stack.pop()
+            elif isinstance(token, yaml.tokens.FlowMappingEndToken):
+                if collection_stack and collection_stack[-1] == "flow-mapping":
+                    collection_stack.pop()
+            if len(collection_stack) > JSON_SAFE_DEPTH_LIMIT:
+                raise BundleError(
+                    f"Formal page frontmatter exceeds the {JSON_SAFE_DEPTH_LIMIT}-level "
+                    f"pre-load depth limit: {relative}"
+                )
+        metadata = yaml.load(frontmatter, Loader=_UniqueKeySafeLoader)
+    except BundleError:
+        raise
+    except (yaml.YAMLError, RecursionError) as exc:
         raise BundleError(f"Formal page frontmatter is invalid: {relative}: {exc}") from exc
     if not isinstance(metadata, dict):
         raise BundleError(f"Formal page frontmatter is not an object: {relative}")
+    _json_safe(metadata)
     return metadata, text[marker + 5 :]
 
 
@@ -639,17 +1217,29 @@ def _render_retrieval_corpus(blobs: Mapping[str, bytes]) -> bytes:
     ).encode("utf-8")
 
 
-def _load_source_snapshot(
-    source: Path,
+def _snapshot_from_resolved_source(
+    resolved: Path,
+    remote: str,
+    commit: str,
     *,
-    expect_source_commit: str | None,
-    expect_formal_sha256: str | None,
+    expected_formal_sha256: str | None = None,
 ) -> SourceSnapshot:
-    resolved, commit, commit_date = _resolve_clean_source(source)
-    if expect_source_commit is not None and commit != expect_source_commit:
-        raise BundleError(f"Source commit mismatch: expected {expect_source_commit}, got {commit}")
-    entries = _commit_formal_entries(resolved, commit)
-    worktree_paths = _worktree_formal_paths(resolved)
+    source_pack_root, entries = _commit_formal_entries(resolved, commit)
+    blobs = _read_commit_blobs(resolved, entries)
+    formal_sha = tree_sha256(blobs)
+    if expected_formal_sha256 is not None and formal_sha != expected_formal_sha256:
+        raise BundleError(
+            "Formal page SHA-256 mismatch: "
+            f"expected {expected_formal_sha256}, got {formal_sha}"
+        )
+    worktree_source_pack_root = _detect_worktree_source_pack_root(resolved)
+    if worktree_source_pack_root != source_pack_root:
+        raise BundleError(
+            "Committed and worktree source knowledge layouts differ: "
+            f"commit={_source_layout_name(source_pack_root)}, "
+            f"worktree={_source_layout_name(worktree_source_pack_root)}"
+        )
+    worktree_paths = _worktree_formal_paths(resolved, source_pack_root)
     if worktree_paths != set(entries):
         missing = sorted(set(entries) - worktree_paths)
         extra = sorted(worktree_paths - set(entries))
@@ -659,24 +1249,55 @@ def _load_source_snapshot(
         if extra:
             details.append("extra or ignored " + ", ".join(extra))
         raise BundleError("Worktree formal-page inventory differs from the clean commit: " + "; ".join(details))
-    blobs = _read_commit_blobs(resolved, entries)
-    formal_sha = tree_sha256(blobs)
-    if expect_formal_sha256 is not None and formal_sha != expect_formal_sha256:
-        raise BundleError(f"Formal page SHA-256 mismatch: expected {expect_formal_sha256}, got {formal_sha}")
     corpus_sha = sha256_bytes(_render_retrieval_corpus(blobs))
     if _run_git_bytes(
         ["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"],
         resolved,
     ):
         raise BundleError("Source working tree changed while commit blobs were being read")
+    commit_date = _run_git_text(["show", "-s", "--format=%cI", commit], resolved)
     return SourceSnapshot(
         source=resolved,
+        remote=remote,
         commit=commit,
         commit_date=commit_date,
         blobs=blobs,
         formal_page_sha256=formal_sha,
         retrieval_corpus_sha256=corpus_sha,
+        isolation=_git_isolation()[0],
+        source_layout=_source_layout_name(source_pack_root),
     )
+
+
+def _inspect_source_snapshot(
+    source: Path,
+    *,
+    expect_source_remote: str,
+) -> SourceSnapshot:
+    with _source_operation_budget():
+        resolved, remote, commit = _resolve_clean_source(source, expect_source_remote)
+        return _snapshot_from_resolved_source(resolved, remote, commit)
+
+
+def _load_source_snapshot(
+    source: Path,
+    *,
+    expect_source_remote: str,
+    expect_source_commit: str,
+    expect_formal_sha256: str,
+) -> SourceSnapshot:
+    with _source_operation_budget():
+        resolved, remote, commit = _resolve_clean_source(
+            source,
+            expect_source_remote,
+            expected_commit=expect_source_commit,
+        )
+        return _snapshot_from_resolved_source(
+            resolved,
+            remote,
+            commit,
+            expected_formal_sha256=expect_formal_sha256,
+        )
 
 
 def _render_skill_index(
@@ -866,6 +1487,26 @@ def _validate_digest_record(value: Any, location: str, *, allow_none: bool) -> d
     return value
 
 
+def _transaction_subdirectory(
+    transaction_dir: Path,
+    name: str,
+    *,
+    create: bool = False,
+) -> Path:
+    if name not in {"old", "new", "quarantine"}:
+        raise BundleError(f"Unsupported transaction subdirectory: {name}")
+    path = transaction_dir / name
+    if not _lexists(path):
+        if not create:
+            raise BundleError(f"Transaction {name} directory is missing: {path}")
+        path.mkdir()
+        _fsync_directory(transaction_dir)
+    metadata = path.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise BundleError(f"Transaction {name} must be a real directory: {path}")
+    return path
+
+
 def _load_transaction(paths: BundlePaths) -> tuple[dict[str, Any], Path]:
     journal = load_json_strict(paths.journal_path, root=paths.references_root)
     if set(journal) != TRANSACTION_KEYS:
@@ -885,6 +1526,10 @@ def _load_transaction(paths: BundlePaths) -> tuple[dict[str, Any], Path]:
         raise BundleError(f"Transaction directory is missing: {transaction_dir}") from exc
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
         raise BundleError("Transaction directory must be a real directory below references/")
+    _transaction_subdirectory(transaction_dir, "old")
+    _transaction_subdirectory(transaction_dir, "new")
+    if _lexists(transaction_dir / "quarantine"):
+        _transaction_subdirectory(transaction_dir, "quarantine")
     _validate_digest_record(journal["old"], "transaction.old", allow_none=True)
     _validate_digest_record(journal["new"], "transaction.new", allow_none=False)
     return journal, transaction_dir
@@ -907,9 +1552,8 @@ def _cleanup_transaction_dir(transaction_dir: Path, references_root: Path) -> No
 
 
 def _restore_old_artifacts(paths: BundlePaths, transaction_dir: Path, expected: dict[str, str]) -> None:
-    old_root = transaction_dir / "old"
-    quarantine = transaction_dir / "quarantine"
-    quarantine.mkdir(exist_ok=True)
+    old_root = _transaction_subdirectory(transaction_dir, "old")
+    quarantine = _transaction_subdirectory(transaction_dir, "quarantine", create=True)
     digest_keys = {
         "knowledge": "knowledge_sha256",
         "catalog.json": "catalog_file_sha256",
@@ -952,6 +1596,59 @@ def _restore_old_artifacts(paths: BundlePaths, transaction_dir: Path, expected: 
         raise BundleError("Restored artifact set does not match the recorded old hashes")
 
 
+def _complete_new_artifacts(
+    paths: BundlePaths,
+    transaction_dir: Path,
+    expected: dict[str, str],
+) -> None:
+    new_root = _transaction_subdirectory(transaction_dir, "new")
+    quarantine = _transaction_subdirectory(transaction_dir, "quarantine", create=True)
+    digest_keys = {
+        "knowledge": "knowledge_sha256",
+        "catalog.json": "catalog_file_sha256",
+        "manifest.json": "manifest_file_sha256",
+    }
+    selections: dict[str, Path] = {}
+    for relative, digest_key in digest_keys.items():
+        required = expected[digest_key]
+        current = paths.references_root / relative
+        staged = new_root / relative
+        current_matches = False
+        staged_matches = False
+        if _lexists(current):
+            try:
+                current_matches = _artifact_digest(paths.references_root, relative) == required
+            except (BundleError, BundleIntegrityError):
+                current_matches = False
+        if _lexists(staged):
+            try:
+                staged_matches = _artifact_digest(new_root, relative) == required
+            except (BundleError, BundleIntegrityError):
+                staged_matches = False
+        if current_matches:
+            selections[relative] = current
+        elif staged_matches:
+            selections[relative] = staged
+        else:
+            raise BundleError(f"Cannot locate the recorded new artifact during recovery: {relative}")
+
+    for relative, selected in selections.items():
+        current = paths.references_root / relative
+        if selected == current:
+            continue
+        if _lexists(current):
+            quarantine_target = quarantine / f"{relative.replace('/', '_')}-{uuid.uuid4().hex}"
+            _rename(current, quarantine_target)
+        _rename(selected, current)
+    _fsync_directory(paths.references_root)
+    if _artifact_digests(paths.references_root) != expected:
+        raise BundleError("Completed artifact set does not match the recorded new hashes")
+    try:
+        load_validated_bundle(paths.references_root, reject_transaction=False)
+    except BundleIntegrityError as exc:
+        raise BundleError(f"Completed new artifacts fail full bundle validation: {exc}") from exc
+
+
 def recover(paths: BundlePaths = DEFAULT_PATHS) -> dict[str, Any]:
     """Resolve one recorded interrupted transaction without touching unknown paths."""
 
@@ -962,7 +1659,7 @@ def recover(paths: BundlePaths = DEFAULT_PATHS) -> dict[str, Any]:
     new = journal["new"]
     try:
         current = _artifact_digests(paths.references_root)
-    except BundleError:
+    except (BundleError, BundleIntegrityError):
         current = None
 
     if current == new:
@@ -986,9 +1683,10 @@ def recover(paths: BundlePaths = DEFAULT_PATHS) -> dict[str, Any]:
         _remove_journal(paths)
         _cleanup_transaction_dir(transaction_dir, paths.references_root)
         return {"status": "restored-old", "recovered": True}
-    raise BundleError(
-        "Interrupted initial installation is ambiguous; journal retained and runtime remains blocked"
-    )
+    _complete_new_artifacts(paths, transaction_dir, new)
+    _remove_journal(paths)
+    _cleanup_transaction_dir(transaction_dir, paths.references_root)
+    return {"status": "completed-new", "recovered": True}
 
 
 def _install_transaction(paths: BundlePaths, transaction_dir: Path) -> None:
@@ -1029,21 +1727,55 @@ def _install_transaction(paths: BundlePaths, transaction_dir: Path) -> None:
     _cleanup_transaction_dir(transaction_dir, paths.references_root)
 
 
+def inspect_source(
+    source: Path,
+    *,
+    expect_source_remote: str | None = None,
+) -> dict[str, Any]:
+    """Inspect one clean source under OS isolation without staging or installing a bundle."""
+
+    remote = _validate_expected_source_remote(expect_source_remote)
+    snapshot = _inspect_source_snapshot(source, expect_source_remote=remote)
+    return {
+        "installed": False,
+        "inspected": True,
+        "source_remote": snapshot.remote,
+        "source_commit": snapshot.commit,
+        "source_layout": snapshot.source_layout,
+        "source_isolation": snapshot.isolation,
+        "git_command_timeout_seconds": GIT_COMMAND_TIMEOUT_SECONDS,
+        "source_operation_timeout_seconds": SOURCE_OPERATION_TIMEOUT_SECONDS,
+        "formal_page_limit_bytes": FORMAL_PAGE_LIMIT_BYTES,
+        "formal_bundle_limit_bytes": FORMAL_BUNDLE_LIMIT_BYTES,
+        "content_pages": len(snapshot.blobs),
+        "formal_page_sha256": snapshot.formal_page_sha256,
+        "retrieval_corpus_sha256": snapshot.retrieval_corpus_sha256,
+    }
+
+
 def build(
     source: Path,
     *,
     replace: bool = False,
     check: bool = False,
+    expect_source_remote: str | None = None,
     expect_source_commit: str | None = None,
     expect_formal_sha256: str | None = None,
     paths: BundlePaths = DEFAULT_PATHS,
 ) -> dict[str, Any]:
     """Build, verify, and optionally transactionally install one clean-commit snapshot."""
 
-    if expect_source_commit is not None and not COMMIT_RE.fullmatch(expect_source_commit):
-        raise BundleError("--expect-source-commit must be a lowercase 40- or 64-character Git id")
-    if expect_formal_sha256 is not None and not FORMAL_SHA_RE.fullmatch(expect_formal_sha256):
-        raise BundleError("--expect-formal-sha256 must be a lowercase SHA-256 digest")
+    remote = _validate_expected_source_remote(expect_source_remote)
+    if not isinstance(expect_source_commit, str) or not COMMIT_RE.fullmatch(expect_source_commit):
+        raise BundleError(
+            "--expect-source-commit is required and must be a lowercase 40- or 64-character Git id"
+        )
+    if not isinstance(expect_formal_sha256, str) or not FORMAL_SHA_RE.fullmatch(
+        expect_formal_sha256
+    ):
+        raise BundleError(
+            "--expect-formal-sha256 is required and must be a lowercase SHA-256 digest"
+        )
     if check and replace:
         raise BundleError("--check cannot be combined with --replace")
     if _lexists(paths.journal_path):
@@ -1051,6 +1783,7 @@ def build(
 
     snapshot = _load_source_snapshot(
         source,
+        expect_source_remote=remote,
         expect_source_commit=expect_source_commit,
         expect_formal_sha256=expect_formal_sha256,
     )
@@ -1063,7 +1796,14 @@ def build(
             return {
                 "installed": False,
                 "checked": True,
+                "source_remote": snapshot.remote,
                 "source_commit": snapshot.commit,
+                "source_layout": snapshot.source_layout,
+                "source_isolation": snapshot.isolation,
+                "git_command_timeout_seconds": GIT_COMMAND_TIMEOUT_SECONDS,
+                "source_operation_timeout_seconds": SOURCE_OPERATION_TIMEOUT_SECONDS,
+                "formal_page_limit_bytes": FORMAL_PAGE_LIMIT_BYTES,
+                "formal_bundle_limit_bytes": FORMAL_BUNDLE_LIMIT_BYTES,
                 "content_pages": len(snapshot.blobs),
                 "retrieval_corpus_sha256": snapshot.retrieval_corpus_sha256,
                 **manifest["bundle"],
@@ -1099,7 +1839,14 @@ def build(
     return {
         "installed": True,
         "checked": True,
+        "source_remote": snapshot.remote,
         "source_commit": snapshot.commit,
+        "source_layout": snapshot.source_layout,
+        "source_isolation": snapshot.isolation,
+        "git_command_timeout_seconds": GIT_COMMAND_TIMEOUT_SECONDS,
+        "source_operation_timeout_seconds": SOURCE_OPERATION_TIMEOUT_SECONDS,
+        "formal_page_limit_bytes": FORMAL_PAGE_LIMIT_BYTES,
+        "formal_bundle_limit_bytes": FORMAL_BUNDLE_LIMIT_BYTES,
         "content_pages": len(snapshot.blobs),
         "retrieval_corpus_sha256": snapshot.retrieval_corpus_sha256,
         **manifest["bundle"],
@@ -1111,10 +1858,22 @@ def main() -> int:
     parser.add_argument("--source", type=Path, help="Path to the clean StarunWiki Git worktree")
     parser.add_argument("--replace", action="store_true", help="Transactionally replace an existing bundle")
     parser.add_argument("--check", action="store_true", help="Build and validate without installing artifacts")
-    parser.add_argument("--expect-source-commit", help="Require an exact clean source commit")
+    parser.add_argument(
+        "--inspect-source",
+        action="store_true",
+        help="Inspect a clean, remote-pinned source without staging or installing a bundle",
+    )
+    parser.add_argument(
+        "--expect-source-remote",
+        help="Exact approved StarunWiki origin URL; required for inspect/build/check",
+    )
+    parser.add_argument(
+        "--expect-source-commit",
+        help="Exact clean source commit; required for every build/check operation",
+    )
     parser.add_argument(
         "--expect-formal-sha256",
-        help="Require the exact path-and-raw-blob hash of committed formal pages",
+        help="Exact path-and-raw-blob hash; required for every build/check operation",
     )
     parser.add_argument("--recover", action="store_true", help="Recover one recorded interrupted transaction")
     args = parser.parse_args()
@@ -1126,12 +1885,33 @@ def main() -> int:
                     args.source,
                     args.replace,
                     args.check,
+                    args.inspect_source,
+                    args.expect_source_remote,
                     args.expect_source_commit,
                     args.expect_formal_sha256,
                 )
             ):
                 raise BundleError("--recover cannot be combined with build options")
             result = recover()
+        elif args.inspect_source:
+            if args.source is None:
+                raise BundleError("--source is required with --inspect-source")
+            if any(
+                value
+                for value in (
+                    args.replace,
+                    args.check,
+                    args.expect_source_commit,
+                    args.expect_formal_sha256,
+                )
+            ):
+                raise BundleError(
+                    "--inspect-source cannot be combined with build, check, or content-pin options"
+                )
+            result = inspect_source(
+                args.source,
+                expect_source_remote=args.expect_source_remote,
+            )
         else:
             if args.source is None:
                 raise BundleError("--source is required unless --recover is used")
@@ -1139,6 +1919,7 @@ def main() -> int:
                 args.source,
                 replace=args.replace,
                 check=args.check,
+                expect_source_remote=args.expect_source_remote,
                 expect_source_commit=args.expect_source_commit,
                 expect_formal_sha256=args.expect_formal_sha256,
             )

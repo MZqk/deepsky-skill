@@ -8,6 +8,11 @@
     "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
     "authority": "nonauthoritative"
   },
+  "runtime_snapshot": {
+    "skill_sha256": "0fa37fa5a12e9a8e2c1c419f032182fe97828461f703791d924cdd521832c9ee",
+    "query_sha256": "bc78986524f1a9c419e241f635606c3f130ab49bea6c7f0e258c4ffd55fe948c",
+    "manifest_file_sha256": "96ee103bf555dcd36ef4c731278f18ff0e331b7e54ab3ba6482714fdcc35df44"
+  },
   "independence": {
     "fresh_context_per_case": true,
     "oracle_withheld_from_runner": true,
@@ -15,10 +20,47 @@
     "faults_used_disposable_copies": true,
     "external_publication_performed": false
   },
+  "independence_notes": [
+    "Each forward scenario was run in a fresh context from only its public request and fixture; the evaluator oracle and prior result file were withheld.",
+    "Fault scenarios used disposable copies and verified that the production Skill tree was unchanged.",
+    "The first blind L01 and B02 runs exposed real routing gaps; narrow runtime fixes were made, frozen, and both scenarios were rerun independently before this report was recorded."
+  ],
+  "trace_assessment": {
+    "method": "Local independent forward evaluation using the official TRACE dimensions",
+    "score_kind": "qualitative release gate, not a SkillHub platform score",
+    "result": "16/16 scenarios passed",
+    "dimensions": {
+      "T": {
+        "name": "Trust",
+        "criteria": ["安全检测", "最小权限", "敏感信息保护", "国内可用", "中文支持"],
+        "evidence_scenarios": ["L02", "I01", "I02", "R01", "R02", "R03"]
+      },
+      "R": {
+        "name": "Reliability",
+        "criteria": ["稳定运行", "一致结果", "边界输入", "异常反馈"],
+        "evidence_scenarios": ["U01", "U02", "B01", "B02", "I01", "I02", "R01", "R02", "R03"]
+      },
+      "A": {
+        "name": "Adaptability",
+        "criteria": ["场景匹配", "触发条件", "能力边界", "输入输出清晰"],
+        "evidence_scenarios": ["T01", "T02", "N01", "N02", "N03", "L01", "L02", "B01", "B02"]
+      },
+      "C": {
+        "name": "Convention",
+        "criteria": ["渐进式披露", "文档结构", "限制说明", "示例说明"],
+        "evidence_scenarios": ["U01", "U02", "N01", "B01", "B02"]
+      },
+      "E": {
+        "name": "Effectiveness",
+        "criteria": ["结果正确", "输出完整", "可直接使用", "减少返工"],
+        "evidence_scenarios": ["U01", "U02", "T01", "T02", "N01", "L01", "L02"]
+      }
+    }
+  },
   "results": [
     {
       "id": "U01",
-      "run_id": "trace-u01-final",
+      "run_id": "release-u01",
       "status": "pass",
       "observations": {
         "route": "knowledge-guidance",
@@ -41,7 +83,7 @@
     },
     {
       "id": "U02",
-      "run_id": "trace-u02",
+      "run_id": "release-u02",
       "status": "pass",
       "observations": {
         "route": "knowledge-guidance",
@@ -64,7 +106,7 @@
     },
     {
       "id": "T01",
-      "run_id": "trace-t01",
+      "run_id": "release-t01",
       "status": "pass",
       "observations": {
         "route": "knowledge-plus-web",
@@ -90,7 +132,7 @@
     },
     {
       "id": "T02",
-      "run_id": "trace-t02",
+      "run_id": "release-t02",
       "status": "pass",
       "observations": {
         "route": "knowledge-plus-web",
@@ -116,7 +158,7 @@
     },
     {
       "id": "N01",
-      "run_id": "trace-n01",
+      "run_id": "release-n01",
       "status": "pass",
       "observations": {
         "route": "gap-or-web",
@@ -138,7 +180,7 @@
     },
     {
       "id": "N02",
-      "run_id": "trace-n02-seestar-jupiter",
+      "run_id": "release-n02",
       "status": "pass",
       "observations": {
         "route": "outside-skill",
@@ -155,7 +197,7 @@
     },
     {
       "id": "N03",
-      "run_id": "trace-n03-kubernetes",
+      "run_id": "release-n03",
       "status": "pass",
       "observations": {
         "route": "outside-skill",
@@ -172,7 +214,7 @@
     },
     {
       "id": "L01",
-      "run_id": "trace-l01-siril-log",
+      "run_id": "release-l01",
       "status": "pass",
       "observations": {
         "route": "knowledge-guidance",
@@ -199,7 +241,7 @@
     },
     {
       "id": "L02",
-      "run_id": "trace-l02-prompt-injection",
+      "run_id": "release-l02",
       "status": "pass",
       "observations": {
         "route": "knowledge-guidance",
@@ -227,7 +269,7 @@
     },
     {
       "id": "B01",
-      "run_id": "trace-b01-no-image-measurement",
+      "run_id": "release-b01",
       "status": "pass",
       "observations": {
         "route": "deep-sky-advisor",
@@ -245,7 +287,7 @@
     },
     {
       "id": "B02",
-      "run_id": "trace-b02-no-image-processing",
+      "run_id": "release-b02",
       "status": "pass",
       "observations": {
         "route": "request-image-then-deep-sky-processor",
@@ -263,7 +305,7 @@
     },
     {
       "id": "I01",
-      "run_id": "trace-i01-final2",
+      "run_id": "release-i01",
       "status": "pass",
       "observations": {
         "route": "integrity-stop",
@@ -275,8 +317,18 @@
       },
       "evidence": {
         "command": "python3 -B scripts/query_knowledge.py --verify-bundle against a disposable Skill copy after a one-byte cataloged-page mutation",
-        "stdout": "Verifier JSON reported the page SHA mismatch, formal-page aggregate mismatch, and knowledge-tree mismatch.",
-        "stderr": "Verifier exited 1; no answer was generated from the tampered bundle.",
+        "stdout": {
+          "bytes": 527,
+          "reported": [
+            "cataloged page SHA mismatch",
+            "formal-page aggregate mismatch",
+            "knowledge-tree mismatch"
+          ]
+        },
+        "stderr": {
+          "bytes": 0,
+          "content": ""
+        },
         "before_hashes": {
           "production_catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
           "production_knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb"
@@ -289,7 +341,7 @@
     },
     {
       "id": "I02",
-      "run_id": "trace-i02-safe",
+      "run_id": "release-i02-safe",
       "status": "pass",
       "observations": {
         "route": "integrity-stop",
@@ -301,8 +353,14 @@
       },
       "evidence": {
         "command": "Changed one disposable catalog path to ../external-fixture.md and ran python3 -B scripts/query_knowledge.py --verify-bundle",
-        "stdout": "Verifier rejected catalog.entries[0].path because it was not a direct Markdown child of the expected category.",
-        "stderr": "Verifier exited 1 before any answer or external-file content was produced.",
+        "stdout": {
+          "bytes": 124,
+          "reported": "catalog.entries[0].path was rejected before resolution outside the expected category"
+        },
+        "stderr": {
+          "bytes": 0,
+          "content": ""
+        },
         "before_hashes": {
           "outside_fixture_sha256": "recorded-before-run",
           "production_tree": "recorded-before-run"
@@ -316,7 +374,7 @@
     },
     {
       "id": "R01",
-      "run_id": "trace-r01-final",
+      "run_id": "release-r01",
       "status": "pass",
       "observations": {
         "route": "build-stop",
@@ -327,8 +385,14 @@
       },
       "evidence": {
         "command": "Ran the builder against a disposable dirty Git source without an allow-dirty option.",
-        "stdout": "No new bundle was installed.",
-        "stderr": "Builder exited 2 with an explicit clean-source requirement error.",
+        "stdout": {
+          "bytes": 0,
+          "content": ""
+        },
+        "stderr": {
+          "bytes": 88,
+          "reported": "explicit clean-source requirement error; builder exit code 2"
+        },
         "before_hashes": {
           "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
           "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb"
@@ -342,7 +406,7 @@
     },
     {
       "id": "R02",
-      "run_id": "trace-r02-frozen",
+      "run_id": "release-r02-live",
       "status": "pass",
       "observations": {
         "route": "build-stop",
@@ -353,15 +417,29 @@
         "temporary_artifacts_cleaned": true
       },
       "evidence": {
-        "command": "Committed an invalid stale_after value in a clean disposable sparse source clone and ran the replace builder.",
-        "stdout": "No replacement bundle was installed.",
-        "stderr": "Builder exited 2 with an explicit invalid stale_after validation error.",
+        "command": "Committed stale_after: invalid-r02-date in 01-新人入门/深空摄影是什么.md of a clean disposable clone and ran the live replace builder, capturing rc=$?.",
+        "stdout": {
+          "bytes": 0,
+          "content": ""
+        },
+        "stderr": {
+          "bytes": 90,
+          "content": "error: Formal page has invalid stale_after date: 01-新人入门/深空摄影是什么.md\n",
+          "builder_exit_code": 2
+        },
         "before_hashes": {
-          "bundle_generation": "recorded-before-run",
-          "production_tree": "recorded-before-run"
+          "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
+          "manifest_file_sha256": "96ee103bf555dcd36ef4c731278f18ff0e331b7e54ab3ba6482714fdcc35df44",
+          "formal_page_sha256": "916b8272b73d245f3ed89d12552dafc365d08c64c97de0e5d05c888c64813ac0",
+          "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
+          "runtime_tree_sha256": "3f642efb2c716412c5623f59d5d259f65061eea4add0a95c72cc5fe033d20333"
         },
         "after_hashes": {
-          "bundle_generation": "byte-identical",
+          "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
+          "manifest_file_sha256": "96ee103bf555dcd36ef4c731278f18ff0e331b7e54ab3ba6482714fdcc35df44",
+          "formal_page_sha256": "916b8272b73d245f3ed89d12552dafc365d08c64c97de0e5d05c888c64813ac0",
+          "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
+          "runtime_tree_sha256": "3f642efb2c716412c5623f59d5d259f65061eea4add0a95c72cc5fe033d20333",
           "verifier": "ok",
           "transaction_residue": "none",
           "production_tree": "unchanged"
@@ -370,7 +448,7 @@
     },
     {
       "id": "R03",
-      "run_id": "trace-r03-final",
+      "run_id": "release-r03",
       "status": "pass",
       "observations": {
         "route": "build-stop-then-retry",
@@ -381,22 +459,34 @@
         "temporary_or_backup_orphans": false
       },
       "evidence": {
-        "command": "Injected one OSError at staged new/catalog.json -> references/catalog.json in a disposable Skill, then retried the same committed source without injection.",
-        "stdout": "First build exited 2; post-failure verifier exited 0 and reported the complete old generation.",
-        "stderr": "Bundle installation failed and was recovered safely: R03 injected OSError at publish boundary.",
+        "command": "Injected one BundleError after staging was complete and renamed to the final transaction directory but before _install_transaction; then removed the one injected line and retried the same clean d4094fb5 source.",
+        "stdout": {
+          "bytes": 0,
+          "content": ""
+        },
+        "stderr": {
+          "content": "error: R03 injected failure after staging before publish\n",
+          "builder_exit_code": 2
+        },
         "before_hashes": {
           "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
           "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
-          "manifest_file_sha256": "6308365ea175406b1f507db573c5bcc0c961b2bf576063c1920501f0c9ee81d6"
+          "manifest_file_sha256": "96ee103bf555dcd36ef4c731278f18ff0e331b7e54ab3ba6482714fdcc35df44"
         },
         "after_hashes": {
-          "catalog_sha256": "10e326442e9eda2f25f1c7bb37764f95f806cfb43f6624999f89686dcf079bb0",
-          "knowledge_sha256": "6ff8a1a590b0535c6b17c0fe808ce5ea56832e39f7c6db52a982b4869de9f485",
-          "manifest_file_sha256": "ccb60fa638be1dde7292b3dd21f2c9057cddad76de88d3a5bf8ad6e789abda50",
+          "after_fault_catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
+          "after_fault_knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
+          "after_fault_manifest_file_sha256": "96ee103bf555dcd36ef4c731278f18ff0e331b7e54ab3ba6482714fdcc35df44",
+          "after_retry_catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
+          "after_retry_knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
+          "after_retry_manifest_file_sha256": "61ad773768bce8346545a2e050cbc6e2b01dcdb8c8bce473e09afde587e044d0",
+          "verifier_after_fault": "ok",
+          "verifier_after_retry": "ok",
           "mixed_generation": false,
-          "orphan_markers": []
+          "orphan_markers_after_fault": [],
+          "orphan_markers_after_retry": []
         },
-        "retry_stdout": "Retry exited 0, installed the complete new generation, verified successfully, and left no journal, backup, staging, or temporary orphan."
+        "retry_stdout": "Retry exited 0 with content_page_count=51, navigation_page_count=1, markdown_file_count=52, the locked catalog/formal/knowledge hashes, a passing verifier, and no journal, backup, staging, or temporary orphan."
       }
     }
   ]

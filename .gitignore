@@ -9,5 +9,6 @@ venv_*/
 .antigravitycli/
 .superpowers/
 /.workbuddy/
+/.codex/
 /siril-mosaic/dev-runs/
 /dist/

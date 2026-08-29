@@ -51,6 +51,22 @@ def test_smart_telescope_siril_query_finds_the_specific_workflow() -> None:
     )
 
 
+def test_registration_log_terms_retrieve_local_workflow_instead_of_false_gap() -> None:
+    completed = run_query(
+        "registration not enough stars frame rejected FWHM threshold change registration resumed 下一步",
+        "--top",
+        "5",
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    titles = {item["title"] for item in payload["results"]}
+    guidance = payload["guidance"]
+    assert guidance["bundle_coverage"] == "sufficient"
+    assert "配准与筛选" in guidance["matched_core_terms"]
+    assert guidance["unmatched_core_terms"] == []
+    assert "Siril 新手首图工作流" in titles
+
+
 def test_bundle_integrity_and_authority_state() -> None:
     completed = run_query("--verify-bundle")
     assert completed.returncode == 0, completed.stderr
