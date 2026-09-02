@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "starun-siril.review.v1",
+  "description": "Hash-bound visual review of materials produced by one successful Siril run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "run_receipt_sha256", "protocol", "inspected_materials", "verdict", "gates", "notes"],
+  "properties": {
+    "schema": {"const": "starun-siril.review.v1"},
+    "run_id": {"type": "string", "pattern": "^[0-9]{3}-[a-z0-9][a-z0-9-]{0,63}$"},
+    "run_receipt_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "protocol": {"type": "string", "minLength": 3, "maxLength": 80},
+    "inspected_materials": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "description": "Material paths must also be unique; runtime enforces uniqueness by path.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": ".*\\S.*"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "verdict": {"enum": ["accept", "reject", "uncertain"]},
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["structure", "background", "color", "stars", "geometry"],
+      "properties": {
+        "structure": {"enum": ["pass", "fail", "not_applicable", "uncertain"]},
+        "background": {"enum": ["pass", "fail", "not_applicable", "uncertain"]},
+        "color": {"enum": ["pass", "fail", "not_applicable", "uncertain"]},
+        "stars": {"enum": ["pass", "fail", "not_applicable", "uncertain"]},
+        "geometry": {"enum": ["pass", "fail", "not_applicable", "uncertain"]}
+      }
+    },
+    "notes": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": ".*\\S.*"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"verdict": {"const": "accept"}},
+        "required": ["verdict"]
+      },
+      "then": {
+        "properties": {
+          "gates": {
+            "properties": {
+              "structure": {"enum": ["pass", "not_applicable"]},
+              "background": {"enum": ["pass", "not_applicable"]},
+              "color": {"enum": ["pass", "not_applicable"]},
+              "stars": {"enum": ["pass", "not_applicable"]},
+              "geometry": {"enum": ["pass", "not_applicable"]}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "protocol": {"const": "delivery.render"},
+          "verdict": {"const": "accept"}
+        },
+        "required": ["protocol", "verdict"]
+      },
+      "then": {
+        "properties": {
+          "gates": {
+            "properties": {
+              "structure": {"const": "pass"},
+              "background": {"const": "pass"},
+              "color": {"const": "pass"},
+              "stars": {"const": "pass"},
+              "geometry": {"const": "pass"}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

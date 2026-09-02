@@ -103,14 +103,14 @@ jobs:
             deep-sky-capture-advisor)
               "${SKILL}/.venv/bin/python" \
                 deep-sky-capture-advisor/scripts/package_release.py \
-                --output "${RUNNER_TEMP}/deep-sky-capture-advisor-0.1.0.zip"
+                --output "${RUNNER_TEMP}/deep-sky-capture-advisor-1.0.1.zip"
               ;;
             siril-mosaic)
               "${SKILL}/.venv/bin/python" \
                 siril-mosaic/scripts/package_release.py --check
               "${SKILL}/.venv/bin/python" \
                 siril-mosaic/scripts/package_release.py \
-                --output "${RUNNER_TEMP}/siril-mosaic-0.1.0.zip"
+                --output "${RUNNER_TEMP}/siril-mosaic-1.0.1.zip"
               ;;
           esac
       - name: Confirm tests did not rewrite tracked files

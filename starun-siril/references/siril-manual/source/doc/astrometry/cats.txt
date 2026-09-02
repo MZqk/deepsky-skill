@@ -1,0 +1,15 @@
+Catalogue	`-cat=`	Reference
+Local	*Omitted*	using :ref:`local star catalogues <astrometry/annotations:Offline annotation catalogues>`
+Tycho2	tycho2	https://cdsarc.cds.unistra.fr/viz-bin/cat/I/297
+Nomad	nomad	https://cdsarc.cds.unistra.fr/viz-bin/cat/I/297
+GAIA DR3	gaia	https://cdsarc.cds.unistra.fr/viz-bin/cat/I/355
+PPMXL	ppmxl	https://cdsarc.cds.unistra.fr/viz-bin/cat/I/317
+Bright Stars Catalogues	bsc	https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50
+APASS DR9	apass	https://cdsarc.cds.unistra.fr/viz-bin/cat/II/336
+GCVS	gcvs	https://cdsarc.cds.unistra.fr/viz-bin/cat/B/gcvs
+VSX	vsx	https://cdsarc.cds.unistra.fr/viz-bin/cat/B/vsx
+SIMBAD	simbad	https://simbad.cds.unistra.fr/simbad/sim-tap/
+PGC/HYPERLEDA	pgc	https://cdsarc.cds.unistra.fr/viz-bin/cat/VII/237
+Exoplanet archive	exo	https://exoplanetarchive.ipac.caltech.edu
+AAVSO VSP	aavso_chart	https://app.aavso.org/vsp/
+IMCCE Solar system skybot	solsys	https://vo.imcce.fr/webservices/skybot/?conesearch

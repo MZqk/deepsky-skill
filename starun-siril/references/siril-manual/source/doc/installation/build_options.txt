@@ -1,0 +1,17 @@
+Option	Type	Value	Choices	Description
+relocatable-bundle	combo	platform-default	[ 'yes', 'no', 'platform-default' ]	build with resources considered bundled under the same prefix
+openmp	boolean	true	N/A	build with OpenMP support
+exiv2	boolean	true	N/A	build with exiv2 support
+libgit2	boolean	true	N/A	build with libgit2 git integration
+libraw	boolean	true	N/A	build with LibRaw support
+libtiff	boolean	true	N/A	build with TIFF support
+libjpeg	boolean	true	N/A	build with JPEG support
+libjxl	boolean	true	N/A	build with JPEG XL support
+libpng	boolean	true	N/A	build with PNG support
+libheif	boolean	true	N/A	build with HEIF support
+libXISF	boolean	true	N/A	build with XISF support
+ffms2	boolean	true	N/A	build with FFMS2 support
+ffmpeg	boolean	true	N/A	build with FFmpeg support
+libcurl	boolean	true	N/A	Use libcurl for web access
+criterion	boolean	false	N/A	build with criterion support
+flatpak-id	string		N/A	set by flatpak-builder if building a flatpak

@@ -45,10 +45,10 @@
     "writes_to_bundle": false
   },
   "runtime_files": {
-    "NOTICE.md": "f707c9fa5906410414ecfc0940e9a79dfed26fa62274cf1f38b18236c019a86f",
-    "SKILL.md": "c4b2c07382c173529c3e9880060683a6424bc1045d6772d86c3a0a06a84fbcb6",
+    "NOTICE.md": "4ac389c3ef8d7f0ff6e7a482847f2378f2541ef56cf05c75473d7b26e6257b75",
+    "SKILL.md": "58d321fe74c6e525a05cdef86ba7785c656813b9857617f08c8097d7eab97826",
     "agents/openai.yaml": "54ee5f53279c972403e94923ca4912ae6a6be1da521df4f9e1d834ba86864b52",
-    "release-authorization.json": "246385476e6f70938162bde54f527585d1dfcfe0964260729986e5714a7b4cd0",
+    "release-authorization.json": "54920a02ed59ea613650752dc78bc96b7751bfd849f163a66ae689d38e7c6246",
     "scripts/knowledge_common.py": "fe40e30c079142522629ff964ec1c4b109fd49f6b5bbd5b5958a61e2bc515907",
     "scripts/query_knowledge.py": "bc78986524f1a9c419e241f635606c3f130ab49bea6c7f0e258c4ffd55fe948c"
   },

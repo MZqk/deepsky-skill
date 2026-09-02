@@ -1,0 +1,1 @@
+| Extracts green signal from the loaded CFA image. It reads the Bayer matrix information from the image or the preferences and exports only the averaged green filter data as a new half-sized FITS file. A new file is created, its name is prefixed with "Green\_"

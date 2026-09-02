@@ -1,0 +1,4 @@
+interface:
+  display_name: "Starun-siril"
+  short_description: "Evidence-grounded standalone Siril processing"
+  default_prompt: "Use $starun-siril to choose only evidence-applicable protocols, author provenance-bound SSFs from the protocol references and frozen Siril manual, review the actual pixels, and finalize only a verified delivery."

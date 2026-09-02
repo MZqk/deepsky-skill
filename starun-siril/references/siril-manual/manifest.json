@@ -1,0 +1,91 @@
+{
+  "build": {
+    "builder_version": "1"
+  },
+  "component": {
+    "id": "siril-manual",
+    "version": "1.4.4"
+  },
+  "counts": {
+    "commands": 199,
+    "component_files": 577,
+    "include_dependencies": 8,
+    "rst_files": 536,
+    "sections": 994,
+    "selected_images": 24
+  },
+  "coverage": {
+    "image": "selected",
+    "rst": "complete_at_pinned_commit"
+  },
+  "files": {
+    "path": "files.json",
+    "sha256": "fc50a4eabf1579e931a16dac5adbd860096505d4f04e8f36e5b3083abbd39bce",
+    "size_bytes": 185274
+  },
+  "indexes": {
+    "aliases": {
+      "path": "aliases.zh-en.json",
+      "sha256": "191f702716ef2296f5a0d0fcbd20d23c1532bd178e708cb63eab36099f1365fd",
+      "size_bytes": 10091
+    },
+    "catalog": {
+      "path": "catalog.json",
+      "sha256": "a509e581fa841a7f15ab291832414648f4ffe9b150166e0ceb0c2f5beb3fa21c",
+      "size_bytes": 1405328
+    },
+    "commands": {
+      "path": "commands.json",
+      "sha256": "c025149d2d68868d3312f9d22d128d28cbc45845bbbc89e60d6d1f63e8fbcbd4",
+      "size_bytes": 225462
+    },
+    "image_selection": {
+      "path": "image-selection.json",
+      "sha256": "6bc7d65f4198fec7fe76f23c2aab7e20a48e4584fc30fc4e052e97d59945b878",
+      "size_bytes": 93948
+    },
+    "sections": {
+      "path": "sections.jsonl",
+      "sha256": "3f36d2ad10cc76f4cbd99ba2acb400f847cd56213e90076ebc91bf885db6eaa4",
+      "size_bytes": 1336371
+    }
+  },
+  "license": {
+    "concluded": "NOASSERTION",
+    "entries": [
+      {
+        "id": "GPL-3.0-only",
+        "path": "LICENSE.GPL-3.0.txt",
+        "scope": "siril-doc upstream material except separately attributed content",
+        "sha256": "43e0a03410d5863a435c32f42deaa92bbf22fd5bd662e10bb0ce87727ba71e60"
+      },
+      {
+        "applies_to": [
+          "source/doc/photometry/general.rst#munipack-derived-excerpt"
+        ],
+        "id": "LicenseRef-MuniPack-GNU-FDL-version-unspecified",
+        "inferred_candidate_spdx": "GFDL-1.2-no-invariants-only",
+        "path": "LICENSE.GFDL-1.2.txt",
+        "sha256": "2652c22ba086f92e55ae4a9f9c890ad4766ffd7814a73d318e22a597edf857a4",
+        "source_url": "https://ftp.gnu.org/gnu/Licenses/fdl-1.2.txt"
+      }
+    ],
+    "legal_review": "required"
+  },
+  "manual": {
+    "commit": "1550a31d325276124fe961368477c90d49df804b",
+    "commit_time": "2026-08-19T08:44:55+02:00",
+    "rtd_build_id": 34132359,
+    "rtd_url": "https://siril.readthedocs.io/en/stable/",
+    "source_archive_sha256": "13d19abb4f1309f53200820bfa8b9507219ba836edb3d79bc7045d7eb0fc40a0",
+    "source_archive_url": "https://gitlab.com/free-astro/siril-doc/-/archive/1550a31d325276124fe961368477c90d49df804b/siril-doc-1550a31d325276124fe961368477c90d49df804b.tar.gz",
+    "source_url": "https://gitlab.com/free-astro/siril-doc/-/tree/1550a31d325276124fe961368477c90d49df804b/doc",
+    "version": "1.4.4"
+  },
+  "schema": "deep-sky-siril.siril-manual-manifest/v1",
+  "tree": {
+    "algorithm": "sha256-path-nul-sha256-nul-size-lf/v1",
+    "file_count": 577,
+    "sha256": "475f37da07acd98e9dbf406cc60ff0f0643d839d363dfa914e5b3717336be9a9"
+  }
+}

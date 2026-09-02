@@ -4,7 +4,7 @@ Copyright © 2026. All rights reserved.
 
 The original Skill instructions, runtime helpers, release metadata, and original compilation or
 arrangement supplied in this package are proprietary materials. The accompanying authorization
-permits public beta publication of the exact `deep-sky-capture-advisor@0.1.0` locked snapshot on
+permits public beta publication of the exact `deep-sky-capture-advisor@1.0.1` locked snapshot on
 SkillHub. It does not transfer ownership, authorize publication through another channel, permit
 sublicensing, or automatically authorize any modified or future version.
 

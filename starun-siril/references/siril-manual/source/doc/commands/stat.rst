@@ -1,0 +1,1 @@
+| Returns statistics of the current image, the basic list by default or the main list if **main** is passed. If a selection is made, statistics are computed within the selection. If **-cfa** is passed and the image is CFA, statistics are made on per-filter extractions

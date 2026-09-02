@@ -1,0 +1,1 @@
+| Loads the sequence **sequencename** from the current working directory, which becomes the 'currently loaded sequence'. While Siril sequence commands require the sequence name to be specified, it is necessary to load a sequence in order to read its metadata using Python scripting

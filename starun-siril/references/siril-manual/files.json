@@ -1,0 +1,4605 @@
+{
+  "files": [
+    {
+      "path": "LICENSE.GFDL-1.2.txt",
+      "role": "license",
+      "sha256": "2652c22ba086f92e55ae4a9f9c890ad4766ffd7814a73d318e22a597edf857a4",
+      "size_bytes": 20394
+    },
+    {
+      "path": "LICENSE.GPL-3.0.txt",
+      "role": "license",
+      "sha256": "43e0a03410d5863a435c32f42deaa92bbf22fd5bd662e10bb0ce87727ba71e60",
+      "size_bytes": 35057,
+      "upstream_blob": "4dfd116687022ee9acc1fbe99459a80914c36462",
+      "upstream_path": "LICENSE.md"
+    },
+    {
+      "path": "MODIFICATIONS.md",
+      "role": "modifications",
+      "sha256": "7be34c8f36e6d650e9b90d9dba820568522cc1184e8d47c035f736fd6da6cb1c",
+      "size_bytes": 1497
+    },
+    {
+      "path": "NOTICE.md",
+      "role": "notice",
+      "sha256": "431b458f16d46f787d0b07fe21a789eb072dcaa45be234b65d5f77955f86b513",
+      "size_bytes": 1293
+    },
+    {
+      "path": "aliases.zh-en.json",
+      "role": "index",
+      "sha256": "191f702716ef2296f5a0d0fcbd20d23c1532bd178e708cb63eab36099f1365fd",
+      "size_bytes": 10091
+    },
+    {
+      "path": "catalog.json",
+      "role": "index",
+      "sha256": "a509e581fa841a7f15ab291832414648f4ffe9b150166e0ceb0c2f5beb3fa21c",
+      "size_bytes": 1405328
+    },
+    {
+      "path": "commands.json",
+      "role": "index",
+      "sha256": "c025149d2d68868d3312f9d22d128d28cbc45845bbbc89e60d6d1f63e8fbcbd4",
+      "size_bytes": 225462
+    },
+    {
+      "path": "image-selection.json",
+      "role": "index",
+      "sha256": "6bc7d65f4198fec7fe76f23c2aab7e20a48e4584fc30fc4e052e97d59945b878",
+      "size_bytes": 93948
+    },
+    {
+      "path": "sections.jsonl",
+      "role": "index",
+      "sha256": "3f36d2ad10cc76f4cbd99ba2acb400f847cd56213e90076ebc91bf885db6eaa4",
+      "size_bytes": 1336371
+    },
+    {
+      "path": "source/doc/Astrometry.rst",
+      "role": "source-rst",
+      "sha256": "cdb5bc4add843439462e21f43299de100e48c8d70e23c289563bd22baf5cbcec",
+      "size_bytes": 559,
+      "upstream_blob": "ece7ba3908a34056fbf18487283ae5815047572c",
+      "upstream_path": "doc/Astrometry.rst"
+    },
+    {
+      "path": "source/doc/Color-management.rst",
+      "role": "source-rst",
+      "sha256": "d2612b7ca37457c1296cc6e3dc38ee67f2c76dd39794beac26e24ea7707d1ee5",
+      "size_bytes": 1194,
+      "upstream_blob": "5b4633b8a2c0f5eb11609311dadf8aef5e1cd09c",
+      "upstream_path": "doc/Color-management.rst"
+    },
+    {
+      "path": "source/doc/Commands.rst",
+      "role": "source-rst",
+      "sha256": "0b35d170e9f8ab1b21630af94acc867a3eb15173f510fa842c2017937ca94d97",
+      "size_bytes": 26448,
+      "upstream_blob": "7c63c5b7cbe831af2a37ee399e9b6cd65c97bd5a",
+      "upstream_path": "doc/Commands.rst"
+    },
+    {
+      "path": "source/doc/Dynamic-PSF.rst",
+      "role": "source-rst",
+      "sha256": "13e2739def9b5d7b291a92b45643e6b9cf7d2f036ec31637f6e4b95383957dd9",
+      "size_bytes": 16365,
+      "upstream_blob": "eba70fa77cf6110147d34b7b2661a3b86c7b29ce",
+      "upstream_path": "doc/Dynamic-PSF.rst"
+    },
+    {
+      "path": "source/doc/FITS-header.rst",
+      "role": "source-rst",
+      "sha256": "3e0f5412f0e8e2b516b40584c851ea5b39e18eff682283e09f7d7c1feba6fbff",
+      "size_bytes": 4607,
+      "upstream_blob": "992976175aee65964232a54edcb2bcb908eb2be0",
+      "upstream_path": "doc/FITS-header.rst"
+    },
+    {
+      "path": "source/doc/FileFormats.rst",
+      "role": "source-rst",
+      "sha256": "983898ee7d232977ff9277618505b24ec3868c33dbdccd786926d59d77b578db",
+      "size_bytes": 538,
+      "upstream_blob": "e77c11f51042edd277f0046fe3615074eab88661",
+      "upstream_path": "doc/FileFormats.rst"
+    },
+    {
+      "path": "source/doc/GUI.rst",
+      "role": "source-rst",
+      "sha256": "27e91ca03f2d0a97236e401ee185224c1f45b5067b007d957134348c821b58f2",
+      "size_bytes": 728,
+      "upstream_blob": "8af508855ffcd36ff0a9a5b6183d55f2702c031d",
+      "upstream_path": "doc/GUI.rst"
+    },
+    {
+      "path": "source/doc/GUI/burger-menu.rst",
+      "role": "source-rst",
+      "sha256": "499210983b108b6710e17c7eb83a9c0fa975f68dfbc699cbd3047d2b7122cd15",
+      "size_bytes": 552,
+      "upstream_blob": "3558eb75af2b40e8ef5e55e70de1d5fc7314a44f",
+      "upstream_path": "doc/GUI/burger-menu.rst"
+    },
+    {
+      "path": "source/doc/GUI/image-processing-menu.rst",
+      "role": "source-rst",
+      "sha256": "646340db89237fdb4b81ce02fca86948483634b204941b3f0dd568d98784034d",
+      "size_bytes": 132,
+      "upstream_blob": "63c70023557be90d8346322ff93eff4026243edb",
+      "upstream_path": "doc/GUI/image-processing-menu.rst"
+    },
+    {
+      "path": "source/doc/GUI/information_window.rst",
+      "role": "source-rst",
+      "sha256": "ff5133c8a2b478f001bb86b70ba67c0f6d8c9a1948da31500ac3e13e0ad51b02",
+      "size_bytes": 1954,
+      "upstream_blob": "4fd41fabe814b438b48a27a51432481834f98ac4",
+      "upstream_path": "doc/GUI/information_window.rst"
+    },
+    {
+      "path": "source/doc/GUI/main-interface.rst",
+      "role": "source-rst",
+      "sha256": "7eb6eb905f771b25bf881f70ec84b40af3fe9cec99c5200789fb6d5d4fce7795",
+      "size_bytes": 14961,
+      "upstream_blob": "7b43cc7788a543434f9287846469963c0d4e38e8",
+      "upstream_path": "doc/GUI/main-interface.rst"
+    },
+    {
+      "path": "source/doc/GUI/roi.rst",
+      "role": "source-rst",
+      "sha256": "657a718a6b79b5bf819a03aa60704a05af37f74cb8057b655f3e4eea214548ed",
+      "size_bytes": 4752,
+      "upstream_blob": "2b951930740afcf3787d9e674303eac510536f07",
+      "upstream_path": "doc/GUI/roi.rst"
+    },
+    {
+      "path": "source/doc/GUI/shortcuts.rst",
+      "role": "source-rst",
+      "sha256": "8c5b6aff10f1af79ff78aca1274afc69066f9aa3da38348eaca5c780f208726f",
+      "size_bytes": 454,
+      "upstream_blob": "eb0e2eddb6348045194453e9fc3021838e0ee75f",
+      "upstream_path": "doc/GUI/shortcuts.rst"
+    },
+    {
+      "path": "source/doc/GUI/toolbar.rst",
+      "role": "source-rst",
+      "sha256": "78171acbdcdabdf80e925ca4a1af5b02d47bb314ff520731bb4d2043cfed76b5",
+      "size_bytes": 4883,
+      "upstream_blob": "0fce81e99e98069e1f9689eca5a95686271ad61d",
+      "upstream_path": "doc/GUI/toolbar.rst"
+    },
+    {
+      "path": "source/doc/GUI/tools-menu.rst",
+      "role": "source-rst",
+      "sha256": "dbaaa5e100539a8c506fe9d108137207590a70f23c85385d8d595d4d6327095f",
+      "size_bytes": 1515,
+      "upstream_blob": "0a4ffc7e264ec0cb23fb13aea3431c60863594a3",
+      "upstream_path": "doc/GUI/tools-menu.rst"
+    },
+    {
+      "path": "source/doc/Headless.rst",
+      "role": "source-rst",
+      "sha256": "0bc2d5b5864d0e978555b40958fc8f5310d87977ee00650bf10f926562225e8d",
+      "size_bytes": 3964,
+      "upstream_blob": "78d173bf3556667610f5af3589bb94761ba366ec",
+      "upstream_path": "doc/Headless.rst"
+    },
+    {
+      "path": "source/doc/Image-inspection.rst",
+      "role": "source-rst",
+      "sha256": "196a966636ce6d16f1439275ec01d6b66fd732dcd287627a3834e7e22df4c544",
+      "size_bytes": 3786,
+      "upstream_blob": "aeb9bf4973f6e62c8af74d5145c327bb994ed83d",
+      "upstream_path": "doc/Image-inspection.rst"
+    },
+    {
+      "path": "source/doc/Installation.rst",
+      "role": "source-rst",
+      "sha256": "395ec12c508811108976711f5cf1d3ccf65c74c628b15fb274f7d7617ac0f4b8",
+      "size_bytes": 2412,
+      "upstream_blob": "5c9dc011002447822dcb4279a1631c11d0c19d43",
+      "upstream_path": "doc/Installation.rst"
+    },
+    {
+      "path": "source/doc/Intensity-Profiling.rst",
+      "role": "source-rst",
+      "sha256": "14030ae8e95719ec61bcdb3a687010eb5a4435117526ee6ad58dbdd1c08b2584",
+      "size_bytes": 7424,
+      "upstream_blob": "8a7bd3490344002267b255a8f18d4a3482601615",
+      "upstream_path": "doc/Intensity-Profiling.rst"
+    },
+    {
+      "path": "source/doc/Issues.rst",
+      "role": "source-rst",
+      "sha256": "da6230b300c8f8381ee8b93b608419bc108a5881b78abaf4853ef07c8cd88aef",
+      "size_bytes": 5925,
+      "upstream_blob": "21cf123c09e0e5bc5455af6560ed3408596e55fe",
+      "upstream_path": "doc/Issues.rst"
+    },
+    {
+      "path": "source/doc/Livestack.rst",
+      "role": "source-rst",
+      "sha256": "e1c060a81d52c668bd49887d5b20eba7d6f6cb521300205f175c8f9db21fbca1",
+      "size_bytes": 4305,
+      "upstream_blob": "e8179946884ea989dad20e426bcdea44cf1831b9",
+      "upstream_path": "doc/Livestack.rst"
+    },
+    {
+      "path": "source/doc/Pathparsing.rst",
+      "role": "source-rst",
+      "sha256": "71e183cbe764c00408a402a54ebee10b965d58ed6a3623605f3c0e5275517e92",
+      "size_bytes": 15926,
+      "upstream_blob": "cb69745e02ffe735ec8fa3f45e4d0e0af337d5d7",
+      "upstream_path": "doc/Pathparsing.rst"
+    },
+    {
+      "path": "source/doc/Photometry.rst",
+      "role": "source-rst",
+      "sha256": "1aeaa5ad4cba2bb2a35d4b91ea8828937c595c242fdfa850d724c5381d823eb2",
+      "size_bytes": 662,
+      "upstream_blob": "f8b9a29fbbbdf26be4fd7ed3e7abe1bae61a2287",
+      "upstream_path": "doc/Photometry.rst"
+    },
+    {
+      "path": "source/doc/Plot.rst",
+      "role": "source-rst",
+      "sha256": "3dabf8dda0736469d64537c64a6cbb6799d8c24a2cfedc2146eda3057f0cd9e6",
+      "size_bytes": 6947,
+      "upstream_blob": "3ef21c925fd5b0a9c36d45fb9d702c8beb2a1af8",
+      "upstream_path": "doc/Plot.rst"
+    },
+    {
+      "path": "source/doc/Preferences.rst",
+      "role": "source-rst",
+      "sha256": "53ac7e28133b88a22f850bed1d3b48c698ddd5aaf69481d2c72d89a90b129b8b",
+      "size_bytes": 1102,
+      "upstream_blob": "640f55ba9d6bd7550803388136276dfa06e5fe61",
+      "upstream_path": "doc/Preferences.rst"
+    },
+    {
+      "path": "source/doc/Preprocessing.rst",
+      "role": "source-rst",
+      "sha256": "385bcde40d7b496c9a3fa1e2749f98f31a2b717453ae374640253c20e6960c33",
+      "size_bytes": 1467,
+      "upstream_blob": "e34a874af53d76bddf3b68fe370a7a56837e094c",
+      "upstream_path": "doc/Preprocessing.rst"
+    },
+    {
+      "path": "source/doc/Processing.rst",
+      "role": "source-rst",
+      "sha256": "3462fa0093da5be69fd8d36fbe4f8c0cd0ef13b6bbb7f320dad046ed4f8526e8",
+      "size_bytes": 758,
+      "upstream_blob": "044b1650f8c9f2166c0fffbeebf3a1ee2b39761d",
+      "upstream_path": "doc/Processing.rst"
+    },
+    {
+      "path": "source/doc/Python-API.rst",
+      "role": "source-rst",
+      "sha256": "0243251ce9d4a22005baf52eeba03d37d39a5945b671be7bff2773b0d0403376",
+      "size_bytes": 11821,
+      "upstream_blob": "de512f954f0f4cc71fb0043dc971eae4e9d93100",
+      "upstream_path": "doc/Python-API.rst"
+    },
+    {
+      "path": "source/doc/Scripts.rst",
+      "role": "source-rst",
+      "sha256": "717507da9dee1218856f6b1a7baf08c3e1047e41bc8c5f70f0315cfdf733a4e0",
+      "size_bytes": 4329,
+      "upstream_blob": "81ee3e2a51bdf4e0b3ab33c740f8165b76dd0123",
+      "upstream_path": "doc/Scripts.rst"
+    },
+    {
+      "path": "source/doc/Sequences.rst",
+      "role": "source-rst",
+      "sha256": "018cbd5d00b64963a2474e54c67b44b80fe7e2c41b766da347a4a4fc3f7e0851",
+      "size_bytes": 11322,
+      "upstream_blob": "8a7ed246c4089e4c447707a386c58fadb0dc80df",
+      "upstream_path": "doc/Sequences.rst"
+    },
+    {
+      "path": "source/doc/SirilForScientists.rst",
+      "role": "source-rst",
+      "sha256": "afa3e0e9e4bf5638fd4684ed88f33d2db63aa2a99343d345ee324ba180740192",
+      "size_bytes": 8533,
+      "upstream_blob": "032558d6ec5f27cc36bcb39c64e3f28ea5c0a490",
+      "upstream_path": "doc/SirilForScientists.rst"
+    },
+    {
+      "path": "source/doc/Statistics.rst",
+      "role": "source-rst",
+      "sha256": "f11d17e7797efc64d453b86c6326b2ddb7c7da1114476584ba637848a7be24d8",
+      "size_bytes": 5478,
+      "upstream_blob": "11ec3010ff0ad5bc2a14da6c3f63b506e8326e8e",
+      "upstream_path": "doc/Statistics.rst"
+    },
+    {
+      "path": "source/doc/Workflow.rst",
+      "role": "source-rst",
+      "sha256": "e051fe70165a8f0d30e1ac8b26e353dde56a8b6647f229f1d0a41e1654126e08",
+      "size_bytes": 1788,
+      "upstream_blob": "6eaeb95ec1f6a601d86b808b2950280407000075",
+      "upstream_path": "doc/Workflow.rst"
+    },
+    {
+      "path": "source/doc/_images/denoising/denoise-with-vst.png",
+      "role": "selected-image",
+      "sha256": "35da87089f57624e3a73264ffa43a860e24d7c4cfc33bdf8cfff918504950f07",
+      "size_bytes": 605391,
+      "upstream_blob": "c06f61a51fb3bd0d5cc8a6f012e6f560b566f29c",
+      "upstream_path": "doc/_images/denoising/denoise-with-vst.png"
+    },
+    {
+      "path": "source/doc/_images/denoising/denoised.png",
+      "role": "selected-image",
+      "sha256": "e5b0ce8b51351c179ceb032b19aa899d0b615ce2447dd92d4cc1d5181cf085e0",
+      "size_bytes": 529279,
+      "upstream_blob": "fa34c3818893d6299d21b246e779dfaafc7affd3",
+      "upstream_path": "doc/_images/denoising/denoised.png"
+    },
+    {
+      "path": "source/doc/_images/denoising/noisy.png",
+      "role": "selected-image",
+      "sha256": "97bbd178d3585594fcf35060db4a36a251b082c2a28e83aa406af2fe2d258107",
+      "size_bytes": 877986,
+      "upstream_blob": "2e6e7e495a6c0dee7ec607ac27ace7af9c910b9e",
+      "upstream_path": "doc/_images/denoising/noisy.png"
+    },
+    {
+      "path": "source/doc/_images/processing/GHS.png",
+      "role": "selected-image",
+      "sha256": "0d3c80f8d2d56c14ee3782ab351e1223311c16eb94f97332367fce340e6a0131",
+      "size_bytes": 99163,
+      "upstream_blob": "638348fba75b64e4b8d159dd9282efad36400add",
+      "upstream_path": "doc/_images/processing/GHS.png"
+    },
+    {
+      "path": "source/doc/_images/processing/GHS_color.png",
+      "role": "selected-image",
+      "sha256": "2637400510103674fb8b0f0688184b471047aeeaf1d21ea4af320482133ad4bd",
+      "size_bytes": 45892,
+      "upstream_blob": "db8d980c9e5cd8cde9060f95e7a07b723ef6a11b",
+      "upstream_path": "doc/_images/processing/GHS_color.png"
+    },
+    {
+      "path": "source/doc/_images/processing/MTF.png",
+      "role": "selected-image",
+      "sha256": "c187a2299d1269b0f840745c7d10ace5375c86695a81923e5c4386141367d4bc",
+      "size_bytes": 45755,
+      "upstream_blob": "5dbac709a2e7763884cf45b6ac44261bf0b1f303",
+      "upstream_path": "doc/_images/processing/MTF.png"
+    },
+    {
+      "path": "source/doc/_images/processing/SHO.png",
+      "role": "selected-image",
+      "sha256": "95fdac1a43df87aceb54183b8949fdf7e85b2fec3bf7c6115efcebc6e656a37c",
+      "size_bytes": 669170,
+      "upstream_blob": "d4d181aedca6d05d6ef5d3454370bceb5005b959",
+      "upstream_path": "doc/_images/processing/SHO.png"
+    },
+    {
+      "path": "source/doc/_images/processing/asinh.png",
+      "role": "selected-image",
+      "sha256": "04bb20d8075ed970cdd7532417fdb519350d961aa51badc4158d2b1f93bcc300",
+      "size_bytes": 26204,
+      "upstream_blob": "9543769dc7a34c73cbbf4471077c7162bf530264",
+      "upstream_path": "doc/_images/processing/asinh.png"
+    },
+    {
+      "path": "source/doc/_images/processing/banding_after.png",
+      "role": "selected-image",
+      "sha256": "0a1afa2a8cf2d003be490ce238d910975046d9d74fc1317966f9cc027e5831f7",
+      "size_bytes": 509409,
+      "upstream_blob": "09fd4dd5dfc7762f1a0bfaecc5a1e8a2ee697a3c",
+      "upstream_path": "doc/_images/processing/banding_after.png"
+    },
+    {
+      "path": "source/doc/_images/processing/banding_before.png",
+      "role": "selected-image",
+      "sha256": "736742b438fb3fa2beeb4c0cb9b363f601e95902dcd63e234802e8844008c3ce",
+      "size_bytes": 491959,
+      "upstream_blob": "177bdf6651a41d4263e26db41625997f675be443",
+      "upstream_path": "doc/_images/processing/banding_before.png"
+    },
+    {
+      "path": "source/doc/_images/processing/bkg_banding.png",
+      "role": "selected-image",
+      "sha256": "5d68d0d3187cc7a2ff2ca2ec65c5fb09e647186ffa770bcf35ac8499ecf2763c",
+      "size_bytes": 2514994,
+      "upstream_blob": "9801e54332e10508eafb7201fa692a4f17c53b34",
+      "upstream_path": "doc/_images/processing/bkg_banding.png"
+    },
+    {
+      "path": "source/doc/_images/processing/bkg_extract.png",
+      "role": "selected-image",
+      "sha256": "577c92fe32b8ba5ebe04a3dd1e247ac0d809f8241dcc1fe1e417b4f98c7128db",
+      "size_bytes": 74926,
+      "upstream_blob": "f758e5834ae688b0d06f4901856da26352251294",
+      "upstream_path": "doc/_images/processing/bkg_extract.png"
+    },
+    {
+      "path": "source/doc/_images/processing/color_pcc_dialog.png",
+      "role": "selected-image",
+      "sha256": "9c4585266bf52c700a219eaeeb09e4f49c05ed024fc1eeabd42bb003567ec4f2",
+      "size_bytes": 16911,
+      "upstream_blob": "7ba5b76d12f7a421221bc189f3c1b37ff5ee36b6",
+      "upstream_path": "doc/_images/processing/color_pcc_dialog.png"
+    },
+    {
+      "path": "source/doc/_images/processing/curves_BP_WP_adj.png",
+      "role": "selected-image",
+      "sha256": "1efacf1467cf1e315fe8434ba019a517347717306f0992f3164a95cfff8f8115",
+      "size_bytes": 26695,
+      "upstream_blob": "7a66039bb3e789f93ef9fc75fca95710c93efadb",
+      "upstream_path": "doc/_images/processing/curves_BP_WP_adj.png"
+    },
+    {
+      "path": "source/doc/_images/processing/curves_s_curve.png",
+      "role": "selected-image",
+      "sha256": "f8ce011ce64d855af1184d84a7c5f87f86d713b292465df78e5e80c92c365ee6",
+      "size_bytes": 28020,
+      "upstream_blob": "cbe91262733e67ad4bcdf8e8a11ee6955b63f51d",
+      "upstream_path": "doc/_images/processing/curves_s_curve.png"
+    },
+    {
+      "path": "source/doc/_images/processing/deconv_kerneltoobig.png",
+      "role": "selected-image",
+      "sha256": "bf83e91cce9eb06e4937ab29eac59dd0fc6ac6869559a7b94c5df3943c64b322",
+      "size_bytes": 367444,
+      "upstream_blob": "0d5d164e074dc796e4d9a5e0d394b94a9270c44b",
+      "upstream_path": "doc/_images/processing/deconv_kerneltoobig.png"
+    },
+    {
+      "path": "source/doc/_images/processing/deconv_multexcessivereg.png",
+      "role": "selected-image",
+      "sha256": "ecbab9f12676e6b30d379ce2fd9e668f6c11d5b8af0db69ac7658334c4ddd2cb",
+      "size_bytes": 143535,
+      "upstream_blob": "9a3397b34c9d53b20739df8517b5abf0a86686ce",
+      "upstream_path": "doc/_images/processing/deconv_multexcessivereg.png"
+    },
+    {
+      "path": "source/doc/_images/processing/deconv_toomanyiters.png",
+      "role": "selected-image",
+      "sha256": "b42691c0532070ca61afdeb36bebac5360e51dfc0a15d9b34eebd72c995dc667",
+      "size_bytes": 395184,
+      "upstream_blob": "71a3480c9ffab0421c2557e2cecc531b3b354571",
+      "upstream_path": "doc/_images/processing/deconv_toomanyiters.png"
+    },
+    {
+      "path": "source/doc/_images/processing/deconv_unsuitablealgorithm.png",
+      "role": "selected-image",
+      "sha256": "7e93d72390f9341fe77c384f686db2a7e9bbf649f0d27a94e04089a490be9128",
+      "size_bytes": 387017,
+      "upstream_blob": "eeb3485dfdf7b26b5ee622b72c053c47e97cdd91",
+      "upstream_path": "doc/_images/processing/deconv_unsuitablealgorithm.png"
+    },
+    {
+      "path": "source/doc/_images/processing/pcc_vs_spcc.png",
+      "role": "selected-image",
+      "sha256": "161df51ddd7f305972b56b6b73a0d706ee2dbbc059912bbfda2a754724fc3929",
+      "size_bytes": 954465,
+      "upstream_blob": "89040bc431aa328ad4114b913277935ac9205d03",
+      "upstream_path": "doc/_images/processing/pcc_vs_spcc.png"
+    },
+    {
+      "path": "source/doc/_images/processing/spcc_dialog.png",
+      "role": "selected-image",
+      "sha256": "115148909b148bcaf8aeb62d4597b13bec90ac7f93f241f1859feebbcaa32001",
+      "size_bytes": 56363,
+      "upstream_blob": "bfc324c2066466fb3b39b92153337e3144bce35a",
+      "upstream_path": "doc/_images/processing/spcc_dialog.png"
+    },
+    {
+      "path": "source/doc/_images/processing/stars/starnet_dialog.png",
+      "role": "selected-image",
+      "sha256": "9f3783b9c7b58cebc353ccf509810ede21108b540e5ca285a5e1c43948e4db96",
+      "size_bytes": 32822,
+      "upstream_blob": "d4c16ef1d2249b0de4bf3d201fd5c1ff03a042b6",
+      "upstream_path": "doc/_images/processing/stars/starnet_dialog.png"
+    },
+    {
+      "path": "source/doc/_images/processing/stars/starrecomp.png",
+      "role": "selected-image",
+      "sha256": "f0e4b3db15c12098df75b173ce573abae7703357a9fe9a519171f52f93e528d7",
+      "size_bytes": 1527602,
+      "upstream_blob": "6a422c6ac22da5e7cb0edeec3caa28a7ddb97fe5",
+      "upstream_path": "doc/_images/processing/stars/starrecomp.png"
+    },
+    {
+      "path": "source/doc/_images/scripts/script_structure.png",
+      "role": "selected-image",
+      "sha256": "40d3e66a77ecbc53b66b450e69de58f72ecd90d1f70903d2af52de26c270c13b",
+      "size_bytes": 57300,
+      "upstream_blob": "57eb9fcc6488f38ac72858e93f5f11c272c27ee0",
+      "upstream_path": "doc/_images/scripts/script_structure.png"
+    },
+    {
+      "path": "source/doc/astrometry/annotations.rst",
+      "role": "source-rst",
+      "sha256": "07315ffc2fa868742f3e4f8c809c62acf0e07dfa34c863015d10f8ec81d891a6",
+      "size_bytes": 13934,
+      "upstream_blob": "5357edffa5950a91be96c034302da2cd4b0ca9a3",
+      "upstream_path": "doc/astrometry/annotations.rst"
+    },
+    {
+      "path": "source/doc/astrometry/cats.txt",
+      "role": "include-dependency",
+      "sha256": "f6b5dd45cbe6bdf42b686719ec510292b18c325a12824088b009edd7bccd6fbe",
+      "size_bytes": 958,
+      "upstream_blob": "acf70eee46ed898d8bbb3198041ba2a1bc5fecad",
+      "upstream_path": "doc/astrometry/cats.txt"
+    },
+    {
+      "path": "source/doc/astrometry/platesolving.rst",
+      "role": "source-rst",
+      "sha256": "cd0bce488aa64933bb15b749dfcdf279fb273ba45d80e4f04ecbd668f9f1b94a",
+      "size_bytes": 34010,
+      "upstream_blob": "f6ccedf69d370c83b7f382f1ccb89c2c08c86c3d",
+      "upstream_path": "doc/astrometry/platesolving.rst"
+    },
+    {
+      "path": "source/doc/color-management/ccm.rst",
+      "role": "source-rst",
+      "sha256": "581c0fa0937d533a06d0cd5b4d496e6a6f1d67b024c7ee0533113db0ce6278dd",
+      "size_bytes": 3354,
+      "upstream_blob": "6a9ed186ca2c156dfa7230873c06433746bd3631",
+      "upstream_path": "doc/color-management/ccm.rst"
+    },
+    {
+      "path": "source/doc/color-management/changes.rst",
+      "role": "source-rst",
+      "sha256": "745d5209857237b1c6eb543b32aeb95e35570ae0e20cae4658c1c04d139083e4",
+      "size_bytes": 3415,
+      "upstream_blob": "0220c9e9e2072adf672a267c2c0dab9fcde5392f",
+      "upstream_path": "doc/color-management/changes.rst"
+    },
+    {
+      "path": "source/doc/color-management/getting_started.rst",
+      "role": "source-rst",
+      "sha256": "5b6c6b87ff6eb95c5d21c3314a065de963cc75aa30880460c8f251da03190c44",
+      "size_bytes": 3879,
+      "upstream_blob": "a8d7a6ca84df9ef694eb85bb96d1b371a1fb73d3",
+      "upstream_path": "doc/color-management/getting_started.rst"
+    },
+    {
+      "path": "source/doc/color-management/profiles.rst",
+      "role": "source-rst",
+      "sha256": "b063b503786642a05e4f3279c4fc76cfe39496fc62c1d252c69938423ac91afd",
+      "size_bytes": 10488,
+      "upstream_blob": "ce0f1570a63caff1d26592acea59889a048631cd",
+      "upstream_path": "doc/color-management/profiles.rst"
+    },
+    {
+      "path": "source/doc/color-management/soft-proofing.rst",
+      "role": "source-rst",
+      "sha256": "efc8eb407581e4c466d1b362f92788a44e349693022f165ebfa81f96ae69b192",
+      "size_bytes": 1429,
+      "upstream_blob": "2761176ef73d220bcffcaf427d7f0410492403b3",
+      "upstream_path": "doc/color-management/soft-proofing.rst"
+    },
+    {
+      "path": "source/doc/color-management/theory.rst",
+      "role": "source-rst",
+      "sha256": "bd7a018dcb2cd9815b83c938ce8276bd5a903d43ed9cb0d2355b40c18a0f6837",
+      "size_bytes": 11123,
+      "upstream_blob": "1e39eda1f9943c7a914a9d3a6dcb1ea03de69cab",
+      "upstream_path": "doc/color-management/theory.rst"
+    },
+    {
+      "path": "source/doc/color-management/user-interface.rst",
+      "role": "source-rst",
+      "sha256": "43c7701bc08266d9c88f9aed883ac444b44e60732f682de1c3d27f5b79a45926",
+      "size_bytes": 6108,
+      "upstream_blob": "abaa6820f7bde350a46d42da023da0b6b190d5b6",
+      "upstream_path": "doc/color-management/user-interface.rst"
+    },
+    {
+      "path": "source/doc/color-management/workflow.rst",
+      "role": "source-rst",
+      "sha256": "7c7c5e4621ea30b08a6f49cd8f3c6b1f842042e08a6d920ae5b5167be5969970",
+      "size_bytes": 6566,
+      "upstream_blob": "485d14d5043f941daaa34dfd85dcd3491cb262cf",
+      "upstream_path": "doc/color-management/workflow.rst"
+    },
+    {
+      "path": "source/doc/commands/addmax.rst",
+      "role": "source-rst",
+      "sha256": "b7a339a1261ba6063ffdfde9d6f5844a110c41759d45c4b39d4db440045064cd",
+      "size_bytes": 191,
+      "upstream_blob": "1ded9f8afb0693af615aa759495e90b3fa9cf8d4",
+      "upstream_path": "doc/commands/addmax.rst"
+    },
+    {
+      "path": "source/doc/commands/addmax_use.rst",
+      "role": "source-rst",
+      "sha256": "b7a21b1656efd5b6034faf6de07b4252e8f89ddfd25ec456d44d6cbf61849e96",
+      "size_bytes": 41,
+      "upstream_blob": "eb455e233e3cbc6d5da695c128fb8140ed2d420f",
+      "upstream_path": "doc/commands/addmax_use.rst"
+    },
+    {
+      "path": "source/doc/commands/asinh.rst",
+      "role": "source-rst",
+      "sha256": "f1b29ee3c315f26b863b7cedd230e07f5faab8b110958d14c902630442838d7e",
+      "size_bytes": 759,
+      "upstream_blob": "b522e6aaf93cc296b0fa0d984e89aa0ee01c83a9",
+      "upstream_path": "doc/commands/asinh.rst"
+    },
+    {
+      "path": "source/doc/commands/asinh_use.rst",
+      "role": "source-rst",
+      "sha256": "54c86481b85510b2ae5a88b4c938f901f9464f7116ec1955eec3c38d9ce50646",
+      "size_bytes": 74,
+      "upstream_blob": "033ece3d279ce55cd41818e3b3d49cbe0066d815",
+      "upstream_path": "doc/commands/asinh_use.rst"
+    },
+    {
+      "path": "source/doc/commands/autoghs.rst",
+      "role": "source-rst",
+      "sha256": "9cde4ed1ea108ba27c61ceafad9354a51aa8251186a3df8e9a538adeaa439e65",
+      "size_bytes": 743,
+      "upstream_blob": "ea8b4c7cd01260d8794dcb29d50f6365cb6fb1f1",
+      "upstream_path": "doc/commands/autoghs.rst"
+    },
+    {
+      "path": "source/doc/commands/autoghs_use.rst",
+      "role": "source-rst",
+      "sha256": "a08d657c2da5b8721cc52c99d556565e02f8131c3fd9dcea3315fc9f0a334ebe",
+      "size_bytes": 102,
+      "upstream_blob": "f7d009d8aa5ac84772933cf8ebc8f33eda944bdf",
+      "upstream_path": "doc/commands/autoghs_use.rst"
+    },
+    {
+      "path": "source/doc/commands/autostretch.rst",
+      "role": "source-rst",
+      "sha256": "d002c2f9ca758c9e6a8ebb995c4085473e83b61c9c000ca41bce96e95fba540b",
+      "size_bytes": 559,
+      "upstream_blob": "1d83aa5f736b83d246d47952e8fbaa002758d12a",
+      "upstream_path": "doc/commands/autostretch.rst"
+    },
+    {
+      "path": "source/doc/commands/autostretch_use.rst",
+      "role": "source-rst",
+      "sha256": "645844a97fecf351f71c453dd819824fb1e11ccbbccbcb983d5602b7974c10ab",
+      "size_bytes": 72,
+      "upstream_blob": "94a7feeea89429c29cefa22d4ec4c3dd8798582d",
+      "upstream_path": "doc/commands/autostretch_use.rst"
+    },
+    {
+      "path": "source/doc/commands/bg.rst",
+      "role": "source-rst",
+      "sha256": "76070e979c5b1a25697b52f9f32105bbb24c761855da84135e36251da4cbd352",
+      "size_bytes": 51,
+      "upstream_blob": "a9205b33b6b2fd54c4a1dec95face82dcc918c6c",
+      "upstream_path": "doc/commands/bg.rst"
+    },
+    {
+      "path": "source/doc/commands/bg_use.rst",
+      "role": "source-rst",
+      "sha256": "261eaa3793e4efd9f61bd2d8abc13ed0dc152924a7bfaf15da9b86beac1bb862",
+      "size_bytes": 28,
+      "upstream_blob": "7c19376de8000f3a716acdc81757d0594b202a6e",
+      "upstream_path": "doc/commands/bg_use.rst"
+    },
+    {
+      "path": "source/doc/commands/bgnoise.rst",
+      "role": "source-rst",
+      "sha256": "88311fa1c4b416ccf69297349542edf33d8811a375377350bb0ed9325de6f886",
+      "size_bytes": 57,
+      "upstream_blob": "f2fa25b1e933a83930931e89463af4c6450c6097",
+      "upstream_path": "doc/commands/bgnoise.rst"
+    },
+    {
+      "path": "source/doc/commands/bgnoise_add.rst",
+      "role": "source-rst",
+      "sha256": "923e5a43a01d06490a46c70942d0fa61127b1f450015b1edfb809c5a8dd2eabd",
+      "size_bytes": 92,
+      "upstream_blob": "dc65ce031c7b4f2dba43ce6c5cc47993967bab9b",
+      "upstream_path": "doc/commands/bgnoise_add.rst"
+    },
+    {
+      "path": "source/doc/commands/bgnoise_use.rst",
+      "role": "source-rst",
+      "sha256": "a392ccb31ae4b40ce57b440c2a05bf284ad4419dfc56a1b8900038db6b16b71c",
+      "size_bytes": 33,
+      "upstream_blob": "1ee09e4056781e4772e984d198cce60b6746d983",
+      "upstream_path": "doc/commands/bgnoise_use.rst"
+    },
+    {
+      "path": "source/doc/commands/binxy.rst",
+      "role": "source-rst",
+      "sha256": "aec5ddb9516a083b66e10e1155317fe8acfbeb917cec347b08398269ebebcc8c",
+      "size_bytes": 273,
+      "upstream_blob": "af4c14a274c3bc7852f1cb6f1bc64904ebe1f579",
+      "upstream_path": "doc/commands/binxy.rst"
+    },
+    {
+      "path": "source/doc/commands/binxy_use.rst",
+      "role": "source-rst",
+      "sha256": "a7098176d0ea8c58efd507a4211c07721d09ce75336c256fde96d352f5f54fc4",
+      "size_bytes": 50,
+      "upstream_blob": "d147d153cc26963cca1a8251f6fe0d44393e5fdb",
+      "upstream_path": "doc/commands/binxy_use.rst"
+    },
+    {
+      "path": "source/doc/commands/boxselect.rst",
+      "role": "source-rst",
+      "sha256": "22ced3ccf5d5801f77b9124366ab9e8b452a48398dc5e6719dda681cab64067f",
+      "size_bytes": 367,
+      "upstream_blob": "72199994ae1ec44f7f794f912ad0ad0603590367",
+      "upstream_path": "doc/commands/boxselect.rst"
+    },
+    {
+      "path": "source/doc/commands/boxselect_use.rst",
+      "role": "source-rst",
+      "sha256": "45c3ff3a8551a7232098147ff87474d953c9e3c72c3a939360b2c2f42057b803",
+      "size_bytes": 63,
+      "upstream_blob": "061a75eb7ef1764491fe968841b0e779aeb7908f",
+      "upstream_path": "doc/commands/boxselect_use.rst"
+    },
+    {
+      "path": "source/doc/commands/calibrate.rst",
+      "role": "source-rst",
+      "sha256": "dd163a89e0f4e323440583e42ea835e1e541026be4aed4157f6d140611718735",
+      "size_bytes": 1999,
+      "upstream_blob": "f46243031db6f638b8e478b15a2801cf59e7fa88",
+      "upstream_path": "doc/commands/calibrate.rst"
+    },
+    {
+      "path": "source/doc/commands/calibrate_single.rst",
+      "role": "source-rst",
+      "sha256": "a279f34becb37dca5b16fa4af1da6d642a7a883650f4b3c2c7748413de891b12",
+      "size_bytes": 1739,
+      "upstream_blob": "e4fadb0962dc0f60d124375381de9d80895e5ad6",
+      "upstream_path": "doc/commands/calibrate_single.rst"
+    },
+    {
+      "path": "source/doc/commands/calibrate_single_use.rst",
+      "role": "source-rst",
+      "sha256": "f8cf1cee0c16d29e83b18c1686287d7ef84a92915de3c8d83cc3fac087b2d95f",
+      "size_bytes": 219,
+      "upstream_blob": "e38fe87725b71fcea61c4a415af5a1bac255086e",
+      "upstream_path": "doc/commands/calibrate_single_use.rst"
+    },
+    {
+      "path": "source/doc/commands/calibrate_use.rst",
+      "role": "source-rst",
+      "sha256": "43435d744cefc3051cdb8c537df5102860fe954460d8ba9090c7e6582517269f",
+      "size_bytes": 232,
+      "upstream_blob": "5e3658a962d90d10aaff3eba87eda42ff1f4fce4",
+      "upstream_path": "doc/commands/calibrate_use.rst"
+    },
+    {
+      "path": "source/doc/commands/capabilities.rst",
+      "role": "source-rst",
+      "sha256": "b37fd1aeb66a1c3f404db2758ab7ef9eb6c5f842a77eb415f9764fe976d5144d",
+      "size_bytes": 69,
+      "upstream_blob": "e2a6688c022394868f93377e3bbe2405adacdeda",
+      "upstream_path": "doc/commands/capabilities.rst"
+    },
+    {
+      "path": "source/doc/commands/capabilities_use.rst",
+      "role": "source-rst",
+      "sha256": "af4d72fa788fd42d045117ccf37b0bb169f9a5892893eaf74f82ca42b46efb5e",
+      "size_bytes": 38,
+      "upstream_blob": "7fc6b55349892f3b9de9d9b64eeeeb40109bec57",
+      "upstream_path": "doc/commands/capabilities_use.rst"
+    },
+    {
+      "path": "source/doc/commands/catsearch.rst",
+      "role": "source-rst",
+      "sha256": "790d125cb4f5a8165541713871788499fd555ce1cf3d4bf314ce1ed16c1592b2",
+      "size_bytes": 577,
+      "upstream_blob": "b16c3cfa20701a25ebb60d2bbae56b1f331471df",
+      "upstream_path": "doc/commands/catsearch.rst"
+    },
+    {
+      "path": "source/doc/commands/catsearch_use.rst",
+      "role": "source-rst",
+      "sha256": "06b7da113a86e49d34deeedea807e02da2d3dbe34bb0058b8a7e88ee39fbce8d",
+      "size_bytes": 40,
+      "upstream_blob": "fd2064dff2bcc471e76f73b558856784bf2e0a2e",
+      "upstream_path": "doc/commands/catsearch_use.rst"
+    },
+    {
+      "path": "source/doc/commands/ccm.rst",
+      "role": "source-rst",
+      "sha256": "c54ecc4aca46f30815faaf0ad902020bfe346bb34f48b47c53f21a2d33c1b504",
+      "size_bytes": 517,
+      "upstream_blob": "ebab43e70b4a0c1de22118afa2d90470d25356a0",
+      "upstream_path": "doc/commands/ccm.rst"
+    },
+    {
+      "path": "source/doc/commands/ccm_use.rst",
+      "role": "source-rst",
+      "sha256": "d0115720fccf46fa6cbf585bbc795376142d82546df5ccb9690509f075464fd3",
+      "size_bytes": 73,
+      "upstream_blob": "c281398dfe76d7b54e12d80a5e3987abf258be59",
+      "upstream_path": "doc/commands/ccm_use.rst"
+    },
+    {
+      "path": "source/doc/commands/cd.rst",
+      "role": "source-rst",
+      "sha256": "16de35e6077e3335e9fd81a2c4fbd766ab2f00068bd4de9c137394a5f01dbf19",
+      "size_bytes": 214,
+      "upstream_blob": "667d1997b8b8dbc95719b64d90129cbfdb57df86",
+      "upstream_path": "doc/commands/cd.rst"
+    },
+    {
+      "path": "source/doc/commands/cd_use.rst",
+      "role": "source-rst",
+      "sha256": "78a3fc65d0e2c6c1419eb3400dc030fde33de0ea4b7d9077f7cafab471a293db",
+      "size_bytes": 38,
+      "upstream_blob": "89ca499a94038005f1e288178ceafe8e39570230",
+      "upstream_path": "doc/commands/cd_use.rst"
+    },
+    {
+      "path": "source/doc/commands/cdg.rst",
+      "role": "source-rst",
+      "sha256": "69cb5df86f326eb1f491e91a01e74532ef4a64f3d301c0009570f3d17db33819",
+      "size_bytes": 246,
+      "upstream_blob": "dca11ce296257b35252dcae8eab958deb99c939e",
+      "upstream_path": "doc/commands/cdg.rst"
+    },
+    {
+      "path": "source/doc/commands/cdg_use.rst",
+      "role": "source-rst",
+      "sha256": "a3d66543cf5f26a97d4f7e6fda3821261af9757805a9d9e453d81d0db573b43d",
+      "size_bytes": 29,
+      "upstream_blob": "e1aa327ca652c67bf87b4ddf88d4a72798c53cf7",
+      "upstream_path": "doc/commands/cdg_use.rst"
+    },
+    {
+      "path": "source/doc/commands/clahe.rst",
+      "role": "source-rst",
+      "sha256": "d645c732f84084b7915f3c9027d2bfa8ce3de0d6d2b5b5190e74850ad9cf1bbb",
+      "size_bytes": 285,
+      "upstream_blob": "df3c7d0c332fe8cf23d2298132d0848eab5b13d2",
+      "upstream_path": "doc/commands/clahe.rst"
+    },
+    {
+      "path": "source/doc/commands/clahe_use.rst",
+      "role": "source-rst",
+      "sha256": "3d2cb930185fdcc79cb768ced7c56baa467939ef54feb902149807a9aec30027",
+      "size_bytes": 50,
+      "upstream_blob": "a233c38adc913dd2ec89a9faedcd947273fe44d9",
+      "upstream_path": "doc/commands/clahe_use.rst"
+    },
+    {
+      "path": "source/doc/commands/clear.rst",
+      "role": "source-rst",
+      "sha256": "e453954b68071daee702adfb50436f1338c21a586c667b3f81095bb86020f685",
+      "size_bytes": 35,
+      "upstream_blob": "5256e04fd2c1b2811bacddf6eb6705231287d156",
+      "upstream_path": "doc/commands/clear.rst"
+    },
+    {
+      "path": "source/doc/commands/clear_use.rst",
+      "role": "source-rst",
+      "sha256": "3ff70daaef73ddca93cd1c33ed295d89b324e3d37201d8941273f68f3b90bc35",
+      "size_bytes": 31,
+      "upstream_blob": "770fc356c9b13bd76a478b51ccebbae2db22d6fe",
+      "upstream_path": "doc/commands/clear_use.rst"
+    },
+    {
+      "path": "source/doc/commands/clearstar.rst",
+      "role": "source-rst",
+      "sha256": "99151ba0d6eeb11de3bfb3c7a380ba187e118d4986344053d0a3050571f6e0c0",
+      "size_bytes": 67,
+      "upstream_blob": "aaa8c6ee1d5b20153bbaadfe6b7b0871710bde38",
+      "upstream_path": "doc/commands/clearstar.rst"
+    },
+    {
+      "path": "source/doc/commands/clearstar_use.rst",
+      "role": "source-rst",
+      "sha256": "fec3d21f73cbeeb3280cdc54d4482716a3e4bf19fcfe5061619af580f631fd3c",
+      "size_bytes": 35,
+      "upstream_blob": "dc41bedb579c48fa9820efd0df3c4f807f2704dc",
+      "upstream_path": "doc/commands/clearstar_use.rst"
+    },
+    {
+      "path": "source/doc/commands/close.rst",
+      "role": "source-rst",
+      "sha256": "3f7d40c91c73cea7486fc3ab7ea515053a3251e16d2a7eda015650845dff9c1e",
+      "size_bytes": 67,
+      "upstream_blob": "a2831f792817a27461b5ae1a5c0cff7094279ab0",
+      "upstream_path": "doc/commands/close.rst"
+    },
+    {
+      "path": "source/doc/commands/close_use.rst",
+      "role": "source-rst",
+      "sha256": "db055659ee9bf047238b820a05b4fdaf4ae83f5928714d2a1435f1efe0a7da49",
+      "size_bytes": 31,
+      "upstream_blob": "4ba42aa87fc327aefac7ec59416094ff2a2a049d",
+      "upstream_path": "doc/commands/close_use.rst"
+    },
+    {
+      "path": "source/doc/commands/conesearch-gcvs.rst",
+      "role": "source-rst",
+      "sha256": "9c4d22454f4241be109666dac5215179b2521353199a373b79d470ab95895f0d",
+      "size_bytes": 121,
+      "upstream_blob": "894429466b73f84f07dfef8e63c13618b91713c3",
+      "upstream_path": "doc/commands/conesearch-gcvs.rst"
+    },
+    {
+      "path": "source/doc/commands/conesearch.rst",
+      "role": "source-rst",
+      "sha256": "a03cc0f11a3e084f4cc3a148cfcc2e5832c0387f8fcbbedb3c9dfcb1091ce1f8",
+      "size_bytes": 1619,
+      "upstream_blob": "4662efc1674ae7eefd26f2275f221661218968b1",
+      "upstream_path": "doc/commands/conesearch.rst"
+    },
+    {
+      "path": "source/doc/commands/conesearch_use.rst",
+      "role": "source-rst",
+      "sha256": "799b9fbe33661671961eebec8ac2a1006e5769f20e07feeded930464dd5cd87d",
+      "size_bytes": 131,
+      "upstream_blob": "a83af9cbed0c165af764cdbd6e9a238a1ef7ddd2",
+      "upstream_path": "doc/commands/conesearch_use.rst"
+    },
+    {
+      "path": "source/doc/commands/convert.rst",
+      "role": "source-rst",
+      "sha256": "6806e74ab173a1d12dd002da397d755e850c80b5909e5fc7ea8510faf5c8d885",
+      "size_bytes": 947,
+      "upstream_blob": "345180e32a8be0fced38f4809045b7f0d8756028",
+      "upstream_path": "doc/commands/convert.rst"
+    },
+    {
+      "path": "source/doc/commands/convert_use.rst",
+      "role": "source-rst",
+      "sha256": "5bbadb4206c0936ce9322ea2a7b7c7d36b26059c13afa5744f4723d7b586dbbd",
+      "size_bytes": 93,
+      "upstream_blob": "f97bf89f6b320cb349890e410c30f542aca09399",
+      "upstream_path": "doc/commands/convert_use.rst"
+    },
+    {
+      "path": "source/doc/commands/convertraw.rst",
+      "role": "source-rst",
+      "sha256": "8e9c9650aa9c2c53924a6c21af12eb5d74f36ea28086d419393cd6136f0a2ddb",
+      "size_bytes": 127,
+      "upstream_blob": "d403e6546ed1b027385067afe496017fef0022c0",
+      "upstream_path": "doc/commands/convertraw.rst"
+    },
+    {
+      "path": "source/doc/commands/convertraw_use.rst",
+      "role": "source-rst",
+      "sha256": "31e7d7f939e34d4a36f39b8276748b7bde32a360f056cd37c514f54e1c9a93cf",
+      "size_bytes": 96,
+      "upstream_blob": "4936af1fe9077250610db602845ccd4a52f118a1",
+      "upstream_path": "doc/commands/convertraw_use.rst"
+    },
+    {
+      "path": "source/doc/commands/cosme.rst",
+      "role": "source-rst",
+      "sha256": "99ace76e990de1d41eb2fca268a7868077b8a5a39050d6947d2558b7b54a7f17",
+      "size_bytes": 550,
+      "upstream_blob": "44ef62437487045c8de01387441cb84265e04589",
+      "upstream_path": "doc/commands/cosme.rst"
+    },
+    {
+      "path": "source/doc/commands/cosme_add.rst",
+      "role": "source-rst",
+      "sha256": "1246d882b789b600372a44872a1b3ce727e380a6a77bde835cc41b94ca5effbd",
+      "size_bytes": 444,
+      "upstream_blob": "c72361f6596a9545debbd3824001dec576483cac",
+      "upstream_path": "doc/commands/cosme_add.rst"
+    },
+    {
+      "path": "source/doc/commands/cosme_cfa.rst",
+      "role": "source-rst",
+      "sha256": "549ac0f3900afa068fee7da4ffd32240c47c65cc991149b8d1f8405d5112c138",
+      "size_bytes": 89,
+      "upstream_blob": "d9b58f8115ea7782833b2cbe1edb4fbb5b0dcc3e",
+      "upstream_path": "doc/commands/cosme_cfa.rst"
+    },
+    {
+      "path": "source/doc/commands/cosme_cfa_use.rst",
+      "role": "source-rst",
+      "sha256": "e84c9676a282f2e1eaa65cb0146bb4d82fb7629aa67542a50275171ce3724474",
+      "size_bytes": 50,
+      "upstream_blob": "314af4bb36ed74c7b145a3101b50752f18ede54c",
+      "upstream_path": "doc/commands/cosme_cfa_use.rst"
+    },
+    {
+      "path": "source/doc/commands/cosme_use.rst",
+      "role": "source-rst",
+      "sha256": "4ec31964f053508cf0fe92ee1ca48a5c1a31d5a43e1e66dfdea64c2fced38e8f",
+      "size_bytes": 46,
+      "upstream_blob": "187cba818528a378a6e0117d638113e1ef6f854f",
+      "upstream_path": "doc/commands/cosme_use.rst"
+    },
+    {
+      "path": "source/doc/commands/crop.rst",
+      "role": "source-rst",
+      "sha256": "6f5a8839cb62d6730bd5dadf05ceabdd1f1fa233962f7258a35d6b88ece35287",
+      "size_bytes": 401,
+      "upstream_blob": "db22c976461221f31dcf170ad256957f42934105",
+      "upstream_path": "doc/commands/crop.rst"
+    },
+    {
+      "path": "source/doc/commands/crop_use.rst",
+      "role": "source-rst",
+      "sha256": "99d73d0e02a6f09e6662c66936f5046e282e6526d8a0487f2efb699c97150c9c",
+      "size_bytes": 49,
+      "upstream_blob": "1d4285fe275caa076dc78f45c5d7e6618fdcaab9",
+      "upstream_path": "doc/commands/crop_use.rst"
+    },
+    {
+      "path": "source/doc/commands/ddp.rst",
+      "role": "source-rst",
+      "sha256": "3daa2d180b1472f1ff8a7794bf71c9922205b8c577a09181c348898f0e38d7c2",
+      "size_bytes": 619,
+      "upstream_blob": "38d04dedaf53e00d1ad27b19b1c2cfc101cbb96e",
+      "upstream_path": "doc/commands/ddp.rst"
+    },
+    {
+      "path": "source/doc/commands/ddp_use.rst",
+      "role": "source-rst",
+      "sha256": "1921943135109442c140ff41f03968e5ce801ff5e7e4f94d26b83cc2736e8870",
+      "size_bytes": 46,
+      "upstream_blob": "2a6dd8b459d9c940894e1a5e6c1e150ddfa482bd",
+      "upstream_path": "doc/commands/ddp_use.rst"
+    },
+    {
+      "path": "source/doc/commands/denoise.rst",
+      "role": "source-rst",
+      "sha256": "c2ac8b5594a07ba6d0dfd75b0b064187ad9590ca3b065e6f6958f599aab180b8",
+      "size_bytes": 2475,
+      "upstream_blob": "8dd4277c7efef742f6a831ca4fb7ccaaad1569c1",
+      "upstream_path": "doc/commands/denoise.rst"
+    },
+    {
+      "path": "source/doc/commands/denoise_use.rst",
+      "role": "source-rst",
+      "sha256": "bdc46f3a08787b8898d665e09716d4c29d57443bd5a31c79ec290571ebd00acc",
+      "size_bytes": 100,
+      "upstream_blob": "24492bf2e7f3aa808a2f7047084135f728920c8f",
+      "upstream_path": "doc/commands/denoise_use.rst"
+    },
+    {
+      "path": "source/doc/commands/dir.rst",
+      "role": "source-rst",
+      "sha256": "0f31792c48f952955b7676b0357a4359fb0ec24d4382c95ef5a725e49db077c6",
+      "size_bytes": 55,
+      "upstream_blob": "706e11b96f6f0f1656bff2ff712a2d7d436bebcc",
+      "upstream_path": "doc/commands/dir.rst"
+    },
+    {
+      "path": "source/doc/commands/dir_add.rst",
+      "role": "source-rst",
+      "sha256": "bfe5e0e29e07adab75a7af60bbc841c8efe71c0c565c87970d3479b2337660a7",
+      "size_bytes": 125,
+      "upstream_blob": "2c8ae352e4d0550e2fe8c342dbd676e3c7170de9",
+      "upstream_path": "doc/commands/dir_add.rst"
+    },
+    {
+      "path": "source/doc/commands/dir_use.rst",
+      "role": "source-rst",
+      "sha256": "fc384bf27718c27ee49388af684d3f29122e4574d87c8416f37851e20468421d",
+      "size_bytes": 29,
+      "upstream_blob": "4d873d65038241647772973708aff26f3197ed22",
+      "upstream_path": "doc/commands/dir_use.rst"
+    },
+    {
+      "path": "source/doc/commands/disto.rst",
+      "role": "source-rst",
+      "sha256": "6f5f73b41d45085a56cf2247d924efd4b38bcb49695af5a81ea596670fdcb8e0",
+      "size_bytes": 128,
+      "upstream_blob": "a8b9d66b7ed937e173c0614da23cee742cd4d486",
+      "upstream_path": "doc/commands/disto.rst"
+    },
+    {
+      "path": "source/doc/commands/disto_use.rst",
+      "role": "source-rst",
+      "sha256": "9c6de1dd852b0e409f5b5f2929ffe30fc744f3555eb22a5d0428734cc90c47b7",
+      "size_bytes": 39,
+      "upstream_blob": "3dd180fbe7a5914cf7013795c55925d0783b7654",
+      "upstream_path": "doc/commands/disto_use.rst"
+    },
+    {
+      "path": "source/doc/commands/dumpheader.rst",
+      "role": "source-rst",
+      "sha256": "523a7fb46f75e95539020261836ee29e06e164ec6df175b754644dbca4febab9",
+      "size_bytes": 59,
+      "upstream_blob": "7202c4976306300bb6c1f5bd0fa50b5443b03296",
+      "upstream_path": "doc/commands/dumpheader.rst"
+    },
+    {
+      "path": "source/doc/commands/dumpheader_use.rst",
+      "role": "source-rst",
+      "sha256": "78248970389c4ba03d85741738616426e319d7f6b2571b4d98ecacde1ad413ad",
+      "size_bytes": 36,
+      "upstream_blob": "c141b90ae7f432f2898de043290d955c685a3dbe",
+      "upstream_path": "doc/commands/dumpheader_use.rst"
+    },
+    {
+      "path": "source/doc/commands/entropy.rst",
+      "role": "source-rst",
+      "sha256": "27bdf99233696069bb1fde6762d7f3b9cbb289cfec30a307971d1a7c9e75b0fa",
+      "size_bytes": 214,
+      "upstream_blob": "dba34e122f1ef87a2e0b0bce3ed966a8b79c3451",
+      "upstream_path": "doc/commands/entropy.rst"
+    },
+    {
+      "path": "source/doc/commands/entropy_use.rst",
+      "role": "source-rst",
+      "sha256": "b214264ebb8ca4e4be0f73a4e41447074652a8d7238ce76805e3cb2ebbeb0efc",
+      "size_bytes": 33,
+      "upstream_blob": "c4a8418e5cc9e368e4ab7eb33b579efb19a326c4",
+      "upstream_path": "doc/commands/entropy_use.rst"
+    },
+    {
+      "path": "source/doc/commands/epf.rst",
+      "role": "source-rst",
+      "sha256": "dfeb2eab54db560e3940050d2e27410c507dbd47118834e9800d9af6a17a6757",
+      "size_bytes": 1384,
+      "upstream_blob": "defafea4642d312a6c4425a85b2594836c1a7227",
+      "upstream_path": "doc/commands/epf.rst"
+    },
+    {
+      "path": "source/doc/commands/epf_use.rst",
+      "role": "source-rst",
+      "sha256": "3fa22b35a8a24bfb4aa4502940208bebb2a8165a32881eb98534b02502d4de49",
+      "size_bytes": 82,
+      "upstream_blob": "2892419e644253f772cd8a499dc430c5bd651d8d",
+      "upstream_path": "doc/commands/epf_use.rst"
+    },
+    {
+      "path": "source/doc/commands/exit.rst",
+      "role": "source-rst",
+      "sha256": "7ab56f6296c9e0048b462cb248a6e9ed030049ca3dcf5ddb7e528e6d7e83868d",
+      "size_bytes": 24,
+      "upstream_blob": "b1e1f2dd62e65f37a7cbb60ceb8abe0d92e12b40",
+      "upstream_path": "doc/commands/exit.rst"
+    },
+    {
+      "path": "source/doc/commands/exit_use.rst",
+      "role": "source-rst",
+      "sha256": "9df617eed705a41b48e0daef85113bd439caf65192818da86f12c52789d66420",
+      "size_bytes": 30,
+      "upstream_blob": "bd0f1b5b80a8d65d419662b5bc389acbe39ec0de",
+      "upstream_path": "doc/commands/exit_use.rst"
+    },
+    {
+      "path": "source/doc/commands/extract.rst",
+      "role": "source-rst",
+      "sha256": "b3bf8bf7d899de19e01b82edbcd96548eceac17b3bc9b4dc5637b74904182ec8",
+      "size_bytes": 218,
+      "upstream_blob": "821e2d0fcd616b8454d36b388fe48ffba464a53b",
+      "upstream_path": "doc/commands/extract.rst"
+    },
+    {
+      "path": "source/doc/commands/extract_Green.rst",
+      "role": "source-rst",
+      "sha256": "35776578998ae2edf0a373e29a671e5df05fbdc5fe26d1cc078e3f447939b0b0",
+      "size_bytes": 261,
+      "upstream_blob": "389750bb59b8d86396b9c9774caabea573363d8b",
+      "upstream_path": "doc/commands/extract_Green.rst"
+    },
+    {
+      "path": "source/doc/commands/extract_Green_use.rst",
+      "role": "source-rst",
+      "sha256": "41f41d84ecdac2b82f198a4a78254c9e2972cc988096eb0062275765e4743a08",
+      "size_bytes": 39,
+      "upstream_blob": "e34344b3bad2ab4634c54aa4042326fa813311d4",
+      "upstream_path": "doc/commands/extract_Green_use.rst"
+    },
+    {
+      "path": "source/doc/commands/extract_Ha.rst",
+      "role": "source-rst",
+      "sha256": "5fbbe43668bcad51924df10cfe47e7b7e6ad7897082ed8015337dbf76bea0a44",
+      "size_bytes": 433,
+      "upstream_blob": "a9eb5d8eecb08f8ac82071dc3c06279c85aeb66b",
+      "upstream_path": "doc/commands/extract_Ha.rst"
+    },
+    {
+      "path": "source/doc/commands/extract_HaOIII.rst",
+      "role": "source-rst",
+      "sha256": "e42711a5c58467b1266b586070332a85a128afb8a32979203ac0a1af5d63c028",
+      "size_bytes": 674,
+      "upstream_blob": "9ff1cc36d5a294deeaa6f1aac0c6440b619b3caf",
+      "upstream_path": "doc/commands/extract_HaOIII.rst"
+    },
+    {
+      "path": "source/doc/commands/extract_HaOIII_use.rst",
+      "role": "source-rst",
+      "sha256": "a1c17c462d23572824657397fd6a5cad4162a79f76fdb48b0aca0ff05eb7f5f1",
+      "size_bytes": 53,
+      "upstream_blob": "89056e13f97c1baf7f7e3f07e4e8bad7bc1de043",
+      "upstream_path": "doc/commands/extract_HaOIII_use.rst"
+    },
+    {
+      "path": "source/doc/commands/extract_Ha_use.rst",
+      "role": "source-rst",
+      "sha256": "001acde0c05e538851a3e58f8d524260f230e4f7c87cd351e3a652a40c6dce60",
+      "size_bytes": 47,
+      "upstream_blob": "3092ef8d888236a7812dab9ed5313e721389cc2d",
+      "upstream_path": "doc/commands/extract_Ha_use.rst"
+    },
+    {
+      "path": "source/doc/commands/extract_use.rst",
+      "role": "source-rst",
+      "sha256": "b50528574fe884b714b7345b02819e427c40f85ba18dfae5762b2ec8ea2054d0",
+      "size_bytes": 41,
+      "upstream_blob": "cfd1608ae94025e453558a9b70bc5b8904b5f85c",
+      "upstream_path": "doc/commands/extract_use.rst"
+    },
+    {
+      "path": "source/doc/commands/fdiv.rst",
+      "role": "source-rst",
+      "sha256": "80ccf7d5fafe047787948475a9d398183e493f442fd6e1693b318c6eabc51ed2",
+      "size_bytes": 179,
+      "upstream_blob": "4bd8f18efd0f9b7bc10d7be1378952b3ced7190a",
+      "upstream_path": "doc/commands/fdiv.rst"
+    },
+    {
+      "path": "source/doc/commands/fdiv_use.rst",
+      "role": "source-rst",
+      "sha256": "d24e8f6247434b0ee03be7c62a941a6c07fcd58ba6a88e6d29ed692531466ac3",
+      "size_bytes": 46,
+      "upstream_blob": "34c31b99816674c22879e3f538b1a16f9e4aa7d4",
+      "upstream_path": "doc/commands/fdiv_use.rst"
+    },
+    {
+      "path": "source/doc/commands/ffill.rst",
+      "role": "source-rst",
+      "sha256": "61adb6668d594d2abb0c95b6aed132ea9dac6324e49513bc832af70d190ab8f0",
+      "size_bytes": 218,
+      "upstream_blob": "0e80eb761ce2db849fa9afb0a4cc92d4c4f7574d",
+      "upstream_path": "doc/commands/ffill.rst"
+    },
+    {
+      "path": "source/doc/commands/ffill_use.rst",
+      "role": "source-rst",
+      "sha256": "014d7877a9ea789bd0daaedb4780615fc044ec3144559daeccd90c0c0b8f483d",
+      "size_bytes": 56,
+      "upstream_blob": "c68adc2e70bccc738ef31544831763f8d74569a8",
+      "upstream_path": "doc/commands/ffill_use.rst"
+    },
+    {
+      "path": "source/doc/commands/fftd.rst",
+      "role": "source-rst",
+      "sha256": "4e5f2c080db7ce38be768b7cba9eb945ec12a5da7c11038aff56d695941fa1c0",
+      "size_bytes": 141,
+      "upstream_blob": "3a7ee801464a5935e640a217220490351a88d3c5",
+      "upstream_path": "doc/commands/fftd.rst"
+    },
+    {
+      "path": "source/doc/commands/fftd_use.rst",
+      "role": "source-rst",
+      "sha256": "674584ec3dfa67af42c1568f9761af24edef8032ab4e4a31ebc0e260b33cae91",
+      "size_bytes": 44,
+      "upstream_blob": "8177b48836ae0e1763dca518248baf042331ccf8",
+      "upstream_path": "doc/commands/fftd_use.rst"
+    },
+    {
+      "path": "source/doc/commands/ffti.rst",
+      "role": "source-rst",
+      "sha256": "7739dfb88a2b22870425ccab0b2c2e869e00f74269c8397a550c4645a050bdeb",
+      "size_bytes": 170,
+      "upstream_blob": "9d2a9edbc2c39746ccce1dd8ee1dc72f1c415fef",
+      "upstream_path": "doc/commands/ffti.rst"
+    },
+    {
+      "path": "source/doc/commands/ffti_use.rst",
+      "role": "source-rst",
+      "sha256": "43c154afdf79f3a2210576ab75bb1f73134e60916eb35670ca1c6491e15d61c4",
+      "size_bytes": 44,
+      "upstream_blob": "e33f1071e052fc30d72aa0d446ff9e964f02dbc2",
+      "upstream_path": "doc/commands/ffti_use.rst"
+    },
+    {
+      "path": "source/doc/commands/fill.rst",
+      "role": "source-rst",
+      "sha256": "94a5a53eb886b913ead7282c06366a0bf2afa07ff1844d2ae8d569fb8cb004df",
+      "size_bytes": 132,
+      "upstream_blob": "2cd229c7e86063f0cbbdf8640ccf11facd596ce0",
+      "upstream_path": "doc/commands/fill.rst"
+    },
+    {
+      "path": "source/doc/commands/fill_use.rst",
+      "role": "source-rst",
+      "sha256": "3d88bbd1ddbe224275da140de722f9882334f298f2ce75d354f54db76dcfe167",
+      "size_bytes": 55,
+      "upstream_blob": "06d7127cdec3e49e9dc7976cc21a4f8bbf69b1db",
+      "upstream_path": "doc/commands/fill_use.rst"
+    },
+    {
+      "path": "source/doc/commands/find_cosme.rst",
+      "role": "source-rst",
+      "sha256": "6b75421c3893b333c90cc9795e4f4f371df59d5fe237bbd0c46375e4c48ebdf2",
+      "size_bytes": 148,
+      "upstream_blob": "31553ad10edc75763e8b92b1049dc5e689cbbc74",
+      "upstream_path": "doc/commands/find_cosme.rst"
+    },
+    {
+      "path": "source/doc/commands/find_cosme_cfa.rst",
+      "role": "source-rst",
+      "sha256": "e248cf0c055c16523d49d035b7c1769875d61b5f95199d63e4c6f2a0d7c3b53b",
+      "size_bytes": 91,
+      "upstream_blob": "9d927f20ae0145093c99c88f83d46814e6d59a53",
+      "upstream_path": "doc/commands/find_cosme_cfa.rst"
+    },
+    {
+      "path": "source/doc/commands/find_cosme_cfa_use.rst",
+      "role": "source-rst",
+      "sha256": "1213d392c45a587abf65f113f7e6ac904df457f57d1f1866bbfc3c5e88df221e",
+      "size_bytes": 61,
+      "upstream_blob": "7a9166b887fc62b9eb36980b14ef5851bc899db0",
+      "upstream_path": "doc/commands/find_cosme_cfa_use.rst"
+    },
+    {
+      "path": "source/doc/commands/find_cosme_use.rst",
+      "role": "source-rst",
+      "sha256": "e396a7f2d318783004a6a95094f2cf8186f984e094a0d73f9da02b4a1ff2d5f8",
+      "size_bytes": 57,
+      "upstream_blob": "d076cb2e4e8468ea2a84b422ff87c52b9bde673d",
+      "upstream_path": "doc/commands/find_cosme_use.rst"
+    },
+    {
+      "path": "source/doc/commands/find_hot.rst",
+      "role": "source-rst",
+      "sha256": "cc18bc36c2c46329ee78ee3d8d488086870e5efd20a02edbbe80ab3415a9677e",
+      "size_bytes": 480,
+      "upstream_blob": "4cd605560cd581bec88cdfc3813c82107ac92eae",
+      "upstream_path": "doc/commands/find_hot.rst"
+    },
+    {
+      "path": "source/doc/commands/find_hot_add.rst",
+      "role": "source-rst",
+      "sha256": "116df86dc865952f8bc920c834f3eb59ac19e6457ccba60b6c9c8b9f0b4c0f2d",
+      "size_bytes": 377,
+      "upstream_blob": "db66c9e89f915a2268071c2341c6ef3edd351882",
+      "upstream_path": "doc/commands/find_hot_add.rst"
+    },
+    {
+      "path": "source/doc/commands/find_hot_use.rst",
+      "role": "source-rst",
+      "sha256": "f66b1f680212e682c01be6bf3ff191dd892b5979757bfb77a96e18ced62b029c",
+      "size_bytes": 64,
+      "upstream_blob": "5065735be0e80c4046cc2d2a0db5a21c4c08c087",
+      "upstream_path": "doc/commands/find_hot_use.rst"
+    },
+    {
+      "path": "source/doc/commands/findcompstars.rst",
+      "role": "source-rst",
+      "sha256": "8d2ec9b7bb0210894d889326c8c1dba120d7f64b31ad5640dc70f937deeea799",
+      "size_bytes": 1090,
+      "upstream_blob": "330cac007bf5236fed54f940470bee51e38f47f4",
+      "upstream_path": "doc/commands/findcompstars.rst"
+    },
+    {
+      "path": "source/doc/commands/findcompstars_use.rst",
+      "role": "source-rst",
+      "sha256": "5d6b1dccd5250cd0fa41ae995288e77b52b08aefcac8a557c7521ca824cf1c3f",
+      "size_bytes": 146,
+      "upstream_blob": "662c561e6cff9f92c450af554ecad56410d043b0",
+      "upstream_path": "doc/commands/findcompstars_use.rst"
+    },
+    {
+      "path": "source/doc/commands/findstar.rst",
+      "role": "source-rst",
+      "sha256": "732941b210a414ed2394b01026e5aea054f182e87a1268473a01192afa13431f",
+      "size_bytes": 747,
+      "upstream_blob": "fdfdf2cb990558a8164aeafb85399a862e5c1c1d",
+      "upstream_path": "doc/commands/findstar.rst"
+    },
+    {
+      "path": "source/doc/commands/findstar_use.rst",
+      "role": "source-rst",
+      "sha256": "cb9b8bd5f59eda6d145a0d729f6daa8aefb54fbde0009d5007cab9c3d94b1376",
+      "size_bytes": 65,
+      "upstream_blob": "116d50818d17b0638cb8a692413dded2d4c4aee3",
+      "upstream_path": "doc/commands/findstar_use.rst"
+    },
+    {
+      "path": "source/doc/commands/fix_xtrans.rst",
+      "role": "source-rst",
+      "sha256": "aba7989b51d0a331eb3f70df85928071c5e9bddd8ab176857034e5decfda07e1",
+      "size_bytes": 373,
+      "upstream_blob": "b0e2dbf72ed0c50f67b3e9ebbfcd2a50d5bf43f6",
+      "upstream_path": "doc/commands/fix_xtrans.rst"
+    },
+    {
+      "path": "source/doc/commands/fix_xtrans_use.rst",
+      "role": "source-rst",
+      "sha256": "f8255120733234ca5f60b37d434b753ebe7e63f3ee7a20a4524b3280ae87fa50",
+      "size_bytes": 36,
+      "upstream_blob": "2e3b0f9d243b29b32c2741edc33615751598c9bd",
+      "upstream_path": "doc/commands/fix_xtrans_use.rst"
+    },
+    {
+      "path": "source/doc/commands/fixbanding.rst",
+      "role": "source-rst",
+      "sha256": "cf507421d0fe0bc7f8292504853f335df8b4a6ae929457869bb3fc4ee24a9b69",
+      "size_bytes": 397,
+      "upstream_blob": "647078a711c749e446be7390c6c8a2280df6bd3f",
+      "upstream_path": "doc/commands/fixbanding.rst"
+    },
+    {
+      "path": "source/doc/commands/fixbanding_use.rst",
+      "role": "source-rst",
+      "sha256": "b4aeda6af5eda33b09663a5e5e5f87b62180aec94f9a570e27af0e2f7334f269",
+      "size_bytes": 61,
+      "upstream_blob": "c3ddb608bcc15f6c2eaed9146a7a213dda7a3cd1",
+      "upstream_path": "doc/commands/fixbanding_use.rst"
+    },
+    {
+      "path": "source/doc/commands/fmedian.rst",
+      "role": "source-rst",
+      "sha256": "803ff774543e0932b54ff9b6ee6006f7b81144683b668d03e1358cab72b24312",
+      "size_bytes": 311,
+      "upstream_blob": "28fb0e1cc8b95f7925a420976c0a354d6bb6550b",
+      "upstream_path": "doc/commands/fmedian.rst"
+    },
+    {
+      "path": "source/doc/commands/fmedian_use.rst",
+      "role": "source-rst",
+      "sha256": "9a603e9a3d198ac0e3ae53d71f57703a7b9351eda75f026e85d5433171be4d58",
+      "size_bytes": 50,
+      "upstream_blob": "95b172da4dd5e59d0736adea5ef2450331672212",
+      "upstream_path": "doc/commands/fmedian_use.rst"
+    },
+    {
+      "path": "source/doc/commands/fmul.rst",
+      "role": "source-rst",
+      "sha256": "447fe89dfadfe8968d051379659a89c9fb87ba93718438ac8189f805e998e5bd",
+      "size_bytes": 66,
+      "upstream_blob": "dd68ffd9bc6758986dfad68c307353f5b1fbeeeb",
+      "upstream_path": "doc/commands/fmul.rst"
+    },
+    {
+      "path": "source/doc/commands/fmul_use.rst",
+      "role": "source-rst",
+      "sha256": "f58bd1d66cf633dde63c157cab334ba4a5ee364c37a8cc33a7f21bfdeb74eb1c",
+      "size_bytes": 37,
+      "upstream_blob": "3ac293405480d9e34842c223de9b2ccc04f350a2",
+      "upstream_path": "doc/commands/fmul_use.rst"
+    },
+    {
+      "path": "source/doc/commands/gauss.rst",
+      "role": "source-rst",
+      "sha256": "78aec4adade6469d3c318e1e4cd85312df6b0a6512de4665e3b634d376fe42b5",
+      "size_bytes": 167,
+      "upstream_blob": "5983674c209cbe177e613c02df69f0d18550a03a",
+      "upstream_path": "doc/commands/gauss.rst"
+    },
+    {
+      "path": "source/doc/commands/gauss_use.rst",
+      "role": "source-rst",
+      "sha256": "7a46f5d2b25a5cfcfbdc2faa3256dbc22bc782e78d331447fefe99cb173f547c",
+      "size_bytes": 37,
+      "upstream_blob": "0de9b72d3c6abdc8fc9d08756500f5b5e0727ec6",
+      "upstream_path": "doc/commands/gauss_use.rst"
+    },
+    {
+      "path": "source/doc/commands/get.rst",
+      "role": "source-rst",
+      "sha256": "0ef6fcd9971f99b3cae736c9523b7887cb02a99ad307f75ccb8b87591c629172",
+      "size_bytes": 190,
+      "upstream_blob": "f796cf05d829b6800d9f512953f19557e0f5ed7e",
+      "upstream_path": "doc/commands/get.rst"
+    },
+    {
+      "path": "source/doc/commands/get_use.rst",
+      "role": "source-rst",
+      "sha256": "d44942f8ef6bdcb3ecbc77be8cfd14c1286a5b5aa4115d0672b37e4651c53a8e",
+      "size_bytes": 52,
+      "upstream_blob": "74caf602f125d35b6a28857ea7da05c9c676bc78",
+      "upstream_path": "doc/commands/get_use.rst"
+    },
+    {
+      "path": "source/doc/commands/getref.rst",
+      "role": "source-rst",
+      "sha256": "0aec3435beffd14a0fa4eb9effada5c3a1f70518b38a8b6544c1b909e8ceddb0",
+      "size_bytes": 106,
+      "upstream_blob": "9c443e9bf8d30982135152adfb659a4f081cb8c2",
+      "upstream_path": "doc/commands/getref.rst"
+    },
+    {
+      "path": "source/doc/commands/getref_use.rst",
+      "role": "source-rst",
+      "sha256": "4dceda60aef470db2e914777dbabece13f5e0cb5a78934f71008dd67a5f85d9a",
+      "size_bytes": 45,
+      "upstream_blob": "6c93aeb2555927a912d1d27da28915e055f8baf6",
+      "upstream_path": "doc/commands/getref_use.rst"
+    },
+    {
+      "path": "source/doc/commands/ght.rst",
+      "role": "source-rst",
+      "sha256": "4327ea72c656c6adcbdd97d62be12267c8077fa6935804dd890bd240333a7518",
+      "size_bytes": 1535,
+      "upstream_blob": "a35d39c9eb04bfefdfa5be1e02eaa36d8df752ca",
+      "upstream_path": "doc/commands/ght.rst"
+    },
+    {
+      "path": "source/doc/commands/ght_use.rst",
+      "role": "source-rst",
+      "sha256": "de5a07b534c8d877b9259b31ea00598acde3e5e56157d66d07a44cd1b85edac2",
+      "size_bytes": 123,
+      "upstream_blob": "d6086f36fa68c839a28d76ff04e41d237768ceb0",
+      "upstream_path": "doc/commands/ght_use.rst"
+    },
+    {
+      "path": "source/doc/commands/graxpert.rst",
+      "role": "source-rst",
+      "sha256": "886b43431ec64b5111c376dc36034c580dd89db764e42ac5230a23ca99f082e5",
+      "size_bytes": 1535,
+      "upstream_blob": "781a6f57093a842b8599862d71d4c0ccf49073cf",
+      "upstream_path": "doc/commands/graxpert.rst"
+    },
+    {
+      "path": "source/doc/commands/graxpert_bg.rst",
+      "role": "source-rst",
+      "sha256": "261cc5fc5eb077c9f7c20511246a57a67d17c6fc7dd856a27df44e1a8d079a4d",
+      "size_bytes": 1610,
+      "upstream_blob": "17d09f88ae77f4105ba9e4c405ac0512f42f1160",
+      "upstream_path": "doc/commands/graxpert_bg.rst"
+    },
+    {
+      "path": "source/doc/commands/graxpert_bg_use.rst",
+      "role": "source-rst",
+      "sha256": "e7008987296f8aab8c4948ff26932df5a51a11ef605d6b075dcc4d8263a92b21",
+      "size_bytes": 201,
+      "upstream_blob": "1f287a6ec5b68cc1211ccf808fa6071814f220c5",
+      "upstream_path": "doc/commands/graxpert_bg_use.rst"
+    },
+    {
+      "path": "source/doc/commands/graxpert_deconv.rst",
+      "role": "source-rst",
+      "sha256": "d1eaeabf9aa49b45316fa42b610c943a255f0790209a925068d1d40205d08b6a",
+      "size_bytes": 766,
+      "upstream_blob": "ff3ea15e5eb699d4579af7b9061930d5ef693ee3",
+      "upstream_path": "doc/commands/graxpert_deconv.rst"
+    },
+    {
+      "path": "source/doc/commands/graxpert_deconv_use.rst",
+      "role": "source-rst",
+      "sha256": "e5fd7df3747da2153df030fa4a05f15772071a42e70a2d26b77e4a378b7fce8c",
+      "size_bytes": 123,
+      "upstream_blob": "c4359ffe88a46589d7cfd24c266c580162dc4b68",
+      "upstream_path": "doc/commands/graxpert_deconv_use.rst"
+    },
+    {
+      "path": "source/doc/commands/graxpert_denoise.rst",
+      "role": "source-rst",
+      "sha256": "8b6e6e278b6d8c5209d996acfb29d2ab8f463f166f7d7106a20207a1e65bb14c",
+      "size_bytes": 831,
+      "upstream_blob": "449e4a805199880a1a06e427f35dbd907ec2d531",
+      "upstream_path": "doc/commands/graxpert_denoise.rst"
+    },
+    {
+      "path": "source/doc/commands/graxpert_denoise_use.rst",
+      "role": "source-rst",
+      "sha256": "ac257504f76ca11ee41178d5dc6fed355ab24341e3195d3f7f373e6b3e4c311f",
+      "size_bytes": 90,
+      "upstream_blob": "81ff1a5e8268c5978d2e2d720ea604d20b59ba36",
+      "upstream_path": "doc/commands/graxpert_denoise_use.rst"
+    },
+    {
+      "path": "source/doc/commands/graxpert_use.rst",
+      "role": "source-rst",
+      "sha256": "a63d6037467ad66f9147402792d8466090f9c2b4474f3009b2d3b929fdba97f0",
+      "size_bytes": 215,
+      "upstream_blob": "a14f34e503d49b2795847361bf55344c1cf20dfc",
+      "upstream_path": "doc/commands/graxpert_use.rst"
+    },
+    {
+      "path": "source/doc/commands/grey_flat.rst",
+      "role": "source-rst",
+      "sha256": "92241e1b0ac2e7d03e82e26487fbb36efbc92b25bd592ed48617db578fb5b7eb",
+      "size_bytes": 165,
+      "upstream_blob": "10ca82aa5f4754879c035143c43365ff4cbccc52",
+      "upstream_path": "doc/commands/grey_flat.rst"
+    },
+    {
+      "path": "source/doc/commands/grey_flat_use.rst",
+      "role": "source-rst",
+      "sha256": "7db167fff7bc50d4596a74c6aa28889e758c8693fa605fffd5f6a6f040128233",
+      "size_bytes": 35,
+      "upstream_blob": "86cf24119bd304c77b92750a23227a45b2f18139",
+      "upstream_path": "doc/commands/grey_flat_use.rst"
+    },
+    {
+      "path": "source/doc/commands/help.rst",
+      "role": "source-rst",
+      "sha256": "0c616149d0e4d717d72f517c86beef2342fd795a26dfc709113a8629c6a3e4ee",
+      "size_bytes": 55,
+      "upstream_blob": "cd356e6007d6fade2fdc8de55a26f874110950f0",
+      "upstream_path": "doc/commands/help.rst"
+    },
+    {
+      "path": "source/doc/commands/help_use.rst",
+      "role": "source-rst",
+      "sha256": "d3bf4b63ace89a56ca16ec5b6e713cb9c527e8e382ead1be5c09873a63db1198",
+      "size_bytes": 40,
+      "upstream_blob": "52d35751340c8dc9c86505a7651ee9ec569aa2bd",
+      "upstream_path": "doc/commands/help_use.rst"
+    },
+    {
+      "path": "source/doc/commands/histo.rst",
+      "role": "source-rst",
+      "sha256": "b93ca03cccc64c398ce91b26e65191f397e5b63f30dc0b0f54d5cba1b5328aa6",
+      "size_bytes": 185,
+      "upstream_blob": "f2367c1711188b793c49baa3153fcdb5cc823279",
+      "upstream_path": "doc/commands/histo.rst"
+    },
+    {
+      "path": "source/doc/commands/histo_use.rst",
+      "role": "source-rst",
+      "sha256": "a10038856add365e4d6f971b3057fd5fa9b242d913b5889b269b8d1b20ba7fd7",
+      "size_bytes": 88,
+      "upstream_blob": "5ced6e8084d4d9e40336cb6f27e561261061ef04",
+      "upstream_path": "doc/commands/histo_use.rst"
+    },
+    {
+      "path": "source/doc/commands/iadd.rst",
+      "role": "source-rst",
+      "sha256": "52269d4a047407314ba2e2d354c52f8688395cd90ca63d1c1e4d0e0eba41ef43",
+      "size_bytes": 121,
+      "upstream_blob": "ddb8ac85504ecbf033f97632172a10007ed7c19e",
+      "upstream_path": "doc/commands/iadd.rst"
+    },
+    {
+      "path": "source/doc/commands/iadd_use.rst",
+      "role": "source-rst",
+      "sha256": "2381514058de6b32ac5f4cd7b448228675e1efa53b66ae6d6be546a4e0af9836",
+      "size_bytes": 39,
+      "upstream_blob": "8bba58e80bee4d02c8451b151ae54d1deface82f",
+      "upstream_path": "doc/commands/iadd_use.rst"
+    },
+    {
+      "path": "source/doc/commands/icc_assign.rst",
+      "role": "source-rst",
+      "sha256": "447ce8bc740bfab4f23969d0de754a19a3e5bc0994c0914e00f73c8830192f1d",
+      "size_bytes": 499,
+      "upstream_blob": "32beb76ce18c5703849c07bf418f656507689f92",
+      "upstream_path": "doc/commands/icc_assign.rst"
+    },
+    {
+      "path": "source/doc/commands/icc_assign_use.rst",
+      "role": "source-rst",
+      "sha256": "699b7a25f9414a35e9941462756a67b4151dbc4d98cf1ba713a17d4a2f54e713",
+      "size_bytes": 44,
+      "upstream_blob": "78ab72fa3b6c2d810a56923f65ab5bb8960a031d",
+      "upstream_path": "doc/commands/icc_assign_use.rst"
+    },
+    {
+      "path": "source/doc/commands/icc_convert_to.rst",
+      "role": "source-rst",
+      "sha256": "3b78a9c19cfcabd9780aa41d649cd592706783ed86f50e5bd49085d4c4dcee9d",
+      "size_bytes": 751,
+      "upstream_blob": "ab35e262c36fc4b09e35aa344d2709554a9b479b",
+      "upstream_path": "doc/commands/icc_convert_to.rst"
+    },
+    {
+      "path": "source/doc/commands/icc_convert_to_use.rst",
+      "role": "source-rst",
+      "sha256": "aa4bc6accebf3ebadda8eababb827da66b498db748303ca5226516e566ec9538",
+      "size_bytes": 57,
+      "upstream_blob": "0a08bbc8668a205921c169dd7337009abf79b46b",
+      "upstream_path": "doc/commands/icc_convert_to_use.rst"
+    },
+    {
+      "path": "source/doc/commands/icc_remove.rst",
+      "role": "source-rst",
+      "sha256": "5f69915b2979d3103b88e4db246c325d8c4e07785ab9a5c0407e4fe344df3c06",
+      "size_bytes": 64,
+      "upstream_blob": "736d3c420c8ff5c3556dcd8421a0fdbe945037c8",
+      "upstream_path": "doc/commands/icc_remove.rst"
+    },
+    {
+      "path": "source/doc/commands/icc_remove_use.rst",
+      "role": "source-rst",
+      "sha256": "9dfe62d8036b4d28e04bf349b9f76f7481b4a925453091f8723450f38622b904",
+      "size_bytes": 36,
+      "upstream_blob": "1ccb559c550b4ef9c6e61b8686b6b9f538a8f8d2",
+      "upstream_path": "doc/commands/icc_remove_use.rst"
+    },
+    {
+      "path": "source/doc/commands/idiv.rst",
+      "role": "source-rst",
+      "sha256": "adb7510c43506576bbd9dceab809dae738f24b0609ea4a6b0068e7666654bbe7",
+      "size_bytes": 175,
+      "upstream_blob": "568d2c6daabf5e825db21c0a9260d077ff42d905",
+      "upstream_path": "doc/commands/idiv.rst"
+    },
+    {
+      "path": "source/doc/commands/idiv_use.rst",
+      "role": "source-rst",
+      "sha256": "06ae1e929aade0cd719c37e248a852f4d94e9eca73d5cd733616f5284ed63b56",
+      "size_bytes": 39,
+      "upstream_blob": "62ff3ec1e5ebe544ffc1d8853c252caa3b0cbde5",
+      "upstream_path": "doc/commands/idiv_use.rst"
+    },
+    {
+      "path": "source/doc/commands/imul.rst",
+      "role": "source-rst",
+      "sha256": "864a9032f1b849c95c9a84e392186eb2efb5a5e9c549b34977e0c622574c7d2d",
+      "size_bytes": 123,
+      "upstream_blob": "5a01d0539d335c58757bd2edc4714399104bc9ae",
+      "upstream_path": "doc/commands/imul.rst"
+    },
+    {
+      "path": "source/doc/commands/imul_use.rst",
+      "role": "source-rst",
+      "sha256": "fca8a93a37dd9d14fa7a400381fe386fbda542924850a7c4de949d7189d55f90",
+      "size_bytes": 39,
+      "upstream_blob": "ec4fc0f1c2c96359b64cd85cd36702a51ba6d7aa",
+      "upstream_path": "doc/commands/imul_use.rst"
+    },
+    {
+      "path": "source/doc/commands/inspector.rst",
+      "role": "source-rst",
+      "sha256": "069db6be46f9a0a3f6c345bfe18f237dc7826f910c9da12824410a2ee601a447",
+      "size_bytes": 125,
+      "upstream_blob": "4565d11d045c326605e4f826bad85ed7f22a804c",
+      "upstream_path": "doc/commands/inspector.rst"
+    },
+    {
+      "path": "source/doc/commands/inspector_use.rst",
+      "role": "source-rst",
+      "sha256": "3ad2a6e1f105847cacb845a01e5ae1f76cb1e1706e5970d88b8df08b688c9e7e",
+      "size_bytes": 35,
+      "upstream_blob": "bd2a77971da64c9c111b2b893c9655a0f3e671cb",
+      "upstream_path": "doc/commands/inspector_use.rst"
+    },
+    {
+      "path": "source/doc/commands/invght.rst",
+      "role": "source-rst",
+      "sha256": "f00ff479b67d4b52edadd6dde352578efcac95a1745e9aa99ad35dd192167df9",
+      "size_bytes": 282,
+      "upstream_blob": "8f4bd0bb2e9b9169cfcb4561dfb740c201dcc189",
+      "upstream_path": "doc/commands/invght.rst"
+    },
+    {
+      "path": "source/doc/commands/invght_use.rst",
+      "role": "source-rst",
+      "sha256": "068838c39ffd3f6deb5bd470875734bb8d9a2472f8af9e7a084e13d5272a7e1e",
+      "size_bytes": 126,
+      "upstream_blob": "26622f4f83ac4ffbed4ec42a1e236370b0bcae4f",
+      "upstream_path": "doc/commands/invght_use.rst"
+    },
+    {
+      "path": "source/doc/commands/invmodasinh.rst",
+      "role": "source-rst",
+      "sha256": "c4b04c997e1ad74d1e91c76b51c588d7c2cde51a82c6449e8ecb830d75917812",
+      "size_bytes": 301,
+      "upstream_blob": "17e5366e63273b17f1c9e5055f729bb871e90a86",
+      "upstream_path": "doc/commands/invmodasinh.rst"
+    },
+    {
+      "path": "source/doc/commands/invmodasinh_use.rst",
+      "role": "source-rst",
+      "sha256": "19d94908f90a70d73174e410cfb6227e956c2680f578563b88ffd3b352f0a7d6",
+      "size_bytes": 125,
+      "upstream_blob": "6bb44e014caa5117c48bbb7f7f1e9e6c42583b92",
+      "upstream_path": "doc/commands/invmodasinh_use.rst"
+    },
+    {
+      "path": "source/doc/commands/invmtf.rst",
+      "role": "source-rst",
+      "sha256": "34632a48d0fcffe1aa942fc423b653dd47ddf81963436b3941c070e827c05976",
+      "size_bytes": 278,
+      "upstream_blob": "4992e0e0949d056fde27bd55fbac1fa7420f5d6c",
+      "upstream_path": "doc/commands/invmtf.rst"
+    },
+    {
+      "path": "source/doc/commands/invmtf_use.rst",
+      "role": "source-rst",
+      "sha256": "b76dfdaa5251d9b8050087479fe66fa0f7b073ccfb9e64a31a25a946b6a4650e",
+      "size_bytes": 56,
+      "upstream_blob": "e558241259de050b7b7d6c0b02067be2d49f4765",
+      "upstream_path": "doc/commands/invmtf_use.rst"
+    },
+    {
+      "path": "source/doc/commands/isub.rst",
+      "role": "source-rst",
+      "sha256": "231f74e65a171ae00b5746802ce0017d7f099e58b8cd4ae2fe9e7dcd0f6f2690",
+      "size_bytes": 273,
+      "upstream_blob": "2ccd01620bf6040a73d84ebe6fca2d6fb5e2a86d",
+      "upstream_path": "doc/commands/isub.rst"
+    },
+    {
+      "path": "source/doc/commands/isub_use.rst",
+      "role": "source-rst",
+      "sha256": "507bec2bf082d83f4938bd8480474fe3132ff3eaaa5aa4322289e251549c3af1",
+      "size_bytes": 39,
+      "upstream_blob": "32c6724a27fb74af90640f3baaa904f05e48c78c",
+      "upstream_path": "doc/commands/isub_use.rst"
+    },
+    {
+      "path": "source/doc/commands/jsonmetadata.rst",
+      "role": "source-rst",
+      "sha256": "a48f77327757a1a89892cc3f7c7483648e2f0e233aadc96dee215e6e17f64dcf",
+      "size_bytes": 475,
+      "upstream_blob": "5bde12960727b280c577ec949b230b67c616f962",
+      "upstream_path": "doc/commands/jsonmetadata.rst"
+    },
+    {
+      "path": "source/doc/commands/jsonmetadata_use.rst",
+      "role": "source-rst",
+      "sha256": "21ff153d19da0abe3ccbc94d2669350fa2e23dbbbfeca0c14d1002d8b6f0b757",
+      "size_bytes": 88,
+      "upstream_blob": "123a63bea10156ebab65039bf320d7a31ae2641f",
+      "upstream_path": "doc/commands/jsonmetadata_use.rst"
+    },
+    {
+      "path": "source/doc/commands/light_curve.rst",
+      "role": "source-rst",
+      "sha256": "6c49a8ca54edfb651b228efc176d30b5d39c304346b8677144bd1f34207d0a31",
+      "size_bytes": 1091,
+      "upstream_blob": "5e3b4b19840b81e9aeb6216b92343907a2c25fd4",
+      "upstream_path": "doc/commands/light_curve.rst"
+    },
+    {
+      "path": "source/doc/commands/light_curve_use.rst",
+      "role": "source-rst",
+      "sha256": "74da80aee6ca3049433e7517c620c31ff262780db846124f512daa06a90220b8",
+      "size_bytes": 197,
+      "upstream_blob": "e4f03a959252f3c4033b720fcd4bfa8439d5eeea",
+      "upstream_path": "doc/commands/light_curve_use.rst"
+    },
+    {
+      "path": "source/doc/commands/limit.rst",
+      "role": "source-rst",
+      "sha256": "25321b764da3164ba5064cfd6aebf9c1bf6c019284b682e73311ae805210d7da",
+      "size_bytes": 1205,
+      "upstream_blob": "d691152d8dd02bc45b3edaa28776b45f4426f28a",
+      "upstream_path": "doc/commands/limit.rst"
+    },
+    {
+      "path": "source/doc/commands/limit_use.rst",
+      "role": "source-rst",
+      "sha256": "94e52973085d73ce7eba6c4bf9ca1cf470212563fd58be958c1fa99cb2196c21",
+      "size_bytes": 66,
+      "upstream_blob": "aa2c60d6c0f658668741f9ade7070c86fbf6923b",
+      "upstream_path": "doc/commands/limit_use.rst"
+    },
+    {
+      "path": "source/doc/commands/linear_match.rst",
+      "role": "source-rst",
+      "sha256": "a3dbe06a0e1e42fabc86fda1b4545a4f5283c6613d079fb317f965fd6a6a5fdc",
+      "size_bytes": 203,
+      "upstream_blob": "115fe47a93a4b4fd95adebd4df9ec0f6e5e2de11",
+      "upstream_path": "doc/commands/linear_match.rst"
+    },
+    {
+      "path": "source/doc/commands/linear_match_use.rst",
+      "role": "source-rst",
+      "sha256": "e4328951536af98ae4c4fcac0ab927b289fb9b9a7927a0c108de0d9ac5c6d0c9",
+      "size_bytes": 57,
+      "upstream_blob": "58f1b0119959c23c813f10b187605c5e743a53df",
+      "upstream_path": "doc/commands/linear_match_use.rst"
+    },
+    {
+      "path": "source/doc/commands/link.rst",
+      "role": "source-rst",
+      "sha256": "e38bbd1d7e76535c044e3f2e93c2e013d35ed93fb1b28d0c14b10d71ea9b5a89",
+      "size_bytes": 351,
+      "upstream_blob": "0d76f7cd21af813f80640184a18d463ed8afbb71",
+      "upstream_path": "doc/commands/link.rst"
+    },
+    {
+      "path": "source/doc/commands/link_use.rst",
+      "role": "source-rst",
+      "sha256": "02ebe224ae6d5c6891253046c36e9dc53da8f8d7649b8a98011d3470e5a4bad5",
+      "size_bytes": 70,
+      "upstream_blob": "db896e5deb6d5f0178ea0c261637080453b44ea5",
+      "upstream_path": "doc/commands/link_use.rst"
+    },
+    {
+      "path": "source/doc/commands/linstretch.rst",
+      "role": "source-rst",
+      "sha256": "b35967696277b30e33f4fabeecd20acaef29bfdd31163a25cd6054d2c67c4f27",
+      "size_bytes": 551,
+      "upstream_blob": "8ba9834f60d10e85b657d9eeab250495914a2063",
+      "upstream_path": "doc/commands/linstretch.rst"
+    },
+    {
+      "path": "source/doc/commands/linstretch_use.rst",
+      "role": "source-rst",
+      "sha256": "76be7401da07f830c21d029d8786a3576f3bfca97e24fc36e1fd25b21add474d",
+      "size_bytes": 85,
+      "upstream_blob": "caad8279cfa9f5bad4f5bdd340297735a0ac7e31",
+      "upstream_path": "doc/commands/linstretch_use.rst"
+    },
+    {
+      "path": "source/doc/commands/livestack.rst",
+      "role": "source-rst",
+      "sha256": "aafdb3d38a574077d322a0a0ee7df36a57aa4d15e9b59e115b36629103fdf9b2",
+      "size_bytes": 358,
+      "upstream_blob": "847ee871295a875117217d1ca3c93e83c0c70b4f",
+      "upstream_path": "doc/commands/livestack.rst"
+    },
+    {
+      "path": "source/doc/commands/livestack_add.rst",
+      "role": "source-rst",
+      "sha256": "e6ee0b12f057540835f6b7df006c25caa644027b928dc10dfc71375bc4e6ba4a",
+      "size_bytes": 288,
+      "upstream_blob": "dd4cef7039f0cdc9b02bcd5bb45e3eee3f16e387",
+      "upstream_path": "doc/commands/livestack_add.rst"
+    },
+    {
+      "path": "source/doc/commands/livestack_use.rst",
+      "role": "source-rst",
+      "sha256": "a7a5ba89a7c9f4fab5d76c87f1f6ee58effd480ffa50992febbaab098a967941",
+      "size_bytes": 44,
+      "upstream_blob": "100152222b4ff31e79eb32881ace4f54719ea2c7",
+      "upstream_path": "doc/commands/livestack_use.rst"
+    },
+    {
+      "path": "source/doc/commands/load.rst",
+      "role": "source-rst",
+      "sha256": "d47bede011c26928b37aac53c6d56110f2711ce1b98f6a6bdfb6d82f22893e96",
+      "size_bytes": 350,
+      "upstream_blob": "bd65e8bb4ddad7c4da4a4b722a7046eddb3135f5",
+      "upstream_path": "doc/commands/load.rst"
+    },
+    {
+      "path": "source/doc/commands/load_seq.rst",
+      "role": "source-rst",
+      "sha256": "207b713541a292d2cc52d44537cdcbce6975f8d42e8e8b150fc0f0168dec2fa8",
+      "size_bytes": 282,
+      "upstream_blob": "a13717927f62fd5385dac34e6d6fec499764335b",
+      "upstream_path": "doc/commands/load_seq.rst"
+    },
+    {
+      "path": "source/doc/commands/load_seq_use.rst",
+      "role": "source-rst",
+      "sha256": "dff78753fdf18d5a3a34a33b35ee4407eb8903d8ab84bb62d98ebc3ff6212941",
+      "size_bytes": 53,
+      "upstream_blob": "d90c1db5eb49215d00ad328dae60ff1ab6efd6eb",
+      "upstream_path": "doc/commands/load_seq_use.rst"
+    },
+    {
+      "path": "source/doc/commands/load_use.rst",
+      "role": "source-rst",
+      "sha256": "bedafba5d27ae2ca70288313e002ac15ff0fb6aef2fe64869665a3eb7185e30a",
+      "size_bytes": 45,
+      "upstream_blob": "331b9580fee5b3607dff9fc21821c5e43dd98d0e",
+      "upstream_path": "doc/commands/load_use.rst"
+    },
+    {
+      "path": "source/doc/commands/log.rst",
+      "role": "source-rst",
+      "sha256": "5e8452b62198d8a75595b8cf0f6098aa0565a537d8ae003ae2e5c55de486952f",
+      "size_bytes": 206,
+      "upstream_blob": "7d741f485d41402074ddb209435aef5f6e0154a3",
+      "upstream_path": "doc/commands/log.rst"
+    },
+    {
+      "path": "source/doc/commands/log_use.rst",
+      "role": "source-rst",
+      "sha256": "3bf80ff5a1dc8b1880969c593e606092cb2a507f14a723234ad87642d06b1a7f",
+      "size_bytes": 29,
+      "upstream_blob": "f36ede58a7d157d250072add8860b59d3b522aaf",
+      "upstream_path": "doc/commands/log_use.rst"
+    },
+    {
+      "path": "source/doc/commands/ls.rst",
+      "role": "source-rst",
+      "sha256": "0f31792c48f952955b7676b0357a4359fb0ec24d4382c95ef5a725e49db077c6",
+      "size_bytes": 55,
+      "upstream_blob": "706e11b96f6f0f1656bff2ff712a2d7d436bebcc",
+      "upstream_path": "doc/commands/ls.rst"
+    },
+    {
+      "path": "source/doc/commands/ls_add.rst",
+      "role": "source-rst",
+      "sha256": "8383d1d5269cb396f57b78b27d12868cdb56c700af5f10b398e98ca9c48254fe",
+      "size_bytes": 129,
+      "upstream_blob": "a2fd903366ffa1f99d416eea220fbc2eb95afb82",
+      "upstream_path": "doc/commands/ls_add.rst"
+    },
+    {
+      "path": "source/doc/commands/ls_use.rst",
+      "role": "source-rst",
+      "sha256": "df8d7e34d4f9ab02d58b8942cb92bedc9bce93c55c21a37a7ef8eeeddd5513ea",
+      "size_bytes": 28,
+      "upstream_blob": "07a79a8d0b6ac8b46bd2858f7e00a89fd99d09ef",
+      "upstream_path": "doc/commands/ls_use.rst"
+    },
+    {
+      "path": "source/doc/commands/makepsf.rst",
+      "role": "source-rst",
+      "sha256": "4cbb19f1b9e2f170c9ea374bf07e6fffec3566e04e8424c6459d70b124bf2a3d",
+      "size_bytes": 3172,
+      "upstream_blob": "390949d74a6ae82ecb01c1d803bad77d9394901a",
+      "upstream_path": "doc/commands/makepsf.rst"
+    },
+    {
+      "path": "source/doc/commands/makepsf_use.rst",
+      "role": "source-rst",
+      "sha256": "1c04809f62e5a0dd98f1d80422766ec88c8a7612383690b10c2672e35181dccb",
+      "size_bytes": 385,
+      "upstream_blob": "906e3c044804d8058c52f8721fd1133d9db0fea0",
+      "upstream_path": "doc/commands/makepsf_use.rst"
+    },
+    {
+      "path": "source/doc/commands/merge.rst",
+      "role": "source-rst",
+      "sha256": "ef8e127168a98fa403de85dd07faae3df550f942375fb4e272c1e88f7df09690",
+      "size_bytes": 404,
+      "upstream_blob": "796465d63086caa22592b8779556c0fb4ded1c79",
+      "upstream_path": "doc/commands/merge.rst"
+    },
+    {
+      "path": "source/doc/commands/merge_cfa.rst",
+      "role": "source-rst",
+      "sha256": "7be11f658b2aa42024240d082d06f6f77c34832bad434e5d17b7ee81f3fb531f",
+      "size_bytes": 500,
+      "upstream_blob": "b96dd00f10b36ac0268657d73a316cec1826d610",
+      "upstream_path": "doc/commands/merge_cfa.rst"
+    },
+    {
+      "path": "source/doc/commands/merge_cfa_use.rst",
+      "role": "source-rst",
+      "sha256": "f3d34ad89e293f7716209a13c50f0f98fa33c200867358ecb411469c0e9c4bc1",
+      "size_bytes": 88,
+      "upstream_blob": "0087862e636c75a988e680f0159cac6474adcfd7",
+      "upstream_path": "doc/commands/merge_cfa_use.rst"
+    },
+    {
+      "path": "source/doc/commands/merge_use.rst",
+      "role": "source-rst",
+      "sha256": "1add326e5badcce0b5c3d53868f69f79de0eb937b1bdc72f1ae8cd5392d06ef2",
+      "size_bytes": 83,
+      "upstream_blob": "0a68f537358725e42f6e0076b36903f196bb86f0",
+      "upstream_path": "doc/commands/merge_use.rst"
+    },
+    {
+      "path": "source/doc/commands/mirrorx.rst",
+      "role": "source-rst",
+      "sha256": "9bc1cfcec100a1621ef5989837c6a6d8acb01982ec72280650d26667f7af6116",
+      "size_bytes": 121,
+      "upstream_blob": "66c7dd578e220e857d32b7ec46635dcc74a539ee",
+      "upstream_path": "doc/commands/mirrorx.rst"
+    },
+    {
+      "path": "source/doc/commands/mirrorx_single.rst",
+      "role": "source-rst",
+      "sha256": "ef9de3c4b7c2f81f750141d01f2fbd2650ca88832004294ab5401d3f240c98de",
+      "size_bytes": 247,
+      "upstream_blob": "f0524c401e09b46a3f8890d0ecc54c7b365f2ab8",
+      "upstream_path": "doc/commands/mirrorx_single.rst"
+    },
+    {
+      "path": "source/doc/commands/mirrorx_single_use.rst",
+      "role": "source-rst",
+      "sha256": "4f210ae63efa265500b26d6811669a247f8dd303a2f187633ec31a2b19a838c5",
+      "size_bytes": 46,
+      "upstream_blob": "3cf30b3f39d788d213b343a3fd781f0c3f32b7ec",
+      "upstream_path": "doc/commands/mirrorx_single_use.rst"
+    },
+    {
+      "path": "source/doc/commands/mirrorx_use.rst",
+      "role": "source-rst",
+      "sha256": "6edfa8ab3ff1eabbddb22beb203e032f122cbfc92f4158a5a06381e9ae254cf3",
+      "size_bytes": 45,
+      "upstream_blob": "f6e696280ef8e674e938acbd66f8391b77d149cd",
+      "upstream_path": "doc/commands/mirrorx_use.rst"
+    },
+    {
+      "path": "source/doc/commands/mirrory.rst",
+      "role": "source-rst",
+      "sha256": "41c93a495558cbf3caf96a685499ddd5dc62cd7fd36b9acea8aef2978a0887f8",
+      "size_bytes": 42,
+      "upstream_blob": "ba58ccd82526705c0810fb9cdeb7487b50440f20",
+      "upstream_path": "doc/commands/mirrory.rst"
+    },
+    {
+      "path": "source/doc/commands/mirrory_use.rst",
+      "role": "source-rst",
+      "sha256": "cd0e09f92593b6d26fb5deb04eac89878eb7f8fdab5f87bf2049f8f36a23d952",
+      "size_bytes": 33,
+      "upstream_blob": "1439a8e9cad6cafeccaad4e05d31b696fb11279c",
+      "upstream_path": "doc/commands/mirrory_use.rst"
+    },
+    {
+      "path": "source/doc/commands/modasinh.rst",
+      "role": "source-rst",
+      "sha256": "1251ce5cf92c1d06859e808c15c5e2baf3e0f30454c2af8a95e5db5b8800977e",
+      "size_bytes": 1440,
+      "upstream_blob": "5e7e1b55cc76e441e0d22854978a7b5def14b5c5",
+      "upstream_path": "doc/commands/modasinh.rst"
+    },
+    {
+      "path": "source/doc/commands/modasinh_use.rst",
+      "role": "source-rst",
+      "sha256": "0dd382b5ec4e428ccbb2685c85e4e6d31afa5ae44ec2c24bfb59b15c541838e3",
+      "size_bytes": 122,
+      "upstream_blob": "af3ade5f23cc96ce14b8080adccef1115a015367",
+      "upstream_path": "doc/commands/modasinh_use.rst"
+    },
+    {
+      "path": "source/doc/commands/mtf.rst",
+      "role": "source-rst",
+      "sha256": "5e87ea17f87dc18c45e4d8531357442c6729e8a9d76ac5b60b6ca05426f0a218",
+      "size_bytes": 504,
+      "upstream_blob": "f73855180516473dd07dbbffdc998102cf3ce422",
+      "upstream_path": "doc/commands/mtf.rst"
+    },
+    {
+      "path": "source/doc/commands/mtf_use.rst",
+      "role": "source-rst",
+      "sha256": "2a24ff1e075ce20368ad2669100c61f5dd0ac5ce77688552a0e33c76c9ab9672",
+      "size_bytes": 53,
+      "upstream_blob": "b1830c47282e4d687a80edc59f911e8a34db9206",
+      "upstream_path": "doc/commands/mtf_use.rst"
+    },
+    {
+      "path": "source/doc/commands/neg.rst",
+      "role": "source-rst",
+      "sha256": "db2de776caf3c63c8be8e69f50afb8eff0cabe904106bac374f6865ba80f8bbc",
+      "size_bytes": 162,
+      "upstream_blob": "2cb49d835b0b6443c0e1621fe74f62c7a5319907",
+      "upstream_path": "doc/commands/neg.rst"
+    },
+    {
+      "path": "source/doc/commands/neg_use.rst",
+      "role": "source-rst",
+      "sha256": "01143c48189b65d3eb94d51103da2e4c8c6aece49b6a70e5e36961be539d556a",
+      "size_bytes": 29,
+      "upstream_blob": "ee9f6638269d79e417bc8faa4f69fcef88c7d3e9",
+      "upstream_path": "doc/commands/neg_use.rst"
+    },
+    {
+      "path": "source/doc/commands/new.rst",
+      "role": "source-rst",
+      "sha256": "493417ba8db605df990cb207fd0e23d166173616a4faf12aefada452fba5f110",
+      "size_bytes": 370,
+      "upstream_blob": "d62937a071cf9f1bbf5a34882d41c86a87459133",
+      "upstream_path": "doc/commands/new.rst"
+    },
+    {
+      "path": "source/doc/commands/new_use.rst",
+      "role": "source-rst",
+      "sha256": "50593e59c6571daa808938be0f2cae201f4fc8cb454b1dfc75b8e771910f71eb",
+      "size_bytes": 64,
+      "upstream_blob": "9696df4545f9285e927c5915a6e49c57c6ed7d17",
+      "upstream_path": "doc/commands/new_use.rst"
+    },
+    {
+      "path": "source/doc/commands/nozero.rst",
+      "role": "source-rst",
+      "sha256": "7c7e2e9bd44984dc5bc476d22f10c67feeb93d025a82d8da66be26b2acc4babc",
+      "size_bytes": 110,
+      "upstream_blob": "0a9ef86d716ba3ee3e4dd2dbc481910980721c90",
+      "upstream_path": "doc/commands/nozero.rst"
+    },
+    {
+      "path": "source/doc/commands/nozero_use.rst",
+      "role": "source-rst",
+      "sha256": "618f08fe53c596f6de999bc82f8778c08439ed79f01feff2770356e2bd8d103e",
+      "size_bytes": 38,
+      "upstream_blob": "934d3a4aa1bfec8d7ea5ef6f6f293f0cb524e5c4",
+      "upstream_path": "doc/commands/nozero_use.rst"
+    },
+    {
+      "path": "source/doc/commands/offline.rst",
+      "role": "source-rst",
+      "sha256": "3c0e76b61f02eca9644e69078c574ac4bf1aad19c0716019992add25b5916f7e",
+      "size_bytes": 179,
+      "upstream_blob": "8651c146bae1f853a780a711a376b73b2e086242",
+      "upstream_path": "doc/commands/offline.rst"
+    },
+    {
+      "path": "source/doc/commands/offline_use.rst",
+      "role": "source-rst",
+      "sha256": "db538ede1864c10d60511e97b80863445b7e56a70db199097cbcc38972f387bc",
+      "size_bytes": 33,
+      "upstream_blob": "bbd386dda7bf86a2b75dcb374116ba0dc6be7130",
+      "upstream_path": "doc/commands/offline_use.rst"
+    },
+    {
+      "path": "source/doc/commands/offset.rst",
+      "role": "source-rst",
+      "sha256": "19fb2ad57f2caae391ff287f6c32936cf073df0f6ad1f863960cec40e4d4c0b8",
+      "size_bytes": 230,
+      "upstream_blob": "e0c4a28c01c2ae142c21e77515106af33fe12c84",
+      "upstream_path": "doc/commands/offset.rst"
+    },
+    {
+      "path": "source/doc/commands/offset_use.rst",
+      "role": "source-rst",
+      "sha256": "fffaee03b8bb098b4cf7bd7b693405cc95e8600932639a545474b08cd7d93893",
+      "size_bytes": 38,
+      "upstream_blob": "6f7533ca9490983cfa4fc14812c9a11d75e0029b",
+      "upstream_path": "doc/commands/offset_use.rst"
+    },
+    {
+      "path": "source/doc/commands/online.rst",
+      "role": "source-rst",
+      "sha256": "49d04978b1c8e41d2161dbcc4912971d1b2f9c9d6ee5158e9c2884d94b09ffad",
+      "size_bytes": 140,
+      "upstream_blob": "300246798dfe0f8f7e88f311b016cc92020dfd83",
+      "upstream_path": "doc/commands/online.rst"
+    },
+    {
+      "path": "source/doc/commands/online_use.rst",
+      "role": "source-rst",
+      "sha256": "a2d32ec1b77d209c3ae07d8c39f04e186dc80b0edadc4bbfe2fce74424275236",
+      "size_bytes": 32,
+      "upstream_blob": "fe995fdae65add57f1e08a643e3478e870ccb2a1",
+      "upstream_path": "doc/commands/online_use.rst"
+    },
+    {
+      "path": "source/doc/commands/parse.rst",
+      "role": "source-rst",
+      "sha256": "35c57d5ada404e3f504e3605a97e9cdb7a95f48781d61ac9cd6eb2b12d042b92",
+      "size_bytes": 845,
+      "upstream_blob": "48e19f48b8500e4619d65f2add613901cae62dc3",
+      "upstream_path": "doc/commands/parse.rst"
+    },
+    {
+      "path": "source/doc/commands/parse_use.rst",
+      "role": "source-rst",
+      "sha256": "66e59ab8a8436a0b5267c23a3ffb73046afe32dd10376cfab392001b48aaf2ad",
+      "size_bytes": 40,
+      "upstream_blob": "2aac3acec2ff9700d7b09c1adeaf91e549a037d1",
+      "upstream_path": "doc/commands/parse_use.rst"
+    },
+    {
+      "path": "source/doc/commands/pcc.rst",
+      "role": "source-rst",
+      "sha256": "4c625e20fe724b594f80cd119975196bfea183f8d9e7e7aa21d53d58bd4fa61c",
+      "size_bytes": 690,
+      "upstream_blob": "2c6a2c93451f0cb840ce92948ae8af83eaa62a96",
+      "upstream_path": "doc/commands/pcc.rst"
+    },
+    {
+      "path": "source/doc/commands/pcc_use.rst",
+      "role": "source-rst",
+      "sha256": "f8c35d7f6a1c1d68dae02e2e97e153fd4c31547823f546b76af0804eadb4366f",
+      "size_bytes": 79,
+      "upstream_blob": "fa0fe26b6262a16b8a960874ddee03087e6a1d3c",
+      "upstream_path": "doc/commands/pcc_use.rst"
+    },
+    {
+      "path": "source/doc/commands/platesolve.rst",
+      "role": "source-rst",
+      "sha256": "cc20dbfcd64ef3b550d4c2bc27ce1e030023e81790abb883f7396c5de4296c58",
+      "size_bytes": 2892,
+      "upstream_blob": "079d794ddb80fa3f95169a5810d742ad57e94c84",
+      "upstream_path": "doc/commands/platesolve.rst"
+    },
+    {
+      "path": "source/doc/commands/platesolve_use.rst",
+      "role": "source-rst",
+      "sha256": "8bec10eedd7cf00f3c026e64a0840dcb2fdec4285bfced082179db5bd1c064d1",
+      "size_bytes": 279,
+      "upstream_blob": "dbbb6edfaee8674d2da5d0b666a217c2e035ae0f",
+      "upstream_path": "doc/commands/platesolve_use.rst"
+    },
+    {
+      "path": "source/doc/commands/pm.rst",
+      "role": "source-rst",
+      "sha256": "2c8295d99d5ed9deddcb79aac10708ce93b79646e2cc687b5eccfac30355ab38",
+      "size_bytes": 687,
+      "upstream_blob": "2ada770e5c5a3c6fc5fc97faf91e02817f791e6c",
+      "upstream_path": "doc/commands/pm.rst"
+    },
+    {
+      "path": "source/doc/commands/pm_use.rst",
+      "role": "source-rst",
+      "sha256": "e14deae62d11318096eb4334ccd107c2a0f535e31554792d2a739fa6aca2a6d4",
+      "size_bytes": 74,
+      "upstream_blob": "20127e3976e78aee4e0a924cb8a4b2d94677505f",
+      "upstream_path": "doc/commands/pm_use.rst"
+    },
+    {
+      "path": "source/doc/commands/profile.rst",
+      "role": "source-rst",
+      "sha256": "1002840257016d29ee5db41694b71e5a4c9c10906e98593388b3580e3415fb81",
+      "size_bytes": 1370,
+      "upstream_blob": "6779c3a8c9717aa75f2dc25047f90cab841ccc57",
+      "upstream_path": "doc/commands/profile.rst"
+    },
+    {
+      "path": "source/doc/commands/profile_use.rst",
+      "role": "source-rst",
+      "sha256": "096cd4fceb3cb4c5d3359e13bb882082088249f139556f5ff2b575ed98f6a928",
+      "size_bytes": 156,
+      "upstream_blob": "ebc2763a3a5fcaccec3729cd155ce6f5873115a4",
+      "upstream_path": "doc/commands/profile_use.rst"
+    },
+    {
+      "path": "source/doc/commands/psf.rst",
+      "role": "source-rst",
+      "sha256": "da535814589ac101d2f788a8d0c1279499dd79487371d1a4f927f18734857550",
+      "size_bytes": 415,
+      "upstream_blob": "a623321f4a80f6e214b0c4a2bee4c58e65776b0f",
+      "upstream_path": "doc/commands/psf.rst"
+    },
+    {
+      "path": "source/doc/commands/psf_use.rst",
+      "role": "source-rst",
+      "sha256": "223405ebb9f316e665e029bed69b38f176daca7493d062bbef46f34f49fec87e",
+      "size_bytes": 39,
+      "upstream_blob": "669310e457d39809bfbd415aec19067021b43cff",
+      "upstream_path": "doc/commands/psf_use.rst"
+    },
+    {
+      "path": "source/doc/commands/pwd.rst",
+      "role": "source-rst",
+      "sha256": "15d94be44c363b08f435208ad46bc7f7605a1d703c87848b19a70b5b2d1a4a7b",
+      "size_bytes": 39,
+      "upstream_blob": "5a10ad8610a81f2010442b52a10f1f3a7935d130",
+      "upstream_path": "doc/commands/pwd.rst"
+    },
+    {
+      "path": "source/doc/commands/pwd_use.rst",
+      "role": "source-rst",
+      "sha256": "c8465aae3e281a80c308cc220bee7447064e000ecb753d9533975d4fdf3adede",
+      "size_bytes": 29,
+      "upstream_blob": "ce4caf817ff199f4f6e9118ef72575ac8b010b6d",
+      "upstream_path": "doc/commands/pwd_use.rst"
+    },
+    {
+      "path": "source/doc/commands/pyscript.rst",
+      "role": "source-rst",
+      "sha256": "40f680c0c374b458fa1ccfc93700dd8140b3fd4f50bb2e523b9db08282a49e40",
+      "size_bytes": 467,
+      "upstream_blob": "77db47c35c5dcadf4982f6a3f76afe0fa74ee504",
+      "upstream_path": "doc/commands/pyscript.rst"
+    },
+    {
+      "path": "source/doc/commands/pyscript_use.rst",
+      "role": "source-rst",
+      "sha256": "9e01b1a3ee91122d6148ecc1ba947b01c917f23d920a095c53f4e26d798a5da3",
+      "size_bytes": 62,
+      "upstream_blob": "daf9982a7e2de56fea35782ce2250aa1f46760a7",
+      "upstream_path": "doc/commands/pyscript_use.rst"
+    },
+    {
+      "path": "source/doc/commands/register.rst",
+      "role": "source-rst",
+      "sha256": "fdc064fab1afb9a5942ced2f6b677992bb85b0d76f8430272d026e1c326eb274",
+      "size_bytes": 3779,
+      "upstream_blob": "45a8444328c3df2681c8b4d54e88ff60746d3a86",
+      "upstream_path": "doc/commands/register.rst"
+    },
+    {
+      "path": "source/doc/commands/register_use.rst",
+      "role": "source-rst",
+      "sha256": "bb38d59e712ef7a087a1ae2d57efaea052791796e3d7ff37d1b19463550cd60d",
+      "size_bytes": 315,
+      "upstream_blob": "afd6faa3d2ce4fa21406de0546cde0a31f9ca829",
+      "upstream_path": "doc/commands/register_use.rst"
+    },
+    {
+      "path": "source/doc/commands/reloadscripts.rst",
+      "role": "source-rst",
+      "sha256": "54033d01a670d95ec646f7aa8ff9c97163bee1f083b59c3a283937616c823149",
+      "size_bytes": 270,
+      "upstream_blob": "b9157ef197bf7c38526344bd34d5abb122bd69e6",
+      "upstream_path": "doc/commands/reloadscripts.rst"
+    },
+    {
+      "path": "source/doc/commands/reloadscripts_use.rst",
+      "role": "source-rst",
+      "sha256": "11a3062c2ef98cabbabbf3b356e5b1e5bb4ea92d8a836cc61a478e877d3fbc1d",
+      "size_bytes": 39,
+      "upstream_blob": "acb8a38c238f32c9ddc2c0c31e54bc7dff194175",
+      "upstream_path": "doc/commands/reloadscripts_use.rst"
+    },
+    {
+      "path": "source/doc/commands/requires.rst",
+      "role": "source-rst",
+      "sha256": "6bcf11d770932a7474529ff680121a4fe2d9976f5e0aa0235b8a191e0b8eded2",
+      "size_bytes": 521,
+      "upstream_blob": "3a271bb508ba85064d9499f8c5f122eca4fdbe02",
+      "upstream_path": "doc/commands/requires.rst"
+    },
+    {
+      "path": "source/doc/commands/requires_use.rst",
+      "role": "source-rst",
+      "sha256": "a15904eacec424ec1aaef483bc9d35c738054b8ff03c122e7996b8c9d172fb69",
+      "size_bytes": 65,
+      "upstream_blob": "42b994336cd4799a7190da7f2c451159308118b5",
+      "upstream_path": "doc/commands/requires_use.rst"
+    },
+    {
+      "path": "source/doc/commands/resample.rst",
+      "role": "source-rst",
+      "sha256": "93f7f3dce5f0d363692ca4234fafef4c41936d382080e0cb9f63d99d645fcf12",
+      "size_bytes": 894,
+      "upstream_blob": "48a6ae46ae235ae61d16159785dd34d46fe76b70",
+      "upstream_path": "doc/commands/resample.rst"
+    },
+    {
+      "path": "source/doc/commands/resample_use.rst",
+      "role": "source-rst",
+      "sha256": "3fa746679f9e60115acc01d2bd4305cd4aef5bbbd12e360b008ec54b0602fb00",
+      "size_bytes": 99,
+      "upstream_blob": "34a86c00b8775aae171eef4b4224a63c339ac576",
+      "upstream_path": "doc/commands/resample_use.rst"
+    },
+    {
+      "path": "source/doc/commands/rgbcomp.rst",
+      "role": "source-rst",
+      "sha256": "aa42a2789d155ee72472008e367dd977e661ea39453ef0473c24112f143effa5",
+      "size_bytes": 418,
+      "upstream_blob": "201807274c6cb91135090583542987faf2d0375c",
+      "upstream_path": "doc/commands/rgbcomp.rst"
+    },
+    {
+      "path": "source/doc/commands/rgbcomp_use.rst",
+      "role": "source-rst",
+      "sha256": "bc44181b18715d3457f251cb3fe1d4b1c66df3cbec2c748d5dfa675bb0db7325",
+      "size_bytes": 166,
+      "upstream_blob": "1f1051db186fc1d885f62a92dcfae7c9fbd0e143",
+      "upstream_path": "doc/commands/rgbcomp_use.rst"
+    },
+    {
+      "path": "source/doc/commands/rgradient.rst",
+      "role": "source-rst",
+      "sha256": "0178d18bfd3a9d0a614a832900f819131bae3c89ba847605b1355ac6aa3d25c4",
+      "size_bytes": 349,
+      "upstream_blob": "b46d2cd79f022789bd161dbc70e536dbecea8556",
+      "upstream_path": "doc/commands/rgradient.rst"
+    },
+    {
+      "path": "source/doc/commands/rgradient_use.rst",
+      "role": "source-rst",
+      "sha256": "eb188f35185137996e0896388ea5f15b3264e600e8b374f1fcd666af52bf4e2e",
+      "size_bytes": 51,
+      "upstream_blob": "20136c72a4e50d247c3b6fe126a23186dc684b04",
+      "upstream_path": "doc/commands/rgradient_use.rst"
+    },
+    {
+      "path": "source/doc/commands/rl.rst",
+      "role": "source-rst",
+      "sha256": "ff359ee6f501c58b01d265a4043ea10102ca9193327d2b1c6fab885dca713747",
+      "size_bytes": 796,
+      "upstream_blob": "3e99f20e744d3e35a525cc435b28c970dc1a02a4",
+      "upstream_path": "doc/commands/rl.rst"
+    },
+    {
+      "path": "source/doc/commands/rl_use.rst",
+      "role": "source-rst",
+      "sha256": "f16110bdc68b008ed3d6ba8ea99daedc35a0345d62e0399f1bdc3e9c979e42c6",
+      "size_bytes": 99,
+      "upstream_blob": "1cb7953555d71f00c71d59d4039761b54d97a28c",
+      "upstream_path": "doc/commands/rl_use.rst"
+    },
+    {
+      "path": "source/doc/commands/rmgreen.rst",
+      "role": "source-rst",
+      "sha256": "2cbee6fe8cf48e804b2e481a420cc29f04d95589d08101f641f7d5b81bee0234",
+      "size_bytes": 512,
+      "upstream_blob": "c44521e0c040835047df3d867ed311639c7c395f",
+      "upstream_path": "doc/commands/rmgreen.rst"
+    },
+    {
+      "path": "source/doc/commands/rmgreen_use.rst",
+      "role": "source-rst",
+      "sha256": "bc921a45ade4c85f9c01d911f89bd62a97dca49790f7dddc7cb18f2de44f6424",
+      "size_bytes": 63,
+      "upstream_blob": "eedfb0213bf89f32bafe9b04882df1a2ca386d88",
+      "upstream_path": "doc/commands/rmgreen_use.rst"
+    },
+    {
+      "path": "source/doc/commands/rotate.rst",
+      "role": "source-rst",
+      "sha256": "bb9be6c75f35913bddc661c02414f1ecf5cd13e79126014aae32b2a865d1a8d3",
+      "size_bytes": 882,
+      "upstream_blob": "baa6da092c6eb02ad874999b8ede454c516a7515",
+      "upstream_path": "doc/commands/rotate.rst"
+    },
+    {
+      "path": "source/doc/commands/rotatePi.rst",
+      "role": "source-rst",
+      "sha256": "69e9e3b6c033d8d4a37bc61ff357b5380514250b7db8009181cb14056ca89420",
+      "size_bytes": 166,
+      "upstream_blob": "464b0e6116f419835b30deb7666d0525f6b40c18",
+      "upstream_path": "doc/commands/rotatePi.rst"
+    },
+    {
+      "path": "source/doc/commands/rotatePi_use.rst",
+      "role": "source-rst",
+      "sha256": "ed612a3403d5f6c3ed17952a3bba3588f1e11119a7d04519dc80ca931099d952",
+      "size_bytes": 34,
+      "upstream_blob": "c468dec8dd4a8138c3b80b1d116e9d893fdc3a3c",
+      "upstream_path": "doc/commands/rotatePi_use.rst"
+    },
+    {
+      "path": "source/doc/commands/rotate_use.rst",
+      "role": "source-rst",
+      "sha256": "7cc87f188222d93fb603cab7ff8a5c1e029587efbf0d8b7b4931a830524c4d05",
+      "size_bytes": 71,
+      "upstream_blob": "3c337bed331ed1316d55352c4166c9024d8ca783",
+      "upstream_path": "doc/commands/rotate_use.rst"
+    },
+    {
+      "path": "source/doc/commands/satu.rst",
+      "role": "source-rst",
+      "sha256": "271c0ce8fce178901dfebf989d44f2402027e9b87a2f997ad1d438309dc440fc",
+      "size_bytes": 682,
+      "upstream_blob": "e63628014cd3f12d9574818678faa9eb50dd8165",
+      "upstream_path": "doc/commands/satu.rst"
+    },
+    {
+      "path": "source/doc/commands/satu_use.rst",
+      "role": "source-rst",
+      "sha256": "aeab32ad948350b49acb9f25b3ebbc2cceb2b1e872f54c2a3cbf12d19043cdd3",
+      "size_bytes": 75,
+      "upstream_blob": "94bbe0bf2f81d5da74698e51d6705cdf3c5002b2",
+      "upstream_path": "doc/commands/satu_use.rst"
+    },
+    {
+      "path": "source/doc/commands/save.rst",
+      "role": "source-rst",
+      "sha256": "b5cdc3e1cc9693b5f39aa618d50bdaafbfec4738a8346ab5d24e83ba232f720f",
+      "size_bytes": 354,
+      "upstream_blob": "22f99726a711bbb86463912f03d150a0470539e6",
+      "upstream_path": "doc/commands/save.rst"
+    },
+    {
+      "path": "source/doc/commands/save_use.rst",
+      "role": "source-rst",
+      "sha256": "1fc69195d12183a556f4a7cf5449dfb1cfc8fdd3e9ed2d2a6149cfb981055542",
+      "size_bytes": 49,
+      "upstream_blob": "6bf4531d99f68a48bfabaf5f176a18b3f096a7fa",
+      "upstream_path": "doc/commands/save_use.rst"
+    },
+    {
+      "path": "source/doc/commands/savebmp.rst",
+      "role": "source-rst",
+      "sha256": "7bbd079dc4f05f58ff5c8131c0b3f0557ebfcf40e62b878b1c96aec0b23c28c0",
+      "size_bytes": 108,
+      "upstream_blob": "fb14e37099ca2078f37f47363bf6fdae7e9e2285",
+      "upstream_path": "doc/commands/savebmp.rst"
+    },
+    {
+      "path": "source/doc/commands/savebmp_use.rst",
+      "role": "source-rst",
+      "sha256": "50e2c224ba80e4b752f6468de2d35e763d13edaa0dda9539311eee951fe28ac3",
+      "size_bytes": 42,
+      "upstream_blob": "bb391ba91aac1dbbefa7d904c6eac7f99a815fb4",
+      "upstream_path": "doc/commands/savebmp_use.rst"
+    },
+    {
+      "path": "source/doc/commands/savejpg.rst",
+      "role": "source-rst",
+      "sha256": "9b7cec40046c510cac39ea9ac358e39e52632bb03d3282c9074384af59940b39",
+      "size_bytes": 224,
+      "upstream_blob": "51187b26546aaf5694614a91f65862cd1dc2b4f7",
+      "upstream_path": "doc/commands/savejpg.rst"
+    },
+    {
+      "path": "source/doc/commands/savejpg_use.rst",
+      "role": "source-rst",
+      "sha256": "018834d8235e8a4c893e99f84a861d615e94f2e3fbad4195c2d1b19f55fd648a",
+      "size_bytes": 52,
+      "upstream_blob": "943515e360922a5f31ec167a8ad34c325176cba7",
+      "upstream_path": "doc/commands/savejpg_use.rst"
+    },
+    {
+      "path": "source/doc/commands/savejxl.rst",
+      "role": "source-rst",
+      "sha256": "1bb60745f27f9a9f54c8201f1db7e2b5d0c61cb55e7a197b35b42d2e616c463d",
+      "size_bytes": 1059,
+      "upstream_blob": "280bd608bd3298ac0d63af16a4b40b9cc373c934",
+      "upstream_path": "doc/commands/savejxl.rst"
+    },
+    {
+      "path": "source/doc/commands/savejxl_use.rst",
+      "role": "source-rst",
+      "sha256": "45686e16dc691e0eaf53f7eb6974c0e7b3ebd43b729e7fa70d41f0a37092e4a4",
+      "size_bytes": 73,
+      "upstream_blob": "7ac3a816604ae4263af23205c4821d212c3f4a17",
+      "upstream_path": "doc/commands/savejxl_use.rst"
+    },
+    {
+      "path": "source/doc/commands/savepng.rst",
+      "role": "source-rst",
+      "sha256": "3ef0c146e40d7a8198c4fa571f17e6a39fcf14a82aa9dc758a8b3e32dd882be8",
+      "size_bytes": 173,
+      "upstream_blob": "32c3ad5b0a97f42cf74a7d2aa5f06f0a08b786eb",
+      "upstream_path": "doc/commands/savepng.rst"
+    },
+    {
+      "path": "source/doc/commands/savepng_use.rst",
+      "role": "source-rst",
+      "sha256": "68caf4d5439720737d910db53d85502f8688b3fc23297d2e275358c7cf8f61a7",
+      "size_bytes": 42,
+      "upstream_blob": "8a9d9eb706a7656651f877b360bba6bacb1808b8",
+      "upstream_path": "doc/commands/savepng_use.rst"
+    },
+    {
+      "path": "source/doc/commands/savepnm.rst",
+      "role": "source-rst",
+      "sha256": "a0e567aa4b50b95d00b2313e1251671cc7ac0b62e8c5cbb84f5b96f203ac0297",
+      "size_bytes": 200,
+      "upstream_blob": "19434690fd4dc3adc91d625f4176fbf9d730d1d4",
+      "upstream_path": "doc/commands/savepnm.rst"
+    },
+    {
+      "path": "source/doc/commands/savepnm_use.rst",
+      "role": "source-rst",
+      "sha256": "788a31c40c174cff1a3abac5a344def868e446293e5d91a57ef36545172f1fe4",
+      "size_bytes": 42,
+      "upstream_blob": "ca16d3e6f5b5f0d357b07da456e8b1ee8b09a92d",
+      "upstream_path": "doc/commands/savepnm_use.rst"
+    },
+    {
+      "path": "source/doc/commands/savetif.rst",
+      "role": "source-rst",
+      "sha256": "19ab82e5909a87924b4132f07c7524db9f4cd54671a6cb9c67bcb8d891068285",
+      "size_bytes": 243,
+      "upstream_blob": "b651ee500f2c70d5ffcd2bcd37c0149ba7fe4879",
+      "upstream_path": "doc/commands/savetif.rst"
+    },
+    {
+      "path": "source/doc/commands/savetif32.rst",
+      "role": "source-rst",
+      "sha256": "3933ac758351cacb1c8d03b7345ba8f5a61324e9a1768ad3c950e0a60fc27c7f",
+      "size_bytes": 230,
+      "upstream_blob": "c1773fb730cbc152f1284724a0dbf18ab44e9f31",
+      "upstream_path": "doc/commands/savetif32.rst"
+    },
+    {
+      "path": "source/doc/commands/savetif32_use.rst",
+      "role": "source-rst",
+      "sha256": "5881f75ae490a630f72c8602d0e9bd3c00ffe355aff92a0b09a37dc665eb36b3",
+      "size_bytes": 64,
+      "upstream_blob": "f07f570fa86e24ca69f27f50198d25214e66a3f7",
+      "upstream_path": "doc/commands/savetif32_use.rst"
+    },
+    {
+      "path": "source/doc/commands/savetif8.rst",
+      "role": "source-rst",
+      "sha256": "eebccd331631e4fd29f7f491b29930ff9e277af9b7b4c3de89d626ae0464c236",
+      "size_bytes": 229,
+      "upstream_blob": "a7a147e234e93ab81366dc67d7bce5ab0e51b5b2",
+      "upstream_path": "doc/commands/savetif8.rst"
+    },
+    {
+      "path": "source/doc/commands/savetif8_use.rst",
+      "role": "source-rst",
+      "sha256": "deddff44b5e2d5e3d8e72480157b8e0b8a1ad1e13e270d9cdd24ff91ccf9ac27",
+      "size_bytes": 63,
+      "upstream_blob": "ae016ff8f25d4ebb7963e32565bf49f4d84e3013",
+      "upstream_path": "doc/commands/savetif8_use.rst"
+    },
+    {
+      "path": "source/doc/commands/savetif_use.rst",
+      "role": "source-rst",
+      "sha256": "565bf4c7c5909a8d6c6da3bbf059d84bb52a99e1721d9aaba554e24d021d1221",
+      "size_bytes": 62,
+      "upstream_blob": "c8f8d62c429bb7bd1a3cf6be267bdbe97b9f53e5",
+      "upstream_path": "doc/commands/savetif_use.rst"
+    },
+    {
+      "path": "source/doc/commands/sb.rst",
+      "role": "source-rst",
+      "sha256": "701b9337e06320c293f2f72a07da6c97ea2a7c954ac7e1fabd4e0ede4a9394f7",
+      "size_bytes": 369,
+      "upstream_blob": "491e34db87b6d2d13d7843065b28ab11d323bc04",
+      "upstream_path": "doc/commands/sb.rst"
+    },
+    {
+      "path": "source/doc/commands/sb_use.rst",
+      "role": "source-rst",
+      "sha256": "4356c7b8bca188023182f02e52cee04c2d6f5a500a7e0d49775073a0020dc966",
+      "size_bytes": 60,
+      "upstream_blob": "6ad7774f4bfc72248c563a4ea87fbb2eff8bb5cf",
+      "upstream_path": "doc/commands/sb_use.rst"
+    },
+    {
+      "path": "source/doc/commands/select.rst",
+      "role": "source-rst",
+      "sha256": "c7b9277855973f14e217b14acb96063a768c98ec7b3709c349212ba1815e5154",
+      "size_bytes": 222,
+      "upstream_blob": "573453fb11719aee6350c889d688203b3058a6cf",
+      "upstream_path": "doc/commands/select.rst"
+    },
+    {
+      "path": "source/doc/commands/select_add.rst",
+      "role": "source-rst",
+      "sha256": "e737057d5330a75724ae1510b3570cb39dc56dffd7feb1dc378de75f0c86434b",
+      "size_bytes": 293,
+      "upstream_blob": "b73fd126c177733e978b571d102eb36cb22b41ca",
+      "upstream_path": "doc/commands/select_add.rst"
+    },
+    {
+      "path": "source/doc/commands/select_use.rst",
+      "role": "source-rst",
+      "sha256": "f728a4702f659ee9d0a54f74599558058a17f5d02d5181a087239418a7a7447a",
+      "size_bytes": 53,
+      "upstream_blob": "4e4db6b64f5af31dee7d44be30a5564ab0f15488",
+      "upstream_path": "doc/commands/select_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqapplydrizzle.rst",
+      "role": "source-rst",
+      "sha256": "b33c8c81e5516e5336fd299c2bd21a3efc66cc7ebee1dd9e01d9e3fd139c3437",
+      "size_bytes": 1897,
+      "upstream_blob": "1e22d71f50fba2d8de52d00c44c29e6e43705868",
+      "upstream_path": "doc/commands/seqapplydrizzle.rst"
+    },
+    {
+      "path": "source/doc/commands/seqapplydrizzle_use.rst",
+      "role": "source-rst",
+      "sha256": "527a6fb8b454614f18976b8500b60bc590dbb4e2b7e14982533b21f971622217",
+      "size_bytes": 312,
+      "upstream_blob": "8d3cd977ee9fbf583d25a0333e73c4bede7b448b",
+      "upstream_path": "doc/commands/seqapplydrizzle_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqapplyreg.rst",
+      "role": "source-rst",
+      "sha256": "aabf5ee46abe2843fee1503f36871f26f33a919ad47bef146d4cac0754e69ea3",
+      "size_bytes": 2626,
+      "upstream_blob": "ad9638f7bb7135430b9c6d3df97277794ab8212a",
+      "upstream_path": "doc/commands/seqapplyreg.rst"
+    },
+    {
+      "path": "source/doc/commands/seqapplyreg_add.rst",
+      "role": "source-rst",
+      "sha256": "461f2c437761833cd6a4584a841bc55e9cadde8c8730afcba1ce186ce7ea0a40",
+      "size_bytes": 1044,
+      "upstream_blob": "a928ce39f26ea524d94a11513f7444111e311e5e",
+      "upstream_path": "doc/commands/seqapplyreg_add.rst"
+    },
+    {
+      "path": "source/doc/commands/seqapplyreg_use.rst",
+      "role": "source-rst",
+      "sha256": "00a16df8cd59e2215b3a5aaf9d7be69b161971f4ac8704e0ad7d5a9844b3796a",
+      "size_bytes": 441,
+      "upstream_blob": "9ff07b8e89ef78b7ce8d655ff335a97278e3314a",
+      "upstream_path": "doc/commands/seqapplyreg_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqccm.rst",
+      "role": "source-rst",
+      "sha256": "032e41b83dfe47452703bdfe002366aff81cca2effcf634e05d55bc94109de28",
+      "size_bytes": 257,
+      "upstream_blob": "da22196d2350721e5d2e8cab97434d4794a24932",
+      "upstream_path": "doc/commands/seqccm.rst"
+    },
+    {
+      "path": "source/doc/commands/seqccm_use.rst",
+      "role": "source-rst",
+      "sha256": "261f96ab8dd7f92e5ca4bb40210611c715eefcc1733650120c8fc47feca2bfb7",
+      "size_bytes": 56,
+      "upstream_blob": "d5c20d34dd872edc359aad6572a6fb2fc3dfc72d",
+      "upstream_path": "doc/commands/seqccm_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqclean.rst",
+      "role": "source-rst",
+      "sha256": "d0b625dc0262665df1cb03462c4595bb614773f40d08cfc3736bea2b1e9ec953",
+      "size_bytes": 287,
+      "upstream_blob": "a7fafc527d5957913b0c83c88f72d203da8461e6",
+      "upstream_path": "doc/commands/seqclean.rst"
+    },
+    {
+      "path": "source/doc/commands/seqclean_use.rst",
+      "role": "source-rst",
+      "sha256": "b604325d63fe56c9362a0821aa5b93f53aab51f327a03590d5c8f835d0276b58",
+      "size_bytes": 69,
+      "upstream_blob": "3a837d00678b06ea6e4d20358aed88c8124c0960",
+      "upstream_path": "doc/commands/seqclean_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqcosme.rst",
+      "role": "source-rst",
+      "sha256": "fa33be32b50faae0f69d1bbf315c45892ec29a7426373702617f3090fc1d53f3",
+      "size_bytes": 267,
+      "upstream_blob": "bb89763a7fee21022f257698557193631c115a74",
+      "upstream_path": "doc/commands/seqcosme.rst"
+    },
+    {
+      "path": "source/doc/commands/seqcosme_cfa.rst",
+      "role": "source-rst",
+      "sha256": "997316b7c77736376e63a041fa444345e3c43670daca511cae348cdf0c8e9b10",
+      "size_bytes": 279,
+      "upstream_blob": "78681064a14ea37d40726e78d9ad4882c5828588",
+      "upstream_path": "doc/commands/seqcosme_cfa.rst"
+    },
+    {
+      "path": "source/doc/commands/seqcosme_cfa_use.rst",
+      "role": "source-rst",
+      "sha256": "bc239b486a7fe043d6bc87b635b533036f64cece5c3d9675dcc84cc83a114234",
+      "size_bytes": 77,
+      "upstream_blob": "fa4405934f6cdf2724953b0a0edd3c24c740df91",
+      "upstream_path": "doc/commands/seqcosme_cfa_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqcosme_use.rst",
+      "role": "source-rst",
+      "sha256": "1221c60e94e3108d0059484e25958a9e0871c6d8fce2a55cdf48ee7e52fa8f0e",
+      "size_bytes": 73,
+      "upstream_blob": "b3a4cb8645dc783c954b094c0f0c317a238d7fad",
+      "upstream_path": "doc/commands/seqcosme_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqcrop.rst",
+      "role": "source-rst",
+      "sha256": "d607ac5c75082425b745488d2518878e516f45dd0b5d57bbd1befbc77c77a126",
+      "size_bytes": 400,
+      "upstream_blob": "ffb04c6c5fc349ca1fdb3e98bee2c79835487870",
+      "upstream_path": "doc/commands/seqcrop.rst"
+    },
+    {
+      "path": "source/doc/commands/seqcrop_use.rst",
+      "role": "source-rst",
+      "sha256": "b33d4001040c7421ae1bccf7c5fa85a1689509a7b55105db0eb5437f54abd578",
+      "size_bytes": 74,
+      "upstream_blob": "ce6b36c5803e9bc09a1aeeb833f49f348c678833",
+      "upstream_path": "doc/commands/seqcrop_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqextract_Green.rst",
+      "role": "source-rst",
+      "sha256": "45e2a6a46113e42aad65f353700280cb3a9363905e94f07191d2ddbc04bf8c1d",
+      "size_bytes": 186,
+      "upstream_blob": "babaf46e880f54781febc05b868562fd9dfac2aa",
+      "upstream_path": "doc/commands/seqextract_Green.rst"
+    },
+    {
+      "path": "source/doc/commands/seqextract_Green_use.rst",
+      "role": "source-rst",
+      "sha256": "bf146072a4228d0baeb8a2d2245c6af0b048bcec0a41eef5d80f5953c4f8724e",
+      "size_bytes": 66,
+      "upstream_blob": "512ac5ca9adb686fa8be73ee1c7503052c281653",
+      "upstream_path": "doc/commands/seqextract_Green_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqextract_Ha.rst",
+      "role": "source-rst",
+      "sha256": "4ce23706b3521d97c6c8712e2e4576bb9586a03a85d71b482adaa4065eeb274c",
+      "size_bytes": 180,
+      "upstream_blob": "581d1fb45929fb715b954c77f32ae05ace69be76",
+      "upstream_path": "doc/commands/seqextract_Ha.rst"
+    },
+    {
+      "path": "source/doc/commands/seqextract_HaOIII.rst",
+      "role": "source-rst",
+      "sha256": "86707647af25573c89c860067b5b469670a3f710960c160c4337202be2b46c72",
+      "size_bytes": 148,
+      "upstream_blob": "5c864d5230bb3f4f071bfebe53f09f6ab4f5c36c",
+      "upstream_path": "doc/commands/seqextract_HaOIII.rst"
+    },
+    {
+      "path": "source/doc/commands/seqextract_HaOIII_use.rst",
+      "role": "source-rst",
+      "sha256": "cc49e76a85b3ab18ac885907dd19a4cd1d4e4f9601c6e8f4df0c91d1fa137c2f",
+      "size_bytes": 69,
+      "upstream_blob": "c83a0e4ebec4ab3676cb83da0423ffa48d6bd562",
+      "upstream_path": "doc/commands/seqextract_HaOIII_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqextract_Ha_use.rst",
+      "role": "source-rst",
+      "sha256": "9268a799e0bfd52b5a1ef07d7c405c01df0b4736e6af6511f94d37159be1770f",
+      "size_bytes": 74,
+      "upstream_blob": "7e41809901ac66161458ca2fdecc0aa797f88516",
+      "upstream_path": "doc/commands/seqextract_Ha_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqfind_cosme.rst",
+      "role": "source-rst",
+      "sha256": "7551a314fb62c812f82c3d0bd72cd02e179b6d7d2accee8f5b24ca08d5fb6b88",
+      "size_bytes": 223,
+      "upstream_blob": "3b3b498cb9aa906aaf3bc23daad1d14e78064239",
+      "upstream_path": "doc/commands/seqfind_cosme.rst"
+    },
+    {
+      "path": "source/doc/commands/seqfind_cosme_cfa.rst",
+      "role": "source-rst",
+      "sha256": "7efc602e2c80b179bb6ce0b0d5e933236e8855e0c60e6c50bb7e776676a8aadc",
+      "size_bytes": 235,
+      "upstream_blob": "260c595a4533ea1c1e3924d61e461e2ac287d6d4",
+      "upstream_path": "doc/commands/seqfind_cosme_cfa.rst"
+    },
+    {
+      "path": "source/doc/commands/seqfind_cosme_cfa_use.rst",
+      "role": "source-rst",
+      "sha256": "7297bca84903f745ccb5af4c221670b2558831299de93e91b1fb15d3400fd10c",
+      "size_bytes": 88,
+      "upstream_blob": "eecda7eef8a633a02e796907e0e05da2287539c1",
+      "upstream_path": "doc/commands/seqfind_cosme_cfa_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqfind_cosme_use.rst",
+      "role": "source-rst",
+      "sha256": "b29172ebbb42ca85ff8f872050f696bf801c54686cf9126c8f448d0c9625f04b",
+      "size_bytes": 84,
+      "upstream_blob": "78f093ab4379a1d681d2c56ea766d168161513eb",
+      "upstream_path": "doc/commands/seqfind_cosme_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqfindstar.rst",
+      "role": "source-rst",
+      "sha256": "a5086102171582ec112943696a459fc4e8eb78fe5377d6f7f02e04013b709e9e",
+      "size_bytes": 244,
+      "upstream_blob": "0b1e501e5fd57b76cd479e6dc93c18bf0833ba9a",
+      "upstream_path": "doc/commands/seqfindstar.rst"
+    },
+    {
+      "path": "source/doc/commands/seqfindstar_use.rst",
+      "role": "source-rst",
+      "sha256": "cce12a9f53b73fdf8dcac73646f8d09b3d444b2f581c4bedf067a49816840ac0",
+      "size_bytes": 73,
+      "upstream_blob": "5288dd818ed8513781c492cd5cbd8b5fbb1f40db",
+      "upstream_path": "doc/commands/seqfindstar_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqfixbanding.rst",
+      "role": "source-rst",
+      "sha256": "c86e4b9f8cc898eda08576aba77d55b28652f1d81b9a03025289eec1e8c666d2",
+      "size_bytes": 227,
+      "upstream_blob": "9530ab1720612fbb679eeb41093d7882dcbdc0ae",
+      "upstream_path": "doc/commands/seqfixbanding.rst"
+    },
+    {
+      "path": "source/doc/commands/seqfixbanding_use.rst",
+      "role": "source-rst",
+      "sha256": "851dc69831c1b40ee6acd943659cd489d978898afd98d241a8ba8e96135722cc",
+      "size_bytes": 88,
+      "upstream_blob": "de943bd36b256f744f6291cfa2f6dbdec38f57ec",
+      "upstream_path": "doc/commands/seqfixbanding_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqght.rst",
+      "role": "source-rst",
+      "sha256": "b537bd303c9210fea07ad5c00c0a788bd404a8ab4c03478f2cadcc09ff7a0f68",
+      "size_bytes": 192,
+      "upstream_blob": "82c38f011378b64ebf4a617cc7e3689278516b58",
+      "upstream_path": "doc/commands/seqght.rst"
+    },
+    {
+      "path": "source/doc/commands/seqght_use.rst",
+      "role": "source-rst",
+      "sha256": "590758f7fbb157e4094c6dd3f8d5505f662c408fcf5c609c1888518f3d48a729",
+      "size_bytes": 146,
+      "upstream_blob": "b1ed004dcec48af5cd7fd40bd5e318263108a40c",
+      "upstream_path": "doc/commands/seqght_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqgraxpert.rst",
+      "role": "source-rst",
+      "sha256": "04a1301ff02e27f6c21d44f84161cb181cb5a97acec259085567da559a45928b",
+      "size_bytes": 170,
+      "upstream_blob": "f1471fb436e16c5cc085a2d172f5bdc0961ee16e",
+      "upstream_path": "doc/commands/seqgraxpert.rst"
+    },
+    {
+      "path": "source/doc/commands/seqgraxpert_bg.rst",
+      "role": "source-rst",
+      "sha256": "3d1d6ea22bd61601ff13a6f7863f386dafca1cbb72b641c59091ec31b0555d36",
+      "size_bytes": 245,
+      "upstream_blob": "f77a2080f4b365c104464f7fd99dc5b7ad2eaf5d",
+      "upstream_path": "doc/commands/seqgraxpert_bg.rst"
+    },
+    {
+      "path": "source/doc/commands/seqgraxpert_bg_use.rst",
+      "role": "source-rst",
+      "sha256": "2026a718367d138a33dc05ac04c1f0565b11cd1dafea5333d2f4858fe8ccc6e0",
+      "size_bytes": 202,
+      "upstream_blob": "5ce7871a81db6fb448d9be378f86742a7278074a",
+      "upstream_path": "doc/commands/seqgraxpert_bg_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqgraxpert_deconv.rst",
+      "role": "source-rst",
+      "sha256": "6cfb7442ee9cda8a6de03f3c009aac00291ccc013b64619c53d8e93cee0036be",
+      "size_bytes": 249,
+      "upstream_blob": "ae314e48062d0b44b1014827c83e50d788371adf",
+      "upstream_path": "doc/commands/seqgraxpert_deconv.rst"
+    },
+    {
+      "path": "source/doc/commands/seqgraxpert_deconv_use.rst",
+      "role": "source-rst",
+      "sha256": "43da9a82f6fb6cde533ca4a7b18e502b0b0173483a44a40ed702cf5113375d75",
+      "size_bytes": 102,
+      "upstream_blob": "b48d0e427c59295f42f194f44920bbf2f8a59a59",
+      "upstream_path": "doc/commands/seqgraxpert_deconv_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqgraxpert_denoise.rst",
+      "role": "source-rst",
+      "sha256": "b9e94b6559239d84a2db8dd7b51a77892e64d62270cba4cf878e16d11a37d060",
+      "size_bytes": 248,
+      "upstream_blob": "54ee4c42ada1b7989d78a20676d5ca43d9e1841f",
+      "upstream_path": "doc/commands/seqgraxpert_denoise.rst"
+    },
+    {
+      "path": "source/doc/commands/seqgraxpert_denoise_use.rst",
+      "role": "source-rst",
+      "sha256": "6539943f35be5942cf8f13d37add4e6a35f846b4455527cbadf9f4585bb4a735",
+      "size_bytes": 91,
+      "upstream_blob": "30c1bdcdd0a1d2099fab241fd44374a8d90c3e63",
+      "upstream_path": "doc/commands/seqgraxpert_denoise_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqgraxpert_use.rst",
+      "role": "source-rst",
+      "sha256": "dfe39b165598c284a2c9b8303899ba41996e22d8c4b60b3017f444cd3c28d966",
+      "size_bytes": 228,
+      "upstream_blob": "40fb3e1cd675a3f9cd8df89adba23ddbfab79cdc",
+      "upstream_path": "doc/commands/seqgraxpert_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqheader.rst",
+      "role": "source-rst",
+      "sha256": "46da0f5e504c6d109133ed98631aec742f08e4e7256da6f2c6c8c21a96fc5502",
+      "size_bytes": 324,
+      "upstream_blob": "0e7da6433361abaa9a652e7313132f3494783b62",
+      "upstream_path": "doc/commands/seqheader.rst"
+    },
+    {
+      "path": "source/doc/commands/seqheader_use.rst",
+      "role": "source-rst",
+      "sha256": "e4feedf9d73b4a3b58a80df0103cc97fbe831a31f0d4fff42ab4df936b7de7f2",
+      "size_bytes": 94,
+      "upstream_blob": "bd6aacbff53682cf58348f006932eb3f09382352",
+      "upstream_path": "doc/commands/seqheader_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqinvght.rst",
+      "role": "source-rst",
+      "sha256": "9bf8cf7d2e6289e5108c51a76bb3004270bcfe1e70277948b618e71a249324ab",
+      "size_bytes": 201,
+      "upstream_blob": "14219c6068e2883ff7687a9a1b1fc443e9357cdd",
+      "upstream_path": "doc/commands/seqinvght.rst"
+    },
+    {
+      "path": "source/doc/commands/seqinvght_use.rst",
+      "role": "source-rst",
+      "sha256": "cd56ac765d4437d36b9ae803332a32e862a89fcd9153948d25d005750d47dc2d",
+      "size_bytes": 149,
+      "upstream_blob": "0d6bd072f5af689ab365e94a8e64c8a21c7ca681",
+      "upstream_path": "doc/commands/seqinvght_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqinvmodasinh.rst",
+      "role": "source-rst",
+      "sha256": "05d7cfeacd75e857264a838307b948a3fb26f5eb1971ca949f13561d0bc8a6bc",
+      "size_bytes": 216,
+      "upstream_blob": "5825e02ad73fa2cd9f0acd06d7e46434362a1c0e",
+      "upstream_path": "doc/commands/seqinvmodasinh.rst"
+    },
+    {
+      "path": "source/doc/commands/seqinvmodasinh_use.rst",
+      "role": "source-rst",
+      "sha256": "9631e53cae53fb30ccd7e4bfe34f6475670110e6a5e86e73712da1e4fc459210",
+      "size_bytes": 148,
+      "upstream_blob": "ef16ef31906fc0e0d7d036271bb8aa4f1b69b538",
+      "upstream_path": "doc/commands/seqinvmodasinh_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqlinstretch.rst",
+      "role": "source-rst",
+      "sha256": "9790b929e65315a1316c317995e832667ab70cb8563410badb6906ecfd5dcde8",
+      "size_bytes": 213,
+      "upstream_blob": "6ed19797cc8c54cf22834ab509e1370226ee2ce3",
+      "upstream_path": "doc/commands/seqlinstretch.rst"
+    },
+    {
+      "path": "source/doc/commands/seqlinstretch_use.rst",
+      "role": "source-rst",
+      "sha256": "9804ee574e12e3b01aad9fa5f191b743d154fd4897e6dde10921aae9051c7db3",
+      "size_bytes": 82,
+      "upstream_blob": "69153158177898f726cb90e3e68dd548ff878ecb",
+      "upstream_path": "doc/commands/seqlinstretch_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqmerge_cfa.rst",
+      "role": "source-rst",
+      "sha256": "7c838e1cab1917f92d2d25f86f3ee24ea15683ff95bca9caf479e69b646cc1d5",
+      "size_bytes": 633,
+      "upstream_blob": "9d1450fe50ddfaadb5140d059433d1d33f837418",
+      "upstream_path": "doc/commands/seqmerge_cfa.rst"
+    },
+    {
+      "path": "source/doc/commands/seqmerge_cfa_use.rst",
+      "role": "source-rst",
+      "sha256": "4f617bc6efd4e75d34bfa8d54724d3743b8107d717208a9986bfa435723edb03",
+      "size_bytes": 121,
+      "upstream_blob": "166196a76446dbe4fdb90591e451029886a2480c",
+      "upstream_path": "doc/commands/seqmerge_cfa_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqmodasinh.rst",
+      "role": "source-rst",
+      "sha256": "b777848621675e97e94835c07d6d3326e9e8bdc21cf64f3dd302e5605b86b464",
+      "size_bytes": 207,
+      "upstream_blob": "433ca55d53090c2507926be5d09a237edb43ec75",
+      "upstream_path": "doc/commands/seqmodasinh.rst"
+    },
+    {
+      "path": "source/doc/commands/seqmodasinh_use.rst",
+      "role": "source-rst",
+      "sha256": "0245c7028a302d9cbbe1dc6b69e2f88c4e95f3e9ae16b5ebfc4bff2b8781155c",
+      "size_bytes": 145,
+      "upstream_blob": "b0d1283d0f5eb3724becbcac20f7727a93fd2b45",
+      "upstream_path": "doc/commands/seqmodasinh_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqmtf.rst",
+      "role": "source-rst",
+      "sha256": "eb53e1faaa8b97aa92941c4fd909eb0d308d65834b96c689765ff20734482953",
+      "size_bytes": 203,
+      "upstream_blob": "6aff1270d5f0288bd3172b8a23e1df1c4b2a2e4a",
+      "upstream_path": "doc/commands/seqmtf.rst"
+    },
+    {
+      "path": "source/doc/commands/seqmtf_use.rst",
+      "role": "source-rst",
+      "sha256": "dedf487e6fe91cade41e277397b692bd17209ad1ebf60f0845258d8271493fcb",
+      "size_bytes": 80,
+      "upstream_blob": "cdc4933cbb794cf673f696093455aaa30e3807cc",
+      "upstream_path": "doc/commands/seqmtf_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqplatesolve.rst",
+      "role": "source-rst",
+      "sha256": "f60bdc79de56ccec0f822fbdf8a6e870a98e3049e594c236d3e01d85ed85f57a",
+      "size_bytes": 3510,
+      "upstream_blob": "31bdbc37a07ec20258d3e95de667c9bb3808b3aa",
+      "upstream_path": "doc/commands/seqplatesolve.rst"
+    },
+    {
+      "path": "source/doc/commands/seqplatesolve_use.rst",
+      "role": "source-rst",
+      "sha256": "5dee76b47b8af83f1bc1780c031c3d98bb830f0cdb063997c82bba975c8a18fa",
+      "size_bytes": 353,
+      "upstream_blob": "41fc70e40cc8fa22be81a60256abfb9403c2503a",
+      "upstream_path": "doc/commands/seqplatesolve_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqprofile.rst",
+      "role": "source-rst",
+      "sha256": "28c5c89d71a8ecd7c4ab3733b0c86a7c316a2f60409ba0a31e6930ace950a1d9",
+      "size_bytes": 476,
+      "upstream_blob": "6013319634359c8ac298851a691c775ce26efb62",
+      "upstream_path": "doc/commands/seqprofile.rst"
+    },
+    {
+      "path": "source/doc/commands/seqprofile_use.rst",
+      "role": "source-rst",
+      "sha256": "ab85d54cb17e4b7aae741d549be3916b7e8aca82f185cd345d0b16b9260a6a26",
+      "size_bytes": 282,
+      "upstream_blob": "8bd0278b194dce1773311570114554f5e6681192",
+      "upstream_path": "doc/commands/seqprofile_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqpsf.rst",
+      "role": "source-rst",
+      "sha256": "38a79de572756ac0a406d661797a60680d1b34aac771f2dc13e2007c723729a9",
+      "size_bytes": 1740,
+      "upstream_blob": "bbd3d48d2704ab24216b8f1828f0279ae63cbd9d",
+      "upstream_path": "doc/commands/seqpsf.rst"
+    },
+    {
+      "path": "source/doc/commands/seqpsf_use.rst",
+      "role": "source-rst",
+      "sha256": "824e670068403bc3c9bd6e4a2452997d1a494025243da649ac2608aa00916e0c",
+      "size_bytes": 97,
+      "upstream_blob": "d3708ce165b4c5ed8deaa986d9622fa9ddee50fd",
+      "upstream_path": "doc/commands/seqpsf_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqresample.rst",
+      "role": "source-rst",
+      "sha256": "0e6bcf4d3ef159fdfeaeb5e38d3da97f9e5f858b4bae418091e23f25b5085a0f",
+      "size_bytes": 677,
+      "upstream_blob": "504d5a03dcd393dc7e1c013d004d0220727b60b4",
+      "upstream_path": "doc/commands/seqresample.rst"
+    },
+    {
+      "path": "source/doc/commands/seqresample_use.rst",
+      "role": "source-rst",
+      "sha256": "724112787a6b8d00e8c7fbf8f0c46845e8c142d500cb720a45df370f053aac12",
+      "size_bytes": 105,
+      "upstream_blob": "8e7873b3bb574c6f48fe08ac1cc06938c6d3e771",
+      "upstream_path": "doc/commands/seqresample_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqrl.rst",
+      "role": "source-rst",
+      "sha256": "bb91457245dd9524b88f36c4ae4fd8dc916d16f3caffb31110f77354ab3d0704",
+      "size_bytes": 129,
+      "upstream_blob": "55d3bc8d51009a88ecf3f650abf69296042c6646",
+      "upstream_path": "doc/commands/seqrl.rst"
+    },
+    {
+      "path": "source/doc/commands/seqrl_use.rst",
+      "role": "source-rst",
+      "sha256": "a029d7163422e4d08e8ef7e642c115d7008bed7d4aa9b18d21a3e8feb00ffaff",
+      "size_bytes": 115,
+      "upstream_blob": "38c0f0664463c086807b8e9af3c8ec406c1d55fe",
+      "upstream_path": "doc/commands/seqrl_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqsb.rst",
+      "role": "source-rst",
+      "sha256": "2d4356157e12105279603d94408d983caf8600bbe8c384bc537b1822c2696ff8",
+      "size_bytes": 129,
+      "upstream_blob": "ea9a3d9d3af065391b49e74c3ebf72616cf23cd4",
+      "upstream_path": "doc/commands/seqsb.rst"
+    },
+    {
+      "path": "source/doc/commands/seqsb_use.rst",
+      "role": "source-rst",
+      "sha256": "de1fead2cce347c466efbdcc5a6a9e5d95d26caa501f6d2b04b8f6778e2aa886",
+      "size_bytes": 76,
+      "upstream_blob": "1899372d8ee674263d47845e335d9c35ffd5eb3f",
+      "upstream_path": "doc/commands/seqsb_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqsetmag.rst",
+      "role": "source-rst",
+      "sha256": "daa2194bf5b5efb2afa91a0cb572eff8f693a295cc93f8e47169bde2e8c8b6ba",
+      "size_bytes": 772,
+      "upstream_blob": "7072020fbcacd7e8d5828552d4f6814f951ef918",
+      "upstream_path": "doc/commands/seqsetmag.rst"
+    },
+    {
+      "path": "source/doc/commands/seqsetmag_use.rst",
+      "role": "source-rst",
+      "sha256": "3d1269b496e365f945d23643190eb4bc8e92ff9f4ea6667fa3ecf9a36e1e33cb",
+      "size_bytes": 45,
+      "upstream_blob": "e6b4c1a1c600c0ea1d1011b2e8e4548e682c69bb",
+      "upstream_path": "doc/commands/seqsetmag_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqsplit_cfa.rst",
+      "role": "source-rst",
+      "sha256": "82aec695bc330c51d3e4ead13820099dacf999d6a7f7ae5c77ce6859b6eb74f7",
+      "size_bytes": 343,
+      "upstream_blob": "7de1a0729e85e8bf6266d2762c5c524f1fab0c63",
+      "upstream_path": "doc/commands/seqsplit_cfa.rst"
+    },
+    {
+      "path": "source/doc/commands/seqsplit_cfa_use.rst",
+      "role": "source-rst",
+      "sha256": "9223b0b514f9b85ce8faf124ce44654d4056e00ae26793cfe3d8f90fc9d9a2b7",
+      "size_bytes": 62,
+      "upstream_blob": "c9c3fe9912e0b04638c47502b9274d962973dd98",
+      "upstream_path": "doc/commands/seqsplit_cfa_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqstarnet.rst",
+      "role": "source-rst",
+      "sha256": "e7a886812c715b07e0b48bd8e068542f491ebc8d476d24d241e80920ec7d2e89",
+      "size_bytes": 168,
+      "upstream_blob": "4bb4c4d32d001fe7b0da963878b9feed8e2d5b0e",
+      "upstream_path": "doc/commands/seqstarnet.rst"
+    },
+    {
+      "path": "source/doc/commands/seqstarnet_use.rst",
+      "role": "source-rst",
+      "sha256": "0eea222b3b1ab76d20a55d55036829c26ae9fc5f414f94c66ff01896ff552176",
+      "size_bytes": 101,
+      "upstream_blob": "fe771e340fcc29aab2efa4d38beb9d21264d1f44",
+      "upstream_path": "doc/commands/seqstarnet_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqstat.rst",
+      "role": "source-rst",
+      "sha256": "5a7e3e4226004e55707c8ab779185405addef61ded76e71837067ee9f3519405",
+      "size_bytes": 620,
+      "upstream_blob": "6ab5de9648682dcdb8718d471580310c5de0648f",
+      "upstream_path": "doc/commands/seqstat.rst"
+    },
+    {
+      "path": "source/doc/commands/seqstat_use.rst",
+      "role": "source-rst",
+      "sha256": "5de27a39ee7d0b6cdb35b8b7ba47ec5e2acc8cd42a03b053cfe5fb821419ce59",
+      "size_bytes": 74,
+      "upstream_blob": "1336934ed4be0336e2a4d85d98e28f6207a96785",
+      "upstream_path": "doc/commands/seqstat_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqsubsky.rst",
+      "role": "source-rst",
+      "sha256": "9537915c7ff3b05f4b7233bc0cf311914e29fa819cc407fbe9c18d9a5f6a220e",
+      "size_bytes": 498,
+      "upstream_blob": "ef7b2637b327a33823dbccdd4365a39f163d0b9c",
+      "upstream_path": "doc/commands/seqsubsky.rst"
+    },
+    {
+      "path": "source/doc/commands/seqsubsky_use.rst",
+      "role": "source-rst",
+      "sha256": "239b6722c44b90ee3f221f398f299ca42de63471999402ca2681d9407387a6fc",
+      "size_bytes": 134,
+      "upstream_blob": "52572cf87c66bd85ae8748f0321882e22ac07907",
+      "upstream_path": "doc/commands/seqsubsky_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqtilt.rst",
+      "role": "source-rst",
+      "sha256": "dbdb258710b58029645d374f5aa0de472374ac70d34c5f9785dfdfee8d200d05",
+      "size_bytes": 127,
+      "upstream_blob": "abee988ce9afbe8129cfef29587af9380db7aefe",
+      "upstream_path": "doc/commands/seqtilt.rst"
+    },
+    {
+      "path": "source/doc/commands/seqtilt_use.rst",
+      "role": "source-rst",
+      "sha256": "9935ee7aaaafa8ce9f73c323ea4d7e10e733be09054091a2239c292bf8eafb84",
+      "size_bytes": 46,
+      "upstream_blob": "f15a1872cc87b6a91f68f19c399cbdaac4d39441",
+      "upstream_path": "doc/commands/seqtilt_use.rst"
+    },
+    {
+      "path": "source/doc/commands/sequnsetmag.rst",
+      "role": "source-rst",
+      "sha256": "dfbe33822cf566c68662a8e43bd65751e0b1af7d7a4ca79e7d456162885af049",
+      "size_bytes": 127,
+      "upstream_blob": "bddd9eb6c30f4ccd601f95fd4d501f9116c44df8",
+      "upstream_path": "doc/commands/sequnsetmag.rst"
+    },
+    {
+      "path": "source/doc/commands/sequnsetmag_use.rst",
+      "role": "source-rst",
+      "sha256": "54e7bcadfe1be01da808b6fbdb677594dcfe279c2d636e3224f54c7141c02054",
+      "size_bytes": 37,
+      "upstream_blob": "3de3c92e3252a352e97130f127abe5fe60cdf3d1",
+      "upstream_path": "doc/commands/sequnsetmag_use.rst"
+    },
+    {
+      "path": "source/doc/commands/sequpdate_key.rst",
+      "role": "source-rst",
+      "sha256": "f4d4d23c99085573f7ca136155e52656924059b5940bf213e8d1fabb4269d561",
+      "size_bytes": 160,
+      "upstream_blob": "9e204389f81c1786c9d6eeb82cc1e64cf88970ee",
+      "upstream_path": "doc/commands/sequpdate_key.rst"
+    },
+    {
+      "path": "source/doc/commands/sequpdate_key_use.rst",
+      "role": "source-rst",
+      "sha256": "be56f1540da2b19d814cd0d37242bde626f7b4e0a68ec5e387d9820b97fd7322",
+      "size_bytes": 216,
+      "upstream_blob": "fabba2a14e7b37998f5f4c187db2f9de6c476be4",
+      "upstream_path": "doc/commands/sequpdate_key_use.rst"
+    },
+    {
+      "path": "source/doc/commands/seqwiener.rst",
+      "role": "source-rst",
+      "sha256": "13db854e220e71e8c2f978718d28438d56493f38d4745ab4c130c0343340fe7a",
+      "size_bytes": 145,
+      "upstream_blob": "28e4bb4b8b70f39cdff955f79de60b883e7694d6",
+      "upstream_path": "doc/commands/seqwiener.rst"
+    },
+    {
+      "path": "source/doc/commands/seqwiener_use.rst",
+      "role": "source-rst",
+      "sha256": "ca77c3d9f9befa970894adb23f7d681d8c9196acfdfd47605a8b2dfc5d8b3397",
+      "size_bytes": 67,
+      "upstream_blob": "999c89b2d284ae1a9feac7ab14df00bf5f3cb4c2",
+      "upstream_path": "doc/commands/seqwiener_use.rst"
+    },
+    {
+      "path": "source/doc/commands/set.rst",
+      "role": "source-rst",
+      "sha256": "da7887581609a8d234053eb06a08bbce985df8c7bb179c9d4253908ddd255681",
+      "size_bytes": 224,
+      "upstream_blob": "217dfe665009abc7854c404523bcc98c59d949c9",
+      "upstream_path": "doc/commands/set.rst"
+    },
+    {
+      "path": "source/doc/commands/set16bits.rst",
+      "role": "source-rst",
+      "sha256": "433a4c3acdcee2daa4fcdf9a07e6e467e39d67fe6b54ad7120c3cbfbc7f10804",
+      "size_bytes": 89,
+      "upstream_blob": "6aab6e12806c076cf80ea47cc421396537d5afc1",
+      "upstream_path": "doc/commands/set16bits.rst"
+    },
+    {
+      "path": "source/doc/commands/set16bits_use.rst",
+      "role": "source-rst",
+      "sha256": "0085f32a142806d5c81e5f21bb008b59b98322c3e0097eb16d06a4f5a5c96449",
+      "size_bytes": 35,
+      "upstream_blob": "dd10727fed19b175a6d1f25cbaa66d3e823afa25",
+      "upstream_path": "doc/commands/set16bits_use.rst"
+    },
+    {
+      "path": "source/doc/commands/set32bits.rst",
+      "role": "source-rst",
+      "sha256": "c9358b07b56f08c598e6a5a7dafc460cb8fa9dc2dcfec9663bb9244f1b9ef972",
+      "size_bytes": 67,
+      "upstream_blob": "0b86ae58da82835cf475a4a979d7083643538009",
+      "upstream_path": "doc/commands/set32bits.rst"
+    },
+    {
+      "path": "source/doc/commands/set32bits_use.rst",
+      "role": "source-rst",
+      "sha256": "6119dbc139b419e27c526f15e448a6c78e22f84b4756ce59d9f57c43790b7410",
+      "size_bytes": 35,
+      "upstream_blob": "745bd5ad9e1f89695404cc9d78768da62c89a9cd",
+      "upstream_path": "doc/commands/set32bits_use.rst"
+    },
+    {
+      "path": "source/doc/commands/set_use.rst",
+      "role": "source-rst",
+      "sha256": "a82fdee4c559e43aa2dbd86aa26a9deea40ad080b7c84af2593e86424f000e2d",
+      "size_bytes": 70,
+      "upstream_blob": "146f448e14d53917fee126d8b30cfc0a1e30a6bf",
+      "upstream_path": "doc/commands/set_use.rst"
+    },
+    {
+      "path": "source/doc/commands/setcompress.rst",
+      "role": "source-rst",
+      "sha256": "b1ad08a780ac51eccf8817230691e81a1984bd4811ec46db6ca30ccbea0988b8",
+      "size_bytes": 413,
+      "upstream_blob": "2ff7d0e6125ca4744831a35a0342b3b0e9aab7d8",
+      "upstream_path": "doc/commands/setcompress.rst"
+    },
+    {
+      "path": "source/doc/commands/setcompress_use.rst",
+      "role": "source-rst",
+      "sha256": "cc748ca43fb65d3a0b04d4d7ea8bc412638d25a9efcd342087d37d84ac972ff6",
+      "size_bytes": 54,
+      "upstream_blob": "6edcb1498bbb9779c503aba5e63d821a4b2fd6e4",
+      "upstream_path": "doc/commands/setcompress_use.rst"
+    },
+    {
+      "path": "source/doc/commands/setcpu.rst",
+      "role": "source-rst",
+      "sha256": "da21eb4ddd2c06b3f59d681375334e0688677734b66c4c7f8283735ef927bc9f",
+      "size_bytes": 443,
+      "upstream_blob": "dd4b082f6574a8a806ce084503149608074f1943",
+      "upstream_path": "doc/commands/setcpu.rst"
+    },
+    {
+      "path": "source/doc/commands/setcpu_use.rst",
+      "role": "source-rst",
+      "sha256": "58d4c21cf9488e8e9f6b03d03939fd532d07541bc2d167284a688b0e800569b1",
+      "size_bytes": 39,
+      "upstream_blob": "22121391b122069ecf5fdd0ebb39c329c41706a6",
+      "upstream_path": "doc/commands/setcpu_use.rst"
+    },
+    {
+      "path": "source/doc/commands/setext.rst",
+      "role": "source-rst",
+      "sha256": "86d31d1610b0fe4f5ae1d7609639d3109f40fb2b6a833a2091c6b7f187ac7bb8",
+      "size_bytes": 117,
+      "upstream_blob": "9d6558edfd2c0df9777e11ef1b32d910cbf88074",
+      "upstream_path": "doc/commands/setext.rst"
+    },
+    {
+      "path": "source/doc/commands/setext_use.rst",
+      "role": "source-rst",
+      "sha256": "67f6d709811cb3597bfd8c4f42f1b2df12b2787d78b1331e185e67b041c18d8f",
+      "size_bytes": 42,
+      "upstream_blob": "1c5f8077c9706b2a16308e4d8d97ca12d54433fc",
+      "upstream_path": "doc/commands/setext_use.rst"
+    },
+    {
+      "path": "source/doc/commands/setfindstar.rst",
+      "role": "source-rst",
+      "sha256": "996d100f2e90003082d25c96899a317467892e35f11e15ab62f3e7b50e2df1c3",
+      "size_bytes": 1572,
+      "upstream_blob": "05fca7a7dd92687f90f909ce214cbc4e1ccc48d4",
+      "upstream_path": "doc/commands/setfindstar.rst"
+    },
+    {
+      "path": "source/doc/commands/setfindstar_add.rst",
+      "role": "source-rst",
+      "sha256": "62eee60e1f340e602c2449334a66e3b7152a0113949dca1517e27697c0291c00",
+      "size_bytes": 689,
+      "upstream_blob": "dfe2a5f2cc3c1b4506c7bcb6543b8698941e481f",
+      "upstream_path": "doc/commands/setfindstar_add.rst"
+    },
+    {
+      "path": "source/doc/commands/setfindstar_use.rst",
+      "role": "source-rst",
+      "sha256": "1d3ee8bd85977b78c9e8b013d772e62ee2a4167a37bc32f8206b0524f505fc8a",
+      "size_bytes": 203,
+      "upstream_blob": "974684326050caddae27a039452a89630b4ce2f8",
+      "upstream_path": "doc/commands/setfindstar_use.rst"
+    },
+    {
+      "path": "source/doc/commands/setmag.rst",
+      "role": "source-rst",
+      "sha256": "4660d429826ffcc289957a7b159d4222bf4f1e1b87d452f21c50dfc825012083",
+      "size_bytes": 433,
+      "upstream_blob": "2e6de3e43d0dadade893a8c0e8d67b1d8659c6b6",
+      "upstream_path": "doc/commands/setmag.rst"
+    },
+    {
+      "path": "source/doc/commands/setmag_use.rst",
+      "role": "source-rst",
+      "sha256": "9e0ed71b098b1538598e4f5513591af2377f02bf71bdfe2876afdf9c9292a315",
+      "size_bytes": 42,
+      "upstream_blob": "27fb8cada9dff0694c9475d60c520948e6017bd3",
+      "upstream_path": "doc/commands/setmag_use.rst"
+    },
+    {
+      "path": "source/doc/commands/setmem.rst",
+      "role": "source-rst",
+      "sha256": "71ce73dfae968328f30ed5c617df3ac71bb991be6e838a4c18c39ce08fdf0927",
+      "size_bytes": 502,
+      "upstream_blob": "d789c055929961c1190a8e15f2ec1067f8d3082f",
+      "upstream_path": "doc/commands/setmem.rst"
+    },
+    {
+      "path": "source/doc/commands/setmem_use.rst",
+      "role": "source-rst",
+      "sha256": "9d32e4623fef04917981a66b9a978b9baa9c96cb7c66326b7207d06bbf8f26e1",
+      "size_bytes": 38,
+      "upstream_blob": "1cb6125783e40358fa899abe8c1400917bed5aeb",
+      "upstream_path": "doc/commands/setmem_use.rst"
+    },
+    {
+      "path": "source/doc/commands/setphot.rst",
+      "role": "source-rst",
+      "sha256": "bc62477c89b8a96e179283fd36f1efc131bbcd33d7f5c33ee917cfa24b93f61f",
+      "size_bytes": 762,
+      "upstream_blob": "7d6cda97a4d08dd6f02eaaa121cec2b6685ba794",
+      "upstream_path": "doc/commands/setphot.rst"
+    },
+    {
+      "path": "source/doc/commands/setphot_use.rst",
+      "role": "source-rst",
+      "sha256": "d85e30b8e8f089c8cad7ad7f78064a26ba16843f5390397fa9e9d3caf788dc97",
+      "size_bytes": 131,
+      "upstream_blob": "c24914cd5a4b3f05f6ba56f1cb7834d0b77fdbab",
+      "upstream_path": "doc/commands/setphot_use.rst"
+    },
+    {
+      "path": "source/doc/commands/setref.rst",
+      "role": "source-rst",
+      "sha256": "51cbed5ab331889c8e4be410b25167376fcbb1ba3919dba1f3638493092fb4c3",
+      "size_bytes": 186,
+      "upstream_blob": "fd08772e0388ab2ae7bf8bda3be76857f5869738",
+      "upstream_path": "doc/commands/setref.rst"
+    },
+    {
+      "path": "source/doc/commands/setref_use.rst",
+      "role": "source-rst",
+      "sha256": "dff27f933e3250128e712cf61183d321c8ce166ed80ebd3d37c41fa63e76183f",
+      "size_bytes": 58,
+      "upstream_blob": "cb652a987233b2c5934b85afa38dcaee35ef9d04",
+      "upstream_path": "doc/commands/setref_use.rst"
+    },
+    {
+      "path": "source/doc/commands/show.rst",
+      "role": "source-rst",
+      "sha256": "80e4ca4a6212e3c406326225a4f46a8bfbfd45213e76de2f4fd4c8dd0f017799",
+      "size_bytes": 550,
+      "upstream_blob": "7fa761cba65d7845945b45ab946ddcd23aae58aa",
+      "upstream_path": "doc/commands/show.rst"
+    },
+    {
+      "path": "source/doc/commands/show_use.rst",
+      "role": "source-rst",
+      "sha256": "27c2611654019708ed80c47a6cfb1f304c2e0f66a05fbe20f3d1d8baa1a0d029",
+      "size_bytes": 94,
+      "upstream_blob": "05e0a457da08e54c2ac5c7899a5c400e40ad3d4c",
+      "upstream_path": "doc/commands/show_use.rst"
+    },
+    {
+      "path": "source/doc/commands/spcc.rst",
+      "role": "source-rst",
+      "sha256": "4320d99d42863e71ab85e7b9bfb665ed6cc1c82cdbc99a06832779e7b45a786c",
+      "size_bytes": 2011,
+      "upstream_blob": "bf820a601723d5d7653ec0f8c12d1d82e6a584c5",
+      "upstream_path": "doc/commands/spcc.rst"
+    },
+    {
+      "path": "source/doc/commands/spcc_list.rst",
+      "role": "source-rst",
+      "sha256": "2ba986a60693c9ffb5c1eba6cc4cc8c55a9f3ab508c47a77ea387d64c453d5d4",
+      "size_bytes": 598,
+      "upstream_blob": "e5a7a4adb53ce9655b7e19472e62e7cb04fe1e70",
+      "upstream_path": "doc/commands/spcc_list.rst"
+    },
+    {
+      "path": "source/doc/commands/spcc_list_use.rst",
+      "role": "source-rst",
+      "sha256": "7919451cc94e0b46bbab5ab68bfa27da9895f08cca7b6fe8ca8561519eef243a",
+      "size_bytes": 133,
+      "upstream_blob": "7c4f7f19259aadeabd7686d4c932a4961f822aed",
+      "upstream_path": "doc/commands/spcc_list_use.rst"
+    },
+    {
+      "path": "source/doc/commands/spcc_use.rst",
+      "role": "source-rst",
+      "sha256": "218debae8191a6f67ecd52663354fcfcafc234a5bc722b1464fd40ab6bc4041f",
+      "size_bytes": 295,
+      "upstream_blob": "2970bb9061377ec26d10a0fbc5b28ff502aefc3a",
+      "upstream_path": "doc/commands/spcc_use.rst"
+    },
+    {
+      "path": "source/doc/commands/split.rst",
+      "role": "source-rst",
+      "sha256": "f33343bd40041afc0f04947ed7f22236dbb59a3998ef7283bf6245109c03079e",
+      "size_bytes": 358,
+      "upstream_blob": "c7f857608598e731d94bb5222a21dc5d1f832bc0",
+      "upstream_path": "doc/commands/split.rst"
+    },
+    {
+      "path": "source/doc/commands/split_cfa.rst",
+      "role": "source-rst",
+      "sha256": "e917d2390baa0ac2a7bac241b1f6aa5192fed2feddf2455c821e96cd88eb442e",
+      "size_bytes": 102,
+      "upstream_blob": "ee51917c7e408fa8579ca989f113a7517a657f7c",
+      "upstream_path": "doc/commands/split_cfa.rst"
+    },
+    {
+      "path": "source/doc/commands/split_cfa_use.rst",
+      "role": "source-rst",
+      "sha256": "58afce98db3af92164514357950aff77a4d8df8afac0e99b368815ad5d346397",
+      "size_bytes": 35,
+      "upstream_blob": "80b57ca6932508b708e38916cc13a15c4693eabd",
+      "upstream_path": "doc/commands/split_cfa_use.rst"
+    },
+    {
+      "path": "source/doc/commands/split_use.rst",
+      "role": "source-rst",
+      "sha256": "55c9bcffeca5956264d127f1c306e02ff934873a1b5a89a095eb4ba944211c32",
+      "size_bytes": 70,
+      "upstream_blob": "c459fc8f3c778bc456750769b2fb7562ffd6fc5d",
+      "upstream_path": "doc/commands/split_use.rst"
+    },
+    {
+      "path": "source/doc/commands/stack.rst",
+      "role": "source-rst",
+      "sha256": "86fd401f62db2cd61e851c8736605e82c0b1d45ddcc1565af03f800558c03e78",
+      "size_bytes": 3306,
+      "upstream_blob": "a1c01fea0e0e29abb9aaa8230e7274ef0fb90655",
+      "upstream_path": "doc/commands/stack.rst"
+    },
+    {
+      "path": "source/doc/commands/stack_add.rst",
+      "role": "source-rst",
+      "sha256": "9a5a92dbd58dd1b05439bab380de2a787e4a7ea1ca8bb635cea9522182cfa7cc",
+      "size_bytes": 969,
+      "upstream_blob": "850c22e2645a5540b70834b5d199d0e1bfd368ac",
+      "upstream_path": "doc/commands/stack_add.rst"
+    },
+    {
+      "path": "source/doc/commands/stack_use.rst",
+      "role": "source-rst",
+      "sha256": "625b71b08a9825150ae4b09169ffc26c3652f3f54753a2bb596ea729d6f88bbf",
+      "size_bytes": 529,
+      "upstream_blob": "4acfe3defe7d97e49738ee1191bee8c58ea283d2",
+      "upstream_path": "doc/commands/stack_use.rst"
+    },
+    {
+      "path": "source/doc/commands/stackall.rst",
+      "role": "source-rst",
+      "sha256": "5a47f17972e7e336a339dfb4bb8d16736f5557c98e63d2473e1b4b7f462080ea",
+      "size_bytes": 218,
+      "upstream_blob": "2d157d0ead9bbdb0d059e38a30a5579380df9737",
+      "upstream_path": "doc/commands/stackall.rst"
+    },
+    {
+      "path": "source/doc/commands/stackall_use.rst",
+      "role": "source-rst",
+      "sha256": "672c9515aef0d053aa23abd5f8faf5fac7dec2aea704706c950ab290d663a1fe",
+      "size_bytes": 363,
+      "upstream_blob": "814eabb2b015401251435fb1ffad2a5d9ced0a92",
+      "upstream_path": "doc/commands/stackall_use.rst"
+    },
+    {
+      "path": "source/doc/commands/starnet.rst",
+      "role": "source-rst",
+      "sha256": "9ed4b6d7a3626c722003e0a124a4d90abe9f9f786cc0a09c90dd0bb03e1deef5",
+      "size_bytes": 1164,
+      "upstream_blob": "a6cdfaf3b0935b7f2e78161cc7da8e0db1e787da",
+      "upstream_path": "doc/commands/starnet.rst"
+    },
+    {
+      "path": "source/doc/commands/starnet_use.rst",
+      "role": "source-rst",
+      "sha256": "d9b7fc5f7042adafa26682ba6b5e0c6668fdf4816a3075230f5dac9bfd69e642",
+      "size_bytes": 85,
+      "upstream_blob": "8e3249e24b1d639a114d90e9a097dba577bfb5c1",
+      "upstream_path": "doc/commands/starnet_use.rst"
+    },
+    {
+      "path": "source/doc/commands/start_ls.rst",
+      "role": "source-rst",
+      "sha256": "5bef9c7d100a47e724ce81223ba01fb5d66f092599ced2c762c59b09eaf81b69",
+      "size_bytes": 669,
+      "upstream_blob": "6ce7240c1a3a11b351473924da564e42320dfeb5",
+      "upstream_path": "doc/commands/start_ls.rst"
+    },
+    {
+      "path": "source/doc/commands/start_ls_use.rst",
+      "role": "source-rst",
+      "sha256": "fe258758d367a8daf76b3ce7b8a41dfc2327d89e53b9974ebad2b7688634fc84",
+      "size_bytes": 88,
+      "upstream_blob": "c8cb9a6dea21db94620c3b8af13796d23c8c6bdc",
+      "upstream_path": "doc/commands/start_ls_use.rst"
+    },
+    {
+      "path": "source/doc/commands/stat.rst",
+      "role": "source-rst",
+      "sha256": "e1830d6c3fd35c1686deda212caec7161f91a52728d4a42560c661053fcf99da",
+      "size_bytes": 269,
+      "upstream_blob": "d5e3327747a63823bf08786a2e25769fc7ba4535",
+      "upstream_path": "doc/commands/stat.rst"
+    },
+    {
+      "path": "source/doc/commands/stat_use.rst",
+      "role": "source-rst",
+      "sha256": "7b19e67a11ebe97c6d1ac1f22de0388658feb181a6f6311fbae7148987c2028b",
+      "size_bytes": 44,
+      "upstream_blob": "505e033cb9d8ed2e01d30bb5eb62491d744d0817",
+      "upstream_path": "doc/commands/stat_use.rst"
+    },
+    {
+      "path": "source/doc/commands/stop_ls.rst",
+      "role": "source-rst",
+      "sha256": "f142b156ce330b93062ba05ea4353dff4299a24f9bccb7905af7bd2ae9f74546",
+      "size_bytes": 103,
+      "upstream_blob": "41e11a138fa0a3db6f254f9cd1b49325b109172c",
+      "upstream_path": "doc/commands/stop_ls.rst"
+    },
+    {
+      "path": "source/doc/commands/stop_ls_use.rst",
+      "role": "source-rst",
+      "sha256": "242a9ee28d597d2ba2ddd79cebfb2fd1d8973789779788227d8c4ee794d09aa8",
+      "size_bytes": 33,
+      "upstream_blob": "866167fe8ca1f8480f4f2667c4b8e342bc1fcd4d",
+      "upstream_path": "doc/commands/stop_ls_use.rst"
+    },
+    {
+      "path": "source/doc/commands/subsky.rst",
+      "role": "source-rst",
+      "sha256": "558106fbbe6d0d223046a6f18ccdfa2dfb6a0c2b724ecc14610b79eba54966e7",
+      "size_bytes": 669,
+      "upstream_blob": "de28dd7ac97505e167b49b61077a162c39f4a2ee",
+      "upstream_path": "doc/commands/subsky.rst"
+    },
+    {
+      "path": "source/doc/commands/subsky_use.rst",
+      "role": "source-rst",
+      "sha256": "552f8ddaee0fb89ff350607c97b8b688dd22286acdf8e6c3bc935a8a00d7ab1b",
+      "size_bytes": 117,
+      "upstream_blob": "0788649d7b7ecb79cbab8c92dfbff341fb22015d",
+      "upstream_path": "doc/commands/subsky_use.rst"
+    },
+    {
+      "path": "source/doc/commands/synthstar.rst",
+      "role": "source-rst",
+      "sha256": "a2d9ac483e04a3f72825382a506aab422ebe8b0a04aec269fb68a004aca9f16b",
+      "size_bytes": 957,
+      "upstream_blob": "c70301fb96ad8d3eb64613507876eeecfe0bb43e",
+      "upstream_path": "doc/commands/synthstar.rst"
+    },
+    {
+      "path": "source/doc/commands/synthstar_use.rst",
+      "role": "source-rst",
+      "sha256": "9de6d0ac438f6c1d49da2729af6efca5639fb4fa3ab9e6cb4a574c9738ab2f00",
+      "size_bytes": 35,
+      "upstream_blob": "2f41d1cf6cce727e9896c103de3c82c5b4b17f05",
+      "upstream_path": "doc/commands/synthstar_use.rst"
+    },
+    {
+      "path": "source/doc/commands/thresh.rst",
+      "role": "source-rst",
+      "sha256": "d51c363af406c554636cabbc327c7a27e0feef8822b174ccf279ea84a20181da",
+      "size_bytes": 69,
+      "upstream_blob": "062174ca4593b3a1210027fa587ab6e248454036",
+      "upstream_path": "doc/commands/thresh.rst"
+    },
+    {
+      "path": "source/doc/commands/thresh_use.rst",
+      "role": "source-rst",
+      "sha256": "466ae9b623c21841f0807b21dc57d70ebbf6f40fd88f71cb7571b5d9db995cd0",
+      "size_bytes": 38,
+      "upstream_blob": "a2c4fc52a9556f7a288d20cd4a05d40e73a6af04",
+      "upstream_path": "doc/commands/thresh_use.rst"
+    },
+    {
+      "path": "source/doc/commands/threshhi.rst",
+      "role": "source-rst",
+      "sha256": "4f8504c90ae8f9338d7d43d16360a01aa75d3ae6ca4afd4c11005f4930b319dc",
+      "size_bytes": 69,
+      "upstream_blob": "34996fef8d672e1117a38225f7d186d5671420cb",
+      "upstream_path": "doc/commands/threshhi.rst"
+    },
+    {
+      "path": "source/doc/commands/threshhi_use.rst",
+      "role": "source-rst",
+      "sha256": "c0bf48c2dcc1c9ceb280f126df0a1d30ad5d76b37468db28171b78e91ebf73a8",
+      "size_bytes": 39,
+      "upstream_blob": "5d8fa4df1f6103bc2945ecc71e57552578b78024",
+      "upstream_path": "doc/commands/threshhi_use.rst"
+    },
+    {
+      "path": "source/doc/commands/threshlo.rst",
+      "role": "source-rst",
+      "sha256": "d51c363af406c554636cabbc327c7a27e0feef8822b174ccf279ea84a20181da",
+      "size_bytes": 69,
+      "upstream_blob": "062174ca4593b3a1210027fa587ab6e248454036",
+      "upstream_path": "doc/commands/threshlo.rst"
+    },
+    {
+      "path": "source/doc/commands/threshlo_use.rst",
+      "role": "source-rst",
+      "sha256": "e93dc1f28a4923fc712bde7afe6acfc62cebce76f77f4901b8b893110723bdb6",
+      "size_bytes": 40,
+      "upstream_blob": "416d57927a20709f0b196ddf6eaee14971fcce52",
+      "upstream_path": "doc/commands/threshlo_use.rst"
+    },
+    {
+      "path": "source/doc/commands/tilt.rst",
+      "role": "source-rst",
+      "sha256": "063e1adac51b49bed1141c3352734551cc63132d71df9a4da990519cbe8f037c",
+      "size_bytes": 156,
+      "upstream_blob": "dcaaaa28ed04bb4f3b59e05a62b7b504e71405db",
+      "upstream_path": "doc/commands/tilt.rst"
+    },
+    {
+      "path": "source/doc/commands/tilt_use.rst",
+      "role": "source-rst",
+      "sha256": "fdf006c17ec5632d34a42a036284fcdb3e64993c8719389bdabc642d7ed0e266",
+      "size_bytes": 38,
+      "upstream_blob": "5bb8e3f8c4f7e4ddb540369443108f1c1a4767fe",
+      "upstream_path": "doc/commands/tilt_use.rst"
+    },
+    {
+      "path": "source/doc/commands/trixel.rst",
+      "role": "source-rst",
+      "sha256": "3ea5db049ce06f730104f557c1d9292bbef05a60f989d15e60b4fbf0b7c7fa9e",
+      "size_bytes": 390,
+      "upstream_blob": "0566fe2238fa06ae8e890477b2abaf1717d80f95",
+      "upstream_path": "doc/commands/trixel.rst"
+    },
+    {
+      "path": "source/doc/commands/trixel_use.rst",
+      "role": "source-rst",
+      "sha256": "ffb730524cb3a28fe47fc1d3d03f6ae8264499f381a0e8e98dbea8a5c1a137bf",
+      "size_bytes": 37,
+      "upstream_blob": "a85b00c806d9b343b06738a73b76a68d54713c58",
+      "upstream_path": "doc/commands/trixel_use.rst"
+    },
+    {
+      "path": "source/doc/commands/unclipstars.rst",
+      "role": "source-rst",
+      "sha256": "6d5b19a37590799bb74340b4d821ad5099c417bbcb69fc1a3be705d07af7540a",
+      "size_bytes": 123,
+      "upstream_blob": "781479ee82768c1c4344e156476577f9298275eb",
+      "upstream_path": "doc/commands/unclipstars.rst"
+    },
+    {
+      "path": "source/doc/commands/unclipstars_use.rst",
+      "role": "source-rst",
+      "sha256": "2e1ab9b723c258291f370dc11681c56d131b7325c83bb3518db132a708c3717d",
+      "size_bytes": 37,
+      "upstream_blob": "f3e9f2077ebe51a5752f70d5c4e2e5d54f21a897",
+      "upstream_path": "doc/commands/unclipstars_use.rst"
+    },
+    {
+      "path": "source/doc/commands/unpurple.rst",
+      "role": "source-rst",
+      "sha256": "da6ccda9ccbd27af1bf68a0bb836379ff386803607b7cd0d3bd1e5c86c5d4dab",
+      "size_bytes": 1006,
+      "upstream_blob": "3b82cd9b9aa80ce1b12764590a955753ba0adf6c",
+      "upstream_path": "doc/commands/unpurple.rst"
+    },
+    {
+      "path": "source/doc/commands/unpurple_use.rst",
+      "role": "source-rst",
+      "sha256": "5a845ef8b8889c080e8cdc955407b16130b557a4963771ab463a24af351e6061",
+      "size_bytes": 76,
+      "upstream_blob": "ec9a832297caa5c3390c9193c2bd38435e675606",
+      "upstream_path": "doc/commands/unpurple_use.rst"
+    },
+    {
+      "path": "source/doc/commands/unselect.rst",
+      "role": "source-rst",
+      "sha256": "cda016e013c768c37460fe64d77164c50b0e276c582687daea61e5e2b30e48a2",
+      "size_bytes": 156,
+      "upstream_blob": "3d9772477aeceddca2aeb4ad0b435e235a798d11",
+      "upstream_path": "doc/commands/unselect.rst"
+    },
+    {
+      "path": "source/doc/commands/unselect_use.rst",
+      "role": "source-rst",
+      "sha256": "b20fcf2b8cbc711d6c6d0be3a0995cf5b3e640ef7f1471347c26412dbce7af62",
+      "size_bytes": 55,
+      "upstream_blob": "0087db61cea904b0a58b00d252c8dc8fb2048511",
+      "upstream_path": "doc/commands/unselect_use.rst"
+    },
+    {
+      "path": "source/doc/commands/unsetmag.rst",
+      "role": "source-rst",
+      "sha256": "0a468b85e287eb1b341cd720fa9fabe3122fc98b841339eb4b6b2d53a61603f7",
+      "size_bytes": 87,
+      "upstream_blob": "44616822ed8c2bc0a1a55fcfd92f514846cdf044",
+      "upstream_path": "doc/commands/unsetmag.rst"
+    },
+    {
+      "path": "source/doc/commands/unsetmag_use.rst",
+      "role": "source-rst",
+      "sha256": "eea12ef2f0d4d925b3492f7a2c812370c45f0076e7bc793e457dde675618a654",
+      "size_bytes": 34,
+      "upstream_blob": "d37e46fb7913e594977a60278e775fe00c47f7cb",
+      "upstream_path": "doc/commands/unsetmag_use.rst"
+    },
+    {
+      "path": "source/doc/commands/unsharp.rst",
+      "role": "source-rst",
+      "sha256": "fa5b6fe17b2dc9b8cfc93803ce78fa80cadae9a720ddacb2c21404187418a958",
+      "size_bytes": 269,
+      "upstream_blob": "1d6b5e9bbbbeb049f3a5ecfd43eaf0657fb52953",
+      "upstream_path": "doc/commands/unsharp.rst"
+    },
+    {
+      "path": "source/doc/commands/unsharp_use.rst",
+      "role": "source-rst",
+      "sha256": "3d7728bbbeab0c334390e1ea912b1e30672623990c8450791240d54c7b775967",
+      "size_bytes": 45,
+      "upstream_blob": "a7690c5f7a371c3546432a313de81d79c8bfe5b0",
+      "upstream_path": "doc/commands/unsharp_use.rst"
+    },
+    {
+      "path": "source/doc/commands/update_key.rst",
+      "role": "source-rst",
+      "sha256": "d218d7c49ac8a77592542a5c73939f55f08499a99d0e256aee723a0f6a4c326e",
+      "size_bytes": 547,
+      "upstream_blob": "406a3b5fdb1cf90883ee98244e1725d5266207fc",
+      "upstream_path": "doc/commands/update_key.rst"
+    },
+    {
+      "path": "source/doc/commands/update_key_use.rst",
+      "role": "source-rst",
+      "sha256": "26a5ef8246a1be3703180fa3a04a5600a2242c645435239d2f1ee8b3927d0ada",
+      "size_bytes": 152,
+      "upstream_blob": "f6047f272e8aeb0a7d315c6a48cecf8b1de9d881",
+      "upstream_path": "doc/commands/update_key_use.rst"
+    },
+    {
+      "path": "source/doc/commands/visu.rst",
+      "role": "source-rst",
+      "sha256": "7460c9416151966ca576820801fc8f36320522f2c36639633622c79fe089aeae",
+      "size_bytes": 94,
+      "upstream_blob": "76de30103b1dc52c181e7f0a18a759ad678cd3d8",
+      "upstream_path": "doc/commands/visu.rst"
+    },
+    {
+      "path": "source/doc/commands/visu_use.rst",
+      "role": "source-rst",
+      "sha256": "3c8d7901770b6cc94b98e07bad7a06bd8f63ff96dd38b6a93b9ff0582e7f4d25",
+      "size_bytes": 39,
+      "upstream_blob": "aa70b33d0b258a7319f86e30402b1e8d5173d8bc",
+      "upstream_path": "doc/commands/visu_use.rst"
+    },
+    {
+      "path": "source/doc/commands/wavelet.rst",
+      "role": "source-rst",
+      "sha256": "38b659105433a769a34aaa4083160f5d8f481fa37869f393f117991745baecb2",
+      "size_bytes": 383,
+      "upstream_blob": "8ce3749814d606fb7616f38ef35b632a64c3137d",
+      "upstream_path": "doc/commands/wavelet.rst"
+    },
+    {
+      "path": "source/doc/commands/wavelet_use.rst",
+      "role": "source-rst",
+      "sha256": "9637bc041e237c996f78f9c9d89c84263e93a1db408b2afdc8cbf22e5260ee4e",
+      "size_bytes": 49,
+      "upstream_blob": "69b92bcee2299fda43086472b550a1c2fcc0506c",
+      "upstream_path": "doc/commands/wavelet_use.rst"
+    },
+    {
+      "path": "source/doc/commands/wiener.rst",
+      "role": "source-rst",
+      "sha256": "3f9e1da880c4b836d89612ed353db45c36d2e3e68df4c78504dc368471f8a748",
+      "size_bytes": 304,
+      "upstream_blob": "b1756d1edab3e4b7d8cacd7b855597b37cfa7291",
+      "upstream_path": "doc/commands/wiener.rst"
+    },
+    {
+      "path": "source/doc/commands/wiener_use.rst",
+      "role": "source-rst",
+      "sha256": "c14cb197701ea2f309e27f00b5244177d29c3d7d1e88d26e2ae63a20c26d2cc2",
+      "size_bytes": 54,
+      "upstream_blob": "def1b7b2e063750d2d89ca14ba9fae3e04caa8da",
+      "upstream_path": "doc/commands/wiener_use.rst"
+    },
+    {
+      "path": "source/doc/commands/wrecons.rst",
+      "role": "source-rst",
+      "sha256": "c7ac42074e2ae8b45593dfe9afc7ac2ddd455d655f2bdd556852c5822b71d3dc",
+      "size_bytes": 265,
+      "upstream_blob": "0bbc28dfa8e355fd9017775d3de8926f4a4d9122",
+      "upstream_path": "doc/commands/wrecons.rst"
+    },
+    {
+      "path": "source/doc/commands/wrecons_use.rst",
+      "role": "source-rst",
+      "sha256": "35ffaf044e3856f5bf4439a944bba9d9d385f434a2beea393ab82809eca2e0f9",
+      "size_bytes": 46,
+      "upstream_blob": "3e1ca8db4d50bf4b1832d4568b14003cd82075c1",
+      "upstream_path": "doc/commands/wrecons_use.rst"
+    },
+    {
+      "path": "source/doc/cwd.rst",
+      "role": "source-rst",
+      "sha256": "fec4a5bbdd26929f26a478b8138e14c4f26abad7d339a2b8724003a652448f29",
+      "size_bytes": 1024,
+      "upstream_blob": "84e39aadb3f29a1637b806243df8b6da03ebca53",
+      "upstream_path": "doc/cwd.rst"
+    },
+    {
+      "path": "source/doc/file-formats/Astro-TIFF.rst",
+      "role": "source-rst",
+      "sha256": "8818f1152887f99a52ca2b82463f6edabe4afe4d9fe481099ff0048c31ce889a",
+      "size_bytes": 7496,
+      "upstream_blob": "0e8d826447942da34222aebf8fee3eb893e90c5b",
+      "upstream_path": "doc/file-formats/Astro-TIFF.rst"
+    },
+    {
+      "path": "source/doc/file-formats/Bit-depth.rst",
+      "role": "source-rst",
+      "sha256": "67de3a7ed839bc79d41ce3176a2710fe9accf4abf9555f434ab3b740fc83cdc7",
+      "size_bytes": 1348,
+      "upstream_blob": "f216f325695991f21fb8f1d2eb99c14f50c0310a",
+      "upstream_path": "doc/file-formats/Bit-depth.rst"
+    },
+    {
+      "path": "source/doc/file-formats/Common.rst",
+      "role": "source-rst",
+      "sha256": "4af7b00f2f24da86e4550aa6da3652031c3ac558c573b289b323bef72c4775d5",
+      "size_bytes": 6759,
+      "upstream_blob": "685b2ccf6de0476811832ebd0d80d29b71d7d1d7",
+      "upstream_path": "doc/file-formats/Common.rst"
+    },
+    {
+      "path": "source/doc/file-formats/FITS.rst",
+      "role": "source-rst",
+      "sha256": "9e03f4c5cb443fc4e5e7ac4827f7325be2194fede6cfe7df16b5a869e3c4c00b",
+      "size_bytes": 18239,
+      "upstream_blob": "899f54600dc60580504087f3738691b40bbf6ad6",
+      "upstream_path": "doc/file-formats/FITS.rst"
+    },
+    {
+      "path": "source/doc/file-formats/PIC.rst",
+      "role": "source-rst",
+      "sha256": "ed989251b36ef665bd12acd8185e6326d865bf04eb0520dd9f835d1a63e1ca60",
+      "size_bytes": 376,
+      "upstream_blob": "3604d814d5014a94117bc4e376c841ffad4c4529",
+      "upstream_path": "doc/file-formats/PIC.rst"
+    },
+    {
+      "path": "source/doc/file-formats/SER.rst",
+      "role": "source-rst",
+      "sha256": "875880558a477ed1d2e59d26c93c9d7acb9de006b6c67af49316ed7b1e2b8738",
+      "size_bytes": 3266,
+      "upstream_blob": "482fa6b1bf64640ba4dde04fd21be50feadfa9ce",
+      "upstream_path": "doc/file-formats/SER.rst"
+    },
+    {
+      "path": "source/doc/file-formats/XISF.rst",
+      "role": "source-rst",
+      "sha256": "f6ec3eb564ef0cb444538762f0ef49b400b983f2654ea3cc779dab3f466c407f",
+      "size_bytes": 1271,
+      "upstream_blob": "419419081b60b799170dd7d4df1b9ad3e17bbffa",
+      "upstream_path": "doc/file-formats/XISF.rst"
+    },
+    {
+      "path": "source/doc/index.rst",
+      "role": "source-rst",
+      "sha256": "12e22e1946f50779726286db91f39c660d5094abf858e92aadf61f8f8678a7b7",
+      "size_bytes": 2780,
+      "upstream_blob": "440c4667b50ab0eb8351c3ad21b2d0598f410b81",
+      "upstream_path": "doc/index.rst"
+    },
+    {
+      "path": "source/doc/installation/build_options.txt",
+      "role": "include-dependency",
+      "sha256": "38900aaee0e89dad489e1d1357b18c87ac8a68bc99301aedc5b291e1a790c6ac",
+      "size_bytes": 954,
+      "upstream_blob": "9924b64d6c956178de599087ef527bc73d9bdfa5",
+      "upstream_path": "doc/installation/build_options.txt"
+    },
+    {
+      "path": "source/doc/installation/linux.rst",
+      "role": "source-rst",
+      "sha256": "afcc1750ed9d3f3a6cd3ed851098f85a1d5c542c6700974ae0c26bdd49d3aa86",
+      "size_bytes": 1974,
+      "upstream_blob": "a21299ee045011bf12adbfba2d57b503bd141759",
+      "upstream_path": "doc/installation/linux.rst"
+    },
+    {
+      "path": "source/doc/installation/macos.rst",
+      "role": "source-rst",
+      "sha256": "65bbe72e1ecfd2a73c8ba427e988fdbaf33fcaa4ddd386d8ae826fdc04288c7e",
+      "size_bytes": 1307,
+      "upstream_blob": "628a4d424478e72e70326de3f1d6a17fbb2e4450",
+      "upstream_path": "doc/installation/macos.rst"
+    },
+    {
+      "path": "source/doc/installation/source.rst",
+      "role": "source-rst",
+      "sha256": "acc3d890180d866e3cc70712b8c84c2b8bf4b13d499f5530a8e6932608a21c05",
+      "size_bytes": 9698,
+      "upstream_blob": "3114da8dfd08e1789fdc5cf82149e9b8a583c6db",
+      "upstream_path": "doc/installation/source.rst"
+    },
+    {
+      "path": "source/doc/installation/windows.rst",
+      "role": "source-rst",
+      "sha256": "c5167145e54dde59fe3c93c5e4027a418c29232b9d5e057fe1a5ca4c9330e4ee",
+      "size_bytes": 5909,
+      "upstream_blob": "fdc45b500924528291fb2c78af39b2d26a9117bc",
+      "upstream_path": "doc/installation/windows.rst"
+    },
+    {
+      "path": "source/doc/photometry/general.rst",
+      "role": "source-rst",
+      "sha256": "ce4f45ba3b4d7f4f68cdca5f8ca12109f5e0e6a05c8d31cd0dfa67f94eea8e4e",
+      "size_bytes": 7930,
+      "upstream_blob": "d1849eca07def5e5218300f0f37368fdba47bdb4",
+      "upstream_path": "doc/photometry/general.rst"
+    },
+    {
+      "path": "source/doc/photometry/lightcurves.rst",
+      "role": "source-rst",
+      "sha256": "6e6ee43e9f60f336d8eeb83de2a9139f6bb11fa34933cf05b929d6e51eb10896",
+      "size_bytes": 21304,
+      "upstream_blob": "55a7fd3915ebcc55baa5a940c5547451edfae5ae",
+      "upstream_path": "doc/photometry/lightcurves.rst"
+    },
+    {
+      "path": "source/doc/photometry/quickphotometry.rst",
+      "role": "source-rst",
+      "sha256": "cd9ff658a7f9af9fe6af953d6cff6df5b374f51e1d4a2afdf3292db8cd88e8be",
+      "size_bytes": 11717,
+      "upstream_blob": "e928ff5227acbfa19ad684c3e9730aa57d51b0aa",
+      "upstream_path": "doc/photometry/quickphotometry.rst"
+    },
+    {
+      "path": "source/doc/preferences/getA.txt",
+      "role": "include-dependency",
+      "sha256": "0b204412feaf7a276333b2b5b2bf641ed3cb046066f096c0a15ed1b0c425a7dc",
+      "size_bytes": 14586,
+      "upstream_blob": "74d139d6517fc8c00db621faca4e60e7553cd29f",
+      "upstream_path": "doc/preferences/getA.txt"
+    },
+    {
+      "path": "source/doc/preferences/preferences_command.rst",
+      "role": "source-rst",
+      "sha256": "ac4cd0f5d28f1c40bf9fbec66119d113d86bda9711dcaf6be45f4120b3a6f4f0",
+      "size_bytes": 1299,
+      "upstream_blob": "79fb748033ed8e62d02edac2bf5b249451f9ce21",
+      "upstream_path": "doc/preferences/preferences_command.rst"
+    },
+    {
+      "path": "source/doc/preferences/preferences_gui.rst",
+      "role": "source-rst",
+      "sha256": "2cd30cbec1f5c94065d7431eaac906b5b5b146a3c1bf43e80a4f8d2f526f008f",
+      "size_bytes": 46946,
+      "upstream_blob": "c95655c4b4cbf7b30b2393c46d9acfc9442d9691",
+      "upstream_path": "doc/preferences/preferences_gui.rst"
+    },
+    {
+      "path": "source/doc/preprocessing/calibration.rst",
+      "role": "source-rst",
+      "sha256": "fa14d0f389ee74c65d509355a5d765e29e9c102dc0e14736acb7aeb157c56efa",
+      "size_bytes": 26466,
+      "upstream_blob": "ca2c5fe5d4140492c502d81555ac300a11875d1e",
+      "upstream_path": "doc/preprocessing/calibration.rst"
+    },
+    {
+      "path": "source/doc/preprocessing/conversion.rst",
+      "role": "source-rst",
+      "sha256": "bf6215c07ef3c89b0417274cbcfbdc0d952b97c005c80d2e11a7d2b5db4967ef",
+      "size_bytes": 6376,
+      "upstream_blob": "c046ca970e2b8ef1a392b45efbef4e6f7c99cffb",
+      "upstream_path": "doc/preprocessing/conversion.rst"
+    },
+    {
+      "path": "source/doc/preprocessing/drizzle.rst",
+      "role": "source-rst",
+      "sha256": "4e35c6d1ec1ade8b9df560d53f2164f38f25e996fd97f613341bd5ac9d90a031",
+      "size_bytes": 25475,
+      "upstream_blob": "605f3f2afe31ff4f7b6c1bdfa3352db5964dc251",
+      "upstream_path": "doc/preprocessing/drizzle.rst"
+    },
+    {
+      "path": "source/doc/preprocessing/registration.rst",
+      "role": "source-rst",
+      "sha256": "fdcb410326f184303dbccb1b2825b8768b0489ae46b1e25fdb86478736ff3589",
+      "size_bytes": 35568,
+      "upstream_blob": "fc0cf6362cd6b5fbda95ffc9b487928f52d2dd20",
+      "upstream_path": "doc/preprocessing/registration.rst"
+    },
+    {
+      "path": "source/doc/preprocessing/stacking.rst",
+      "role": "source-rst",
+      "sha256": "15a485b457fdea005eb1c1de1825a7f9cc10db9f1e544897d93afee1107c0093",
+      "size_bytes": 16285,
+      "upstream_blob": "18eaced973bcee1e41fb62e7e8d3f648b39f3a33",
+      "upstream_path": "doc/preprocessing/stacking.rst"
+    },
+    {
+      "path": "source/doc/processing/atrouwavelets.rst",
+      "role": "source-rst",
+      "sha256": "7bcf41b000019e7b26739b6914e60a1f29912631dd28b0f8f841b17624085ab2",
+      "size_bytes": 3280,
+      "upstream_blob": "93bb92ae4ab8dc123e192f0f0bd2051d6ce4674e",
+      "upstream_path": "doc/processing/atrouwavelets.rst"
+    },
+    {
+      "path": "source/doc/processing/background.rst",
+      "role": "source-rst",
+      "sha256": "197acccedbf5f2d7c98cb7ba01504def2601b915099917a57503945e6eb39593",
+      "size_bytes": 9012,
+      "upstream_blob": "ec4f98430440c3f21bf6705b9e55ebaaa1bf939e",
+      "upstream_path": "doc/processing/background.rst"
+    },
+    {
+      "path": "source/doc/processing/banding.rst",
+      "role": "source-rst",
+      "sha256": "6eff5c3a15122ff08803c27660e48b294246a5ff24b793497ea6b0631fdcb675",
+      "size_bytes": 1875,
+      "upstream_blob": "d8f0028ca4db3aca4b5807ed3426e3b40eb0acfe",
+      "upstream_path": "doc/processing/banding.rst"
+    },
+    {
+      "path": "source/doc/processing/cc.rst",
+      "role": "source-rst",
+      "sha256": "faeb60349f0c5fb151c73348ed8483bacec0c7a35058e6f29cfb44c3385f24c5",
+      "size_bytes": 2810,
+      "upstream_blob": "8c9fb60dd540f4954ae9d96fff9f54df757437e8",
+      "upstream_path": "doc/processing/cc.rst"
+    },
+    {
+      "path": "source/doc/processing/clahe.rst",
+      "role": "source-rst",
+      "sha256": "b179a6f45e8ca07f669bad0abc6209a5e1f10cc88310bbe520a5b7a9ad4a3b09",
+      "size_bytes": 1750,
+      "upstream_blob": "b2e8e620673586f03528bd861a261e96e53cc5b8",
+      "upstream_path": "doc/processing/clahe.rst"
+    },
+    {
+      "path": "source/doc/processing/color-calibration/manual.rst",
+      "role": "source-rst",
+      "sha256": "3dc1a3f1bb3eb26630239077599850f83e46d58fb2f1297e81e0cf6ebe206685",
+      "size_bytes": 1544,
+      "upstream_blob": "0dfa0414c9dbe9fabf426b3ae9cd78b3a76d344c",
+      "upstream_path": "doc/processing/color-calibration/manual.rst"
+    },
+    {
+      "path": "source/doc/processing/color-calibration/pcc.rst",
+      "role": "source-rst",
+      "sha256": "dc5554320727d1e6d7f43bad314027b45ededa1d996d7a5b89885ab7f600fb0a",
+      "size_bytes": 5532,
+      "upstream_blob": "85f61c506feb57053dae0699a1db731aa62612fc",
+      "upstream_path": "doc/processing/color-calibration/pcc.rst"
+    },
+    {
+      "path": "source/doc/processing/color-calibration/spcc.rst",
+      "role": "source-rst",
+      "sha256": "f2dc066189ef35642a40b6aff7d854c471826b6fd10bd60b4260ad5d75b11ba4",
+      "size_bytes": 30522,
+      "upstream_blob": "676d2ccdab994d8597bd613a95e920e9d4803e2e",
+      "upstream_path": "doc/processing/color-calibration/spcc.rst"
+    },
+    {
+      "path": "source/doc/processing/color_calibritation.rst",
+      "role": "source-rst",
+      "sha256": "a3d46b3d541182fe401e4623117f296353cbec22162a7801aec4fba5e90e5190",
+      "size_bytes": 928,
+      "upstream_blob": "249988865cf189c56054255dc57ea2a65fc14ed1",
+      "upstream_path": "doc/processing/color_calibritation.rst"
+    },
+    {
+      "path": "source/doc/processing/colors.rst",
+      "role": "source-rst",
+      "sha256": "2c9167376f350686edeebd5a9577fb6163db868588b3e45ec66cf8ac4b788d0b",
+      "size_bytes": 4701,
+      "upstream_blob": "3305b884bda1cb38990d75aa3a11b7861a817b8b",
+      "upstream_path": "doc/processing/colors.rst"
+    },
+    {
+      "path": "source/doc/processing/deconvolution.rst",
+      "role": "source-rst",
+      "sha256": "6d9d040af93a6eb9f39598e3eb5ce39de4e7aa084f110fd9095cdd3031a1384b",
+      "size_bytes": 36802,
+      "upstream_blob": "38e60befc48b4a5539d4beb4b63fb20470ea189c",
+      "upstream_path": "doc/processing/deconvolution.rst"
+    },
+    {
+      "path": "source/doc/processing/denoising.rst",
+      "role": "source-rst",
+      "sha256": "39201fd52bbce16b3bb2ccae3b0611877d80092507e5efe6cb203138118751a4",
+      "size_bytes": 14320,
+      "upstream_blob": "31b96a04302083fdec43bdae929114e546de1afc",
+      "upstream_path": "doc/processing/denoising.rst"
+    },
+    {
+      "path": "source/doc/processing/epf.rst",
+      "role": "source-rst",
+      "sha256": "2cf6392ff0a9a79b6b1089dd3445173d87e312008109041eb7c408521f992aae",
+      "size_bytes": 3248,
+      "upstream_blob": "6138625dcf5ae45ac0fe79c5f4fd4bc58da0066c",
+      "upstream_path": "doc/processing/epf.rst"
+    },
+    {
+      "path": "source/doc/processing/extraction.rst",
+      "role": "source-rst",
+      "sha256": "98d6370aa5dbbb37068bb77df980ab5d27e737d5d1f89b293a092ab5cc30a155",
+      "size_bytes": 6883,
+      "upstream_blob": "848800ba88881a4fc91137ce936fa55da900156b",
+      "upstream_path": "doc/processing/extraction.rst"
+    },
+    {
+      "path": "source/doc/processing/filters.rst",
+      "role": "source-rst",
+      "sha256": "7a9c9ece9b43b075db70ff484aaec9ca0d031616dac5161f12405d99531f9dec",
+      "size_bytes": 306,
+      "upstream_blob": "fae606dae18a04ce2fdbdd9c5bd8f4eadfc9f37c",
+      "upstream_path": "doc/processing/filters.rst"
+    },
+    {
+      "path": "source/doc/processing/ft.rst",
+      "role": "source-rst",
+      "sha256": "161a79015bb5d0324af908162225dd1fc90de4d8f486f48e80aa700b2244b76a",
+      "size_bytes": 2292,
+      "upstream_blob": "24ed02c7688b23f00d8c5162e2948b4ff8b8de00",
+      "upstream_path": "doc/processing/ft.rst"
+    },
+    {
+      "path": "source/doc/processing/geometry.rst",
+      "role": "source-rst",
+      "sha256": "8e9a451ccbb0049c734b009e3b07482ec0517923174b6cc789561d4337d40570",
+      "size_bytes": 4434,
+      "upstream_blob": "f716ffd3059b1eeb8cbe391cbba534b749b067d9",
+      "upstream_path": "doc/processing/geometry.rst"
+    },
+    {
+      "path": "source/doc/processing/graxpert.rst",
+      "role": "source-rst",
+      "sha256": "0e1676310d6eb04cd609ade1ac06863b9ec480e931ea0a96dd1d15f38fd9b5f9",
+      "size_bytes": 11585,
+      "upstream_blob": "0efb10bb8008779e88edfa4abb7c6d3c60be1beb",
+      "upstream_path": "doc/processing/graxpert.rst"
+    },
+    {
+      "path": "source/doc/processing/lmatch.rst",
+      "role": "source-rst",
+      "sha256": "f78e3e42493fff599d969412b3fa543f375d6cfbb75676d9ca8972f9f217989d",
+      "size_bytes": 1197,
+      "upstream_blob": "9870c2c0d4a79d002c2dac42a29f2d4d43329541",
+      "upstream_path": "doc/processing/lmatch.rst"
+    },
+    {
+      "path": "source/doc/processing/median.rst",
+      "role": "source-rst",
+      "sha256": "c3231b89d59aa5c24681bcaa63e16d47e34dfe5c87e3a25d0dd58c19e31a6d7d",
+      "size_bytes": 1187,
+      "upstream_blob": "a4674bd94a0ae78be49d8da8e34242ce7cc30612",
+      "upstream_path": "doc/processing/median.rst"
+    },
+    {
+      "path": "source/doc/processing/merge.rst",
+      "role": "source-rst",
+      "sha256": "bb5574ec05051ca11d54ad77ffb62e49d4e7ff6b39cf8c6baf0489be6cdca183",
+      "size_bytes": 3056,
+      "upstream_blob": "823d4892a196eedda36c6f30b99d6ad95b48ac23",
+      "upstream_path": "doc/processing/merge.rst"
+    },
+    {
+      "path": "source/doc/processing/pixelmath.rst",
+      "role": "source-rst",
+      "sha256": "81e31a1a8512afa0c810f7d79f63c95427c71eb1b0192612c4ef8cf55b1dde1a",
+      "size_bytes": 4651,
+      "upstream_blob": "74343ad3db3369a794663b0b40fa19d2cede163a",
+      "upstream_path": "doc/processing/pixelmath.rst"
+    },
+    {
+      "path": "source/doc/processing/pm_im_functions.txt",
+      "role": "include-dependency",
+      "sha256": "e77dc8eb51976d527770551ddd46154f8abb70b1994fad182e457233e74672b8",
+      "size_bytes": 688,
+      "upstream_blob": "22606b4d453c20a90eb1154a5d1b3ace8e56b715",
+      "upstream_path": "doc/processing/pm_im_functions.txt"
+    },
+    {
+      "path": "source/doc/processing/pm_operators.txt",
+      "role": "include-dependency",
+      "sha256": "bbd2cc7ef958df8a1c3e4adc30d3d44eeac1842b6b306a1f6b7bb5bf74942a88",
+      "size_bytes": 666,
+      "upstream_blob": "c7c1e78af53ebb3d69f3c2580b223dd6774fa8b2",
+      "upstream_path": "doc/processing/pm_operators.txt"
+    },
+    {
+      "path": "source/doc/processing/pm_px_functions.txt",
+      "role": "include-dependency",
+      "sha256": "6f492eec24103e52d6e619cf5258efeb601ae9e72abad7a3c827e87aece8dd9d",
+      "size_bytes": 1647,
+      "upstream_blob": "536c86b4d36a0858cc9d9e7dfdcdaeeea06d69b1",
+      "upstream_path": "doc/processing/pm_px_functions.txt"
+    },
+    {
+      "path": "source/doc/processing/rgbcomp.rst",
+      "role": "source-rst",
+      "sha256": "1ae7b8de4067cc7904caa4f51ff991f49fce815a5ecdf2c21e7062c78fa72fec",
+      "size_bytes": 7586,
+      "upstream_blob": "18af149a02aaff52d473ca6d07c45a4bb2421405",
+      "upstream_path": "doc/processing/rgbcomp.rst"
+    },
+    {
+      "path": "source/doc/processing/rgradient.rst",
+      "role": "source-rst",
+      "sha256": "74d65aff5b1130b4bcb4bfccf11343745233eef41f27b270a6aa5bc82eb3384e",
+      "size_bytes": 3258,
+      "upstream_blob": "fc7c0544feabd9c80f7f6596e223081000d75e3c",
+      "upstream_path": "doc/processing/rgradient.rst"
+    },
+    {
+      "path": "source/doc/processing/stars.rst",
+      "role": "source-rst",
+      "sha256": "6d05f64ed8545288aa1bf7017350a1a5123b3599e6f1c2924fa52ba688a84109",
+      "size_bytes": 780,
+      "upstream_blob": "30af03259d900b755965cd166a0d952c0dbbb49f",
+      "upstream_path": "doc/processing/stars.rst"
+    },
+    {
+      "path": "source/doc/processing/stars/resynthesis.rst",
+      "role": "source-rst",
+      "sha256": "2370755b760e88d244bebddc6c68b8d9ee1ea0d698f24e3d31ba38a5111689bb",
+      "size_bytes": 1841,
+      "upstream_blob": "846bfe21cfd7559cd6d8a302395e07a6ff5fa01b",
+      "upstream_path": "doc/processing/stars/resynthesis.rst"
+    },
+    {
+      "path": "source/doc/processing/stars/star-recomp.rst",
+      "role": "source-rst",
+      "sha256": "6f6960a8e174bf411bbe7e16c5200d21d9295cb4c70283a455c7bf2072bd11aa",
+      "size_bytes": 5369,
+      "upstream_blob": "9ce233888ebdccbef44fe1c4399180093bd36fe6",
+      "upstream_path": "doc/processing/stars/star-recomp.rst"
+    },
+    {
+      "path": "source/doc/processing/stars/starnet.rst",
+      "role": "source-rst",
+      "sha256": "054e369130f939edef57a31a6872524a15d5c9f37f6dd9da8493695883c35a82",
+      "size_bytes": 6964,
+      "upstream_blob": "7bd5b4b89dbe311fe24e426d86a56aa377ed48d1",
+      "upstream_path": "doc/processing/stars/starnet.rst"
+    },
+    {
+      "path": "source/doc/processing/stars/unclipped.rst",
+      "role": "source-rst",
+      "sha256": "1617475e13325ac0709f9b6e33b41325d1c2ac8ef1b573dabba0430682e53b2d",
+      "size_bytes": 2795,
+      "upstream_blob": "204a4ebc2a1db808dd2d61f783efb81832ed2dea",
+      "upstream_path": "doc/processing/stars/unclipped.rst"
+    },
+    {
+      "path": "source/doc/processing/stretching.rst",
+      "role": "source-rst",
+      "sha256": "ef15a219a36830c6df3829e4ccd140e36e414de76d4dbed33abd91ece9efd3b1",
+      "size_bytes": 24791,
+      "upstream_blob": "53c07d174c4cec8b99d627685126b97a29e75bf0",
+      "upstream_path": "doc/processing/stretching.rst"
+    },
+    {
+      "path": "source/doc/processing/unpurple.rst",
+      "role": "source-rst",
+      "sha256": "b8c04a0015617ac54e71474e85ee967fd438be9127c25f12400ce2a783224f70",
+      "size_bytes": 2447,
+      "upstream_blob": "e1ec3f95dd7335eb526d1cc1d9de2aa52faccc64",
+      "upstream_path": "doc/processing/unpurple.rst"
+    },
+    {
+      "path": "source/doc/scripts/Python-examples.rst",
+      "role": "source-rst",
+      "sha256": "ebd4e24ebf48f5055a5a2aceede65d7d791c6930c239af0b509aa0958be2e96f",
+      "size_bytes": 712,
+      "upstream_blob": "e26ec32650a22b5714151141e9514a71b87c79d0",
+      "upstream_path": "doc/scripts/Python-examples.rst"
+    },
+    {
+      "path": "source/doc/scripts/Python-scripts.rst",
+      "role": "source-rst",
+      "sha256": "889a31dae007b8cc2a4e0a22f8351071a179e9f18eb6d80e4625b1dcf7e6ddce",
+      "size_bytes": 14888,
+      "upstream_blob": "714e444f1e4f3485aa536443a96ff3029cc3ed3f",
+      "upstream_path": "doc/scripts/Python-scripts.rst"
+    },
+    {
+      "path": "source/doc/scripts/Script-files.rst",
+      "role": "source-rst",
+      "sha256": "a5d876a9991f5ebd3b8142fe95546d3db84050b0292552c1e029f185f23211e3",
+      "size_bytes": 14677,
+      "upstream_blob": "553a9de09d5c1ca117a72cb79e9e4123342e0817",
+      "upstream_path": "doc/scripts/Script-files.rst"
+    },
+    {
+      "path": "source/doc/scripts/authors.rst",
+      "role": "source-rst",
+      "sha256": "e3e95444907294cc7abfbc2bcb972a101d7f6bd3cb94486b64236dad7adec42a",
+      "size_bytes": 13295,
+      "upstream_blob": "53e88dc5ac640112d73123ad6c41fbbdee270501",
+      "upstream_path": "doc/scripts/authors.rst"
+    },
+    {
+      "path": "source/doc/scripts/editor.rst",
+      "role": "source-rst",
+      "sha256": "e32e287ac9090bc51160e9972dca80a98a0411b8b162581d1612b66a06741aee",
+      "size_bytes": 7105,
+      "upstream_blob": "6edc80bd6ce524d536d4176a25db807133cfe2cc",
+      "upstream_path": "doc/scripts/editor.rst"
+    },
+    {
+      "path": "source/doc/scripts/gui_and_args_template.py",
+      "role": "include-dependency",
+      "sha256": "241ff24b04c14d94bec8a9b71f2969c7a7e766601e0cc46156dd4c85a2809e05",
+      "size_bytes": 13583,
+      "upstream_blob": "9d71bb8efa7f0edd73b8fc83b88897e276a395c4",
+      "upstream_path": "doc/scripts/gui_and_args_template.py"
+    },
+    {
+      "path": "source/doc/scripts/gui_template.py",
+      "role": "include-dependency",
+      "sha256": "061afe41cb9673ad3f31060df7ca18ec246862b575b2068d72a7fc62246ee5d4",
+      "size_bytes": 10765,
+      "upstream_blob": "87f806e135d9d8158574aac8f0333a5f0d405cd8",
+      "upstream_path": "doc/scripts/gui_template.py"
+    },
+    {
+      "path": "source/doc/scripts/python-scripts-list.rst",
+      "role": "source-rst",
+      "sha256": "81d528d792be9f34497090cc9eeff145f98cc353e38d127ad1454674f7d8cd91",
+      "size_bytes": 8824,
+      "upstream_blob": "07955a10a3aab8ef42bd0edf3f5fce64af3a5c6f",
+      "upstream_path": "doc/scripts/python-scripts-list.rst"
+    },
+    {
+      "path": "source/doc/scripts/python_direct_interface.rst",
+      "role": "source-rst",
+      "sha256": "5c1e6a93027b5a84f585a497eed3e35aac2c15bf2c349c20e636f9d4ce9dde9c",
+      "size_bytes": 3772,
+      "upstream_blob": "9ec2f33376ac93249f3b68865614f4c0e473b7d0",
+      "upstream_path": "doc/scripts/python_direct_interface.rst"
+    },
+    {
+      "path": "source/doc/scripts/python_gui_template.rst",
+      "role": "source-rst",
+      "sha256": "f7a2865833dcd7121843104803d9ae9a35ee02fce7f6c1cf63dca3091f693fdd",
+      "size_bytes": 836,
+      "upstream_blob": "369ab41798c9ec27852318586fd47fac208775e7",
+      "upstream_path": "doc/scripts/python_gui_template.rst"
+    },
+    {
+      "path": "source/doc/scripts/python_hello_astropy.rst",
+      "role": "source-rst",
+      "sha256": "c8fe64135dea3a601c46b4bdd26872e102090235a460ecebd3117ae9d421e883",
+      "size_bytes": 2933,
+      "upstream_blob": "9d3951560284c759c2c16f3d18619edbc7f52a69",
+      "upstream_path": "doc/scripts/python_hello_astropy.rst"
+    },
+    {
+      "path": "source/doc/scripts/python_hello_siril.rst",
+      "role": "source-rst",
+      "sha256": "dca665e3334209ee3ace46f3ed543d0afae00e9c25a644a7fb4541a83525fe41",
+      "size_bytes": 1485,
+      "upstream_blob": "78ca3dc15471fd84f2164039448dc89b41b938e5",
+      "upstream_path": "doc/scripts/python_hello_siril.rst"
+    },
+    {
+      "path": "source/doc/scripts/python_plot.rst",
+      "role": "source-rst",
+      "sha256": "f00af6a0c2fe5d4b5e8696939f791bf95c8bd68f50079b8ebef18be3d3ae7986",
+      "size_bytes": 1520,
+      "upstream_blob": "ba28d6fde680150989132777e420de42f1fd2841",
+      "upstream_path": "doc/scripts/python_plot.rst"
+    },
+    {
+      "path": "source/doc/scripts/users.rst",
+      "role": "source-rst",
+      "sha256": "8d096963e346b98182871e294780528e68513661c1a227636692a234d907d703",
+      "size_bytes": 4413,
+      "upstream_blob": "5b8be5c6cbd453b6518f0773739e2ccbbff43eac",
+      "upstream_path": "doc/scripts/users.rst"
+    }
+  ],
+  "schema": "deep-sky-siril.siril-manual-files/v1"
+}

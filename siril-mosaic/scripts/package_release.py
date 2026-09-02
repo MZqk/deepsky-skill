@@ -28,7 +28,7 @@ EXPECTED_RELEASE_FILES = (
     "scripts/siril_mosaic.py",
 )
 EXPECTED_SLUG = "siril-mosaic"
-EXPECTED_VERSION = "0.1.0"
+EXPECTED_VERSION = "1.0.1"
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 FIXED_FILE_MODE = stat.S_IFREG | 0o644
 RECEIPT_SCHEMA = "siril-mosaic.release-receipt/v1"

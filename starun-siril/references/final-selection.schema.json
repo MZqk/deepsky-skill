@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "starun-siril.final-selection.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "selected_runs",
+    "review_receipts",
+    "limitations",
+    "stars_required",
+    "output_contains_stars"
+  ],
+  "properties": {
+    "schema": {"const": "starun-siril.final-selection.v1"},
+    "status": {"enum": ["success", "partial_success", "review_required", "failed"]},
+    "candidate_image": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": ".*\\S.*"},
+    "selected_runs": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[0-9]{3}-[a-z0-9][a-z0-9-]{0,63}$"}
+    },
+    "review_receipts": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": ".*\\S.*"}
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,119}$"},
+          "message": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": ".*\\S.*"}
+        }
+      }
+    },
+    "stars_required": {"type": "boolean"},
+    "output_contains_stars": {"type": ["boolean", "null"]},
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {"enum": ["runtime_dependency_missing", "skill_command_failed", "skill_output_missing", "skill_output_invalid"]},
+        "message": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": ".*\\S.*"},
+        "missing_dependencies": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": ".*\\S.*"}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "failed"}},
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["error"],
+        "not": {"required": ["candidate_image"]}
+      },
+      "else": {
+        "required": ["candidate_image"],
+        "not": {"required": ["error"]}
+      }
+    },
+    {
+      "if": {
+        "properties": {"status": {"const": "partial_success"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {"limitations": {"minItems": 1}}
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {"enum": ["success", "partial_success"]},
+          "stars_required": {"const": true}
+        },
+        "required": ["status", "stars_required"]
+      },
+      "then": {
+        "properties": {"output_contains_stars": {"const": true}}
+      }
+    }
+  ]
+}

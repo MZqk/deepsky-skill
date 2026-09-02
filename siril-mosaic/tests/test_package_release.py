@@ -66,7 +66,7 @@ class ReleasePackageTests(unittest.TestCase):
                 path = root / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(data)
-            output = base / "dist" / "siril-mosaic-0.1.0.zip"
+            output = base / "dist" / "siril-mosaic-1.0.1.zip"
 
             receipt = self._build(root, output)
 
@@ -294,7 +294,7 @@ class ReleasePackageTests(unittest.TestCase):
                     command,
                     0,
                     json.dumps(
-                        {"dryRun": True, "slug": "siril-mosaic", "version": "0.1.0"}
+                        {"dryRun": True, "slug": "siril-mosaic", "version": "1.0.1"}
                     ),
                     "",
                 )

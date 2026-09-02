@@ -1,0 +1,212 @@
+{
+  "schema": "starun-siril.siril-manual-source-lock/v1",
+  "component": {
+    "id": "siril-manual",
+    "version": "1.4.4"
+  },
+  "source": {
+    "project_url": "https://gitlab.com/free-astro/siril-doc",
+    "commit": "1550a31d325276124fe961368477c90d49df804b",
+    "commit_time": "2026-08-19T08:44:55+02:00",
+    "archive_url": "https://gitlab.com/free-astro/siril-doc/-/archive/1550a31d325276124fe961368477c90d49df804b/siril-doc-1550a31d325276124fe961368477c90d49df804b.tar.gz",
+    "archive_sha256": "13d19abb4f1309f53200820bfa8b9507219ba836edb3d79bc7045d7eb0fc40a0",
+    "archive_root": "siril-doc-1550a31d325276124fe961368477c90d49df804b",
+    "documentation_root": "doc",
+    "license_path": "LICENSE.md",
+    "version_assertion_path": "doc/conf.py",
+    "expected_rst_files": 536,
+    "expected_commands": 199,
+    "expected_dependency_paths": [
+      "doc/astrometry/cats.txt",
+      "doc/installation/build_options.txt",
+      "doc/preferences/getA.txt",
+      "doc/processing/pm_im_functions.txt",
+      "doc/processing/pm_operators.txt",
+      "doc/processing/pm_px_functions.txt",
+      "doc/scripts/gui_and_args_template.py",
+      "doc/scripts/gui_template.py"
+    ]
+  },
+  "read_the_docs": {
+    "stable_url": "https://siril.readthedocs.io/en/stable/",
+    "build_id": 34132359,
+    "build_url": "https://readthedocs.org/projects/siril/builds/34132359/"
+  },
+  "third_party_license": {
+    "id": "munipack-documentation-excerpt",
+    "concluded": "NOASSERTION",
+    "inferred_candidate_spdx": "GFDL-1.2-no-invariants-only",
+    "source_url": "https://ftp.gnu.org/gnu/Licenses/fdl-1.2.txt",
+    "sha256": "2652c22ba086f92e55ae4a9f9c890ad4766ffd7814a73d318e22a597edf857a4",
+    "size_bytes": 20394,
+    "applies_to": [
+      "source/doc/photometry/general.rst#munipack-derived-excerpt"
+    ]
+  },
+  "limits": {
+    "archive_bytes": 134217728,
+    "member_count": 4096,
+    "member_bytes": 33554432,
+    "expanded_bytes": 268435456
+  },
+  "selected_images": [
+    {
+      "path": "doc/_images/processing/bkg_extract.png",
+      "reason": "Background extraction model and sample placement are easier to interpret visually."
+    },
+    {
+      "path": "doc/_images/processing/bkg_banding.png",
+      "reason": "Shows the background-extraction correction mode for banding."
+    },
+    {
+      "path": "doc/_images/processing/banding_before.png",
+      "reason": "Scientific before-state for horizontal banding correction."
+    },
+    {
+      "path": "doc/_images/processing/banding_after.png",
+      "reason": "Scientific after-state for horizontal banding correction."
+    },
+    {
+      "path": "doc/_images/processing/color_pcc_dialog.png",
+      "reason": "Identifies PCC parameters and catalogue-dependent controls."
+    },
+    {
+      "path": "doc/_images/processing/spcc_dialog.png",
+      "reason": "Identifies SPCC parameters and spectral-response controls."
+    },
+    {
+      "path": "doc/_images/processing/pcc_vs_spcc.png",
+      "reason": "Official visual comparison of PCC and SPCC calibration."
+    },
+    {
+      "path": "doc/_images/processing/SHO.png",
+      "reason": "Illustrates the documented narrowband SHO calibration workflow."
+    },
+    {
+      "path": "doc/_images/denoising/noisy.png",
+      "reason": "Reference noisy input for the official denoising comparison."
+    },
+    {
+      "path": "doc/_images/denoising/denoised.png",
+      "reason": "Reference denoised output for the official denoising comparison."
+    },
+    {
+      "path": "doc/_images/denoising/denoise-with-vst.png",
+      "reason": "Documents the effect of variance-stabilizing denoising."
+    },
+    {
+      "path": "doc/_images/processing/deconv_kerneltoobig.png",
+      "reason": "Official deconvolution failure example: oversized kernel."
+    },
+    {
+      "path": "doc/_images/processing/deconv_toomanyiters.png",
+      "reason": "Official deconvolution failure example: excessive iterations."
+    },
+    {
+      "path": "doc/_images/processing/deconv_multexcessivereg.png",
+      "reason": "Official deconvolution failure example: excessive regularization."
+    },
+    {
+      "path": "doc/_images/processing/deconv_unsuitablealgorithm.png",
+      "reason": "Official deconvolution failure example: unsuitable algorithm."
+    },
+    {
+      "path": "doc/_images/processing/asinh.png",
+      "reason": "Shows the asinh stretch controls and curve."
+    },
+    {
+      "path": "doc/_images/processing/MTF.png",
+      "reason": "Shows the midtones transfer function controls and curve."
+    },
+    {
+      "path": "doc/_images/processing/GHS.png",
+      "reason": "Shows Generalised Hyperbolic Stretch controls and curve."
+    },
+    {
+      "path": "doc/_images/processing/GHS_color.png",
+      "reason": "Shows GHS colour-stretch behavior."
+    },
+    {
+      "path": "doc/_images/processing/curves_s_curve.png",
+      "reason": "Documents the standard S-curve adjustment geometry."
+    },
+    {
+      "path": "doc/_images/processing/curves_BP_WP_adj.png",
+      "reason": "Documents black-point and white-point curve adjustment."
+    },
+    {
+      "path": "doc/_images/scripts/script_structure.png",
+      "reason": "Documents the structure and execution flow of a Siril script."
+    },
+    {
+      "path": "doc/_images/processing/stars/starnet_dialog.png",
+      "reason": "Identifies the documented StarNet separation controls."
+    },
+    {
+      "path": "doc/_images/processing/stars/starrecomp.png",
+      "reason": "Illustrates the official star recomposition workflow."
+    }
+  ],
+  "aliases": [
+    {"alias": "Siril手册", "target_ids": ["page:doc/index.rst"]},
+    {"alias": "安装", "target_ids": ["page:doc/Installation.rst"]},
+    {"alias": "图形界面", "target_ids": ["page:doc/GUI.rst"]},
+    {"alias": "工作目录", "target_ids": ["page:doc/cwd.rst"]},
+    {"alias": "命令参考", "target_ids": ["page:doc/Commands.rst"]},
+    {"alias": "图像处理", "target_ids": ["page:doc/Processing.rst"]},
+    {"alias": "预处理", "target_ids": ["page:doc/Preprocessing.rst"]},
+    {"alias": "脚本", "target_ids": ["page:doc/Scripts.rst"]},
+    {"alias": "工作流", "target_ids": ["page:doc/Workflow.rst"]},
+    {"alias": "文件格式", "target_ids": ["page:doc/FileFormats.rst"]},
+    {"alias": "天体测量", "target_ids": ["page:doc/Astrometry.rst"]},
+    {"alias": "动态点扩散函数", "target_ids": ["page:doc/Dynamic-PSF.rst"]},
+    {"alias": "FITS头", "target_ids": ["page:doc/FITS-header.rst"]},
+    {"alias": "强度剖面", "target_ids": ["page:doc/Intensity-Profiling.rst"]},
+    {"alias": "测光", "target_ids": ["page:doc/Photometry.rst"]},
+    {"alias": "绘图", "target_ids": ["page:doc/Plot.rst"]},
+    {"alias": "科研使用", "target_ids": ["page:doc/SirilForScientists.rst"]},
+    {"alias": "颜色管理", "target_ids": ["page:doc/Color-management.rst"]},
+    {"alias": "图像检查", "target_ids": ["page:doc/Image-inspection.rst"]},
+    {"alias": "统计", "target_ids": ["page:doc/Statistics.rst", "command:stat"]},
+    {"alias": "首选项", "target_ids": ["page:doc/Preferences.rst"]},
+    {"alias": "无界面模式", "target_ids": ["page:doc/Headless.rst"]},
+    {"alias": "路径解析", "target_ids": ["page:doc/Pathparsing.rst"]},
+    {"alias": "实时叠加", "target_ids": ["page:doc/Livestack.rst"]},
+    {"alias": "Python接口", "target_ids": ["page:doc/Python-API.rst"]},
+    {"alias": "问题排查", "target_ids": ["page:doc/Issues.rst"]},
+    {"alias": "序列", "target_ids": ["page:doc/Sequences.rst"]},
+    {"alias": "背景提取", "target_ids": ["page:doc/processing/background.rst", "command:subsky"]},
+    {"alias": "背景扣除", "target_ids": ["page:doc/processing/background.rst", "command:subsky"]},
+    {"alias": "条带校正", "target_ids": ["page:doc/processing/banding.rst", "command:fixbanding"]},
+    {"alias": "颜色校准", "target_ids": ["page:doc/processing/color-calibration/manual.rst", "page:doc/processing/color-calibration/pcc.rst", "page:doc/processing/color-calibration/spcc.rst", "command:pcc", "command:spcc"]},
+    {"alias": "光度颜色校准", "target_ids": ["page:doc/processing/color-calibration/pcc.rst", "command:pcc"]},
+    {"alias": "光谱光度颜色校准", "target_ids": ["page:doc/processing/color-calibration/spcc.rst", "command:spcc"]},
+    {"alias": "窄带配色", "target_ids": ["page:doc/processing/color-calibration/spcc.rst"]},
+    {"alias": "降噪", "target_ids": ["page:doc/processing/denoising.rst", "command:denoise"]},
+    {"alias": "反卷积", "target_ids": ["page:doc/processing/deconvolution.rst", "command:rl"]},
+    {"alias": "拉伸", "target_ids": ["page:doc/processing/stretching.rst", "command:asinh", "command:mtf", "command:autostretch"]},
+    {"alias": "星点分离", "target_ids": ["page:doc/processing/stars/starnet.rst", "command:starnet"]},
+    {"alias": "星点重组", "target_ids": ["page:doc/processing/stars/star-recomp.rst"]},
+    {"alias": "版本要求", "target_ids": ["command:requires"]},
+    {"alias": "32位处理", "target_ids": ["command:set32bits"]},
+    {"alias": "加载图像", "target_ids": ["command:load"]},
+    {"alias": "关闭图像", "target_ids": ["command:close"]},
+    {"alias": "保存图像", "target_ids": ["command:save"]},
+    {"alias": "保存预览", "target_ids": ["command:savejpg"]},
+    {"alias": "自动拉伸", "target_ids": ["command:autostretch"]},
+    {"alias": "裁剪", "target_ids": ["command:crop"]},
+    {"alias": "背景框选", "target_ids": ["command:boxselect"]},
+    {"alias": "Python脚本", "target_ids": ["command:pyscript"]},
+    {"alias": "通道分离", "target_ids": ["command:split"]},
+    {"alias": "像素数学", "target_ids": ["command:pm"]},
+    {"alias": "RGB合成", "target_ids": ["command:rgbcomp"]},
+    {"alias": "星点检测", "target_ids": ["command:findstar", "command:setfindstar"]},
+    {"alias": "点扩散函数", "target_ids": ["command:makepsf"]},
+    {"alias": "Richardson-Lucy反卷积", "target_ids": ["command:rl"]},
+    {"alias": "反双曲正弦拉伸", "target_ids": ["command:asinh"]},
+    {"alias": "中间调传递函数", "target_ids": ["command:mtf"]},
+    {"alias": "饱和度", "target_ids": ["command:satu"]},
+    {"alias": "去绿", "target_ids": ["command:rmgreen"]},
+    {"alias": "设置变量", "target_ids": ["command:set"]}
+  ]
+}

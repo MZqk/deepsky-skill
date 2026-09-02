@@ -122,7 +122,7 @@ python3.12 -m venv "$REPO_CHECK_ENV"
 
 ## 独立发布
 
-每个 Skill 的发布步骤见其 `RELEASING.md`，变更记录见其 `CHANGELOG.md`。标签必须使用 `<skill>/v<version>`，例如 `siril-mosaic/v0.1.0`；不要创建含义不明确的全局 `v0.1.0` 标签。
+每个 Skill 的发布步骤见其 `RELEASING.md`，变更记录见其 `CHANGELOG.md`。标签必须使用 `<skill>/v<version>`，例如 `siril-mosaic/v1.0.1`；不要创建含义不明确的全局 `v1.0.1` 标签。
 
 Capture Advisor 和 Siril Mosaic 具有精确发布打包器。发布检查只构建本地候选包，不执行上传：
 
@@ -132,13 +132,13 @@ RELEASE_DIR="$(python3.12 -c 'import tempfile; from pathlib import Path; print(P
 
 deep-sky-capture-advisor/.venv/bin/python \
   deep-sky-capture-advisor/scripts/package_release.py \
-  --output "$RELEASE_DIR/deep-sky-capture-advisor-0.1.0.zip"
+  --output "$RELEASE_DIR/deep-sky-capture-advisor-1.0.1.zip"
 
 siril-mosaic/.venv/bin/python \
   siril-mosaic/scripts/package_release.py --check
 siril-mosaic/.venv/bin/python \
   siril-mosaic/scripts/package_release.py \
-  --output "$RELEASE_DIR/siril-mosaic-0.1.0.zip"
+  --output "$RELEASE_DIR/siril-mosaic-1.0.1.zip"
 ```
 
 禁止直接运行 `skillhub publish siril-mosaic/`。SkillHub 的目录采集不会读取 `.gitignore`，正式发布只能使用精确白名单生成的 ZIP，并在发布前按 `RELEASING.md` 完成显式授权和 dry-run 预检。

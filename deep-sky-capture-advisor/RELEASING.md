@@ -37,7 +37,7 @@ deep-sky-capture-advisor/.venv/bin/python -B scripts/validate_repository.py --sk
 deep-sky-capture-advisor/.venv/bin/python -B -m pytest -p no:cacheprovider deep-sky-capture-advisor/tests
 deep-sky-capture-advisor/.venv/bin/python -B deep-sky-capture-advisor/scripts/query_knowledge.py --verify-bundle
 deep-sky-capture-advisor/.venv/bin/python -B deep-sky-capture-advisor/scripts/package_release.py \
-  --output /tmp/deep-sky-capture-advisor-0.1.0.zip
+  --output /tmp/deep-sky-capture-advisor-1.0.1.zip
 ```
 
-只有新的显式发布授权覆盖最终运行时闭包时，才可创建 `deep-sky-capture-advisor/vX.Y.Z` 标签、GitHub Release 或执行外部发布。未来版本不得继承 `0.1.0` 的授权，也不得使用全局 `vX.Y.Z` 标签。
+只有新的显式发布授权覆盖最终运行时闭包时，才可创建 `deep-sky-capture-advisor/vX.Y.Z` 标签、GitHub Release 或执行外部发布。未来版本不得继承 `1.0.1` 的授权，也不得使用全局 `vX.Y.Z` 标签。

@@ -1,0 +1,1 @@
+| Flips the image about the horizontal axis, only if needed (if it's not already bottom-up). It takes the image file name as argument, allowing it to avoid reading image data entirely if no flip is required. Image is overwritten if a flip is made

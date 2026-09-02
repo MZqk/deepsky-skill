@@ -1,0 +1,3268 @@
+{
+  "omitted_local_references": [
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 140,
+          "path": "doc/file-formats/Astro-TIFF.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/Astro-TIFF/Astro-TIFF_save_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 49,
+          "path": "doc/FITS-header.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/FITSHeader.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 56,
+          "path": "doc/FITS-header.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/FITSHeader_2.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 78,
+          "path": "doc/FITS-header.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/add_keyword.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 18,
+          "path": "doc/cwd.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/cwd.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "image",
+          "line": 4,
+          "path": "doc/GUI/information_window.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/image_information.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "image",
+          "line": 24,
+          "path": "doc/GUI/main-interface.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/main-interface_image-area_right-click.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "image",
+          "line": 4,
+          "path": "doc/GUI/burger-menu.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/main-interface_mainmenu1.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "image",
+          "line": 10,
+          "path": "doc/GUI/main-interface.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/main-interface_window.svg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 191,
+          "path": "doc/GUI/main-interface.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/save_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "image",
+          "line": 10,
+          "path": "doc/GUI/shortcuts.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/shortcuts_1.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "image",
+          "line": 14,
+          "path": "doc/GUI/shortcuts.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/shortcuts_2.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 8,
+          "path": "doc/GUI/toolbar.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/toolbar.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 4,
+          "path": "doc/GUI/tools-menu.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/GUI/tools-menu.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 14,
+          "path": "doc/index.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/Siril_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 76,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/cat-manage_view.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 87,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/catalogues-right-click.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 126,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/conesearch_ui.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 13,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/example.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 99,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/local_resolver.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 26,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/plate_solved_gui.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 253,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/search_object_ui.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 208,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/show2_ui.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 199,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/show_ui.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 313,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/solsys.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 268,
+          "path": "doc/astrometry/annotations.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/annotations/user_dso.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 48,
+          "path": "doc/color-management/theory.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/CIE1931-comparison.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 30,
+          "path": "doc/color-management/theory.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/CIE1931xy_blank.svg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 165,
+          "path": "doc/color-management/profiles.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/ProPhoto_working_space_howto.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 17,
+          "path": "doc/color-management/ccm.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/ccm_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 36,
+          "path": "doc/color-management/user-interface.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/icc_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 29,
+          "path": "doc/color-management/user-interface.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/icc_dialog_in_menu.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 18,
+          "path": "doc/color-management/user-interface.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/icc_status_button.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 97,
+          "path": "doc/color-management/user-interface.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/iso12646.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 39,
+          "path": "doc/color-management/getting_started.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/preferences-setup2.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 30,
+          "path": "doc/color-management/getting_started.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/color-management/preferences.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 267,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/denoising/075modulation.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 62,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/denoising/denoise-dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 288,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/denoising/denoise-with-da3d.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 299,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/denoising/denoise-with-sos.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 219,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/denoising/dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 181,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/denoising/singlesub.gif"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 98,
+          "path": "doc/Dynamic-PSF.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/dynamic-psf/Star_Profile.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 9,
+          "path": "doc/Dynamic-PSF.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/dynamic-psf/dynamicPSF.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 205,
+          "path": "doc/Dynamic-PSF.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/dynamic-psf/dynamicPSF_average.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 81,
+          "path": "doc/Dynamic-PSF.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/dynamic-psf/star_moffat_gaussian.svg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 90,
+          "path": "doc/Dynamic-PSF.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/dynamic-psf/star_moffat_gaussian_rotated.svg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 22,
+          "path": "doc/file-formats/Bit-depth.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/file-formats/16bit.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 29,
+          "path": "doc/file-formats/Bit-depth.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/file-formats/8bit.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 132,
+          "path": "doc/file-formats/FITS.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/file-formats/JWST_FITS.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 4,
+          "path": "doc/Intensity-Profiling.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/icons/cut.svg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 82,
+          "path": "doc/Image-inspection.rst"
+        },
+        {
+          "directive": "figure",
+          "line": 451,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/inspectors/aberration_inspector.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 92,
+          "path": "doc/Image-inspection.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/inspectors/aberration_inspector2.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 56,
+          "path": "doc/Image-inspection.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/inspectors/tilt.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 24,
+          "path": "doc/installation/macos.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/installation/macos/macos-dmg-mount.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 18,
+          "path": "doc/installation/macos.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/installation/macos/macos-dmg.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 19,
+          "path": "doc/installation/windows.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/installation/windows/installer_end.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 13,
+          "path": "doc/installation/windows.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/installation/windows/installer_start.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 70,
+          "path": "doc/Livestack.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/livestacking/ls_config.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 35,
+          "path": "doc/Livestack.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/livestacking/ls_main.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 29,
+          "path": "doc/Livestack.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/livestacking/ls_main_menu.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 12,
+          "path": "doc/photometry/quickphotometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/3D-StarPSF.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 253,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/Auto-LC.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 201,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/Rx_And.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 169,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/aavso_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 298,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/comp_stars_button.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 308,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/compstars_win.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 48,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/curve_fwhm.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 94,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/curve_mag.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 22,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/curve_stars.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 331,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/delta_starssort.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 347,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/gui_result.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 147,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/light_curve.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 72,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/manual-compstars-save.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 386,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/narrow_option.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 354,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/nomad.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 12,
+          "path": "doc/Photometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/photometry.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 16,
+          "path": "doc/photometry/general.rst"
+        },
+        {
+          "directive": "figure",
+          "line": 398,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/photometry_aperture.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 231,
+          "path": "doc/photometry/quickphotometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/photometry_example.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 89,
+          "path": "doc/photometry/quickphotometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/photometry_result.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 287,
+          "path": "doc/photometry/quickphotometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/photometry_setmag.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 198,
+          "path": "doc/photometry/quickphotometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/simbad.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 30,
+          "path": "doc/photometry/quickphotometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/var-ratio.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 397,
+          "path": "doc/photometry/lightcurves.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/photometry/wide_option.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 204,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/Asnetsolver_parameters.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 16,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/Astrometry_Dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 695,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/BF.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 450,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/Local_Catalogue.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 675,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/SIP_cubic.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 667,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/SIP_none.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 156,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/Sirilsolver_parameters.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 710,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/distortion3D.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 550,
+          "path": "doc/astrometry/platesolving.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/platesolver/seqplatesolve.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 54,
+          "path": "doc/Plot.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/plot/different_scatter.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 18,
+          "path": "doc/Plot.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/plot/plot.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 66,
+          "path": "doc/Plot.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/plot/plot_exclude.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 79,
+          "path": "doc/Plot.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/plot/plot_selection.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 45,
+          "path": "doc/Plot.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/plot/scatter_plot.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 554,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/mouse_config.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 22,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_1.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 792,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_10.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 869,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_11.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 98,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_2.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 185,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_3.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 309,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_4.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 387,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_5.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 433,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_6.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 460,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_7.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 580,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_8.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 740,
+          "path": "doc/preferences/preferences_gui.rst"
+        },
+        {
+          "directive": "figure",
+          "line": 137,
+          "path": "doc/scripts/Script-files.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_9.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 261,
+          "path": "doc/preferences/preferences_gui.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preferences/pref_astrometry.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 405,
+          "path": "doc/preprocessing/drizzle.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/Bayer_Drizzle.webp"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 532,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/L-D.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 560,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/L-D_F-O.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 553,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/L-O_F-O.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 438,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/LDOF.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 517,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/LDOF_dust.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 546,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/L_F-O.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 539,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/L_F.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 483,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/LightsCalibration.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 524,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/LightsCalibration_dust.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 148,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/Transformations.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 372,
+          "path": "doc/preferences/preferences_gui.rst"
+        },
+        {
+          "directive": "figure",
+          "line": 260,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/Xtrans_1_2.jpg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 109,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/calib_DOF.gif"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 108,
+          "path": "doc/preprocessing/conversion.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/conv_Bayer_Pattern.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 44,
+          "path": "doc/preprocessing/conversion.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/conv_dest.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 15,
+          "path": "doc/preprocessing/conversion.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/conv_source.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 139,
+          "path": "doc/preprocessing/drizzle.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/drizzle_comparison.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 292,
+          "path": "doc/preprocessing/drizzle.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/drizzle_comparison.webp"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 443,
+          "path": "doc/preprocessing/drizzle.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/drizzle_moire.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 459,
+          "path": "doc/preprocessing/drizzle.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/drizzle_nomoire.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 471,
+          "path": "doc/preprocessing/drizzle.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/drizzle_notenoughframes.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 160,
+          "path": "doc/preprocessing/drizzle.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/drizzle_ui.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 589,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/master-dark-wb.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 139,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/optim_light_dark.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 183,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/optim_pp_light.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 153,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/optim_pp_light_wrong.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 168,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/optim_siril.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 641,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/overcooked_flat.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 39,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/prepro_bias.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 322,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/prepro_cc_bpm.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 283,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/prepro_cc_md.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 101,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/prepro_dark.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 206,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/prepro_flat.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 12,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/prepro_master.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 334,
+          "path": "doc/preprocessing/calibration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/prepro_output.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 16,
+          "path": "doc/Preprocessing.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/preprocess_schema.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 366,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_123.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 533,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_applyastrometry_undistort.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 585,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_applyreg.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 456,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_comet.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 208,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_framelist.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 248,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_global.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 489,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_man_main.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 508,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_man_preview.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 501,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_man_preview2.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 670,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_output_drizzle.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 650,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_output_interpolation.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 409,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/registration_planet.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 98,
+          "path": "doc/preprocessing/stacking.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/rejection_map.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 286,
+          "path": "doc/preprocessing/stacking.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/stacking_image_rej.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 212,
+          "path": "doc/preprocessing/stacking.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/stacking_input_norm.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 48,
+          "path": "doc/preprocessing/stacking.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/stacking_pixel_rej.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 141,
+          "path": "doc/preprocessing/stacking.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/stacking_seamless.gif"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 158,
+          "path": "doc/preprocessing/stacking.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/stacking_stitch_global_norm.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 163,
+          "path": "doc/preprocessing/stacking.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/stacking_stitch_overlap_norm.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 130,
+          "path": "doc/preprocessing/stacking.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/stacking_stitching.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 239,
+          "path": "doc/preprocessing/registration.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/preprocessing/star_finder.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 363,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/GHS_sat.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 60,
+          "path": "doc/processing/atrouwavelets.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/Jupiter_JLD.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 152,
+          "path": "doc/processing/extraction.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/M45_orig.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 159,
+          "path": "doc/processing/extraction.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/M45_planes.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 270,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/NGC4414.jpg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 36,
+          "path": "doc/processing/pixelmath.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/PM_parameters.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 59,
+          "path": "doc/processing/pixelmath.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/PM_presets.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 48,
+          "path": "doc/processing/pixelmath.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/PM_rescale.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 13,
+          "path": "doc/processing/pixelmath.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/PixelMath.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 22,
+          "path": "doc/processing/geometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/Rotate&Crop.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 50,
+          "path": "doc/processing/geometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/Rotate&Crop_crop.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 417,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/SPCC_data_HOO_2024-01-23T13.18.47.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 432,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/SPCC_plots.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 295,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/Stars_KG.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 216,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/Veil_HOO.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 261,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/WR_Galaxy.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 303,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/avg_vs_M_white_ref.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 15,
+          "path": "doc/processing/banding.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/banding_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 104,
+          "path": "doc/processing/geometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/bin_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 78,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/cat_installer.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 92,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/cat_preview.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 64,
+          "path": "doc/processing/cc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/cc.gif"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 11,
+          "path": "doc/processing/cc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/cc_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 67,
+          "path": "doc/processing/extraction.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/cfa.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 76,
+          "path": "doc/processing/pixelmath.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/change_var.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 10,
+          "path": "doc/processing/clahe.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/clahe_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 32,
+          "path": "doc/processing/clahe.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/clahe_inout.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 11,
+          "path": "doc/processing/color-calibration/manual.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/color_manual_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 15,
+          "path": "doc/processing/colors.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/color_saturation_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 465,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/curves_cubic_spline.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 553,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/curves_targeted_adj.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 30,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv.gif"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 335,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_Airy-disk.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 40,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 326,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_disk.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 626,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_jup1.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 633,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_jup2.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 640,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_jup3.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 606,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_lunar.webp"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 317,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_man_PSF.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 671,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_mars1.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 664,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_mars2.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 678,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_mars3.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 577,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/deconv_multvsgd.gif"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 44,
+          "path": "doc/processing/epf.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/epf.webp"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 12,
+          "path": "doc/processing/epf.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/epf_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 39,
+          "path": "doc/processing/ft.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/fftd_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 48,
+          "path": "doc/processing/ft.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/ffti_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 182,
+          "path": "doc/processing/graxpert.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/graxpert_model_manager.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 52,
+          "path": "doc/processing/graxpert.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/graxpert_script.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 9,
+          "path": "doc/processing/lmatch.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/linear_match_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 9,
+          "path": "doc/processing/median.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/median_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 4,
+          "path": "doc/processing/merge.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/merge_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 127,
+          "path": "doc/processing/colors.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/negative_neg.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 120,
+          "path": "doc/processing/colors.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/negative_or.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 79,
+          "path": "doc/processing/color-calibration/pcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/pcc_bkg.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 70,
+          "path": "doc/processing/color-calibration/pcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/pcc_star_detect.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 110,
+          "path": "doc/processing/pixelmath.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/pm_mask.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 95,
+          "path": "doc/processing/pixelmath.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/pm_orig.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 9,
+          "path": "doc/Processing.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/processing_menu.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 49,
+          "path": "doc/processing/unpurple.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/purplestarscompare.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 137,
+          "path": "doc/processing/geometry.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/resample_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 4,
+          "path": "doc/processing/rgbcomp.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/rgb_comp_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 20,
+          "path": "doc/processing/rgradient.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/rgradient_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 63,
+          "path": "doc/processing/rgradient.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/rgradient_fin.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 52,
+          "path": "doc/processing/rgradient.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/rgradient_or.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 39,
+          "path": "doc/processing/colors.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/scnr.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 450,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/spcc_Bayer_Drizzle_vs_vng.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 14,
+          "path": "doc/processing/extraction.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/split.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 117,
+          "path": "doc/processing/extraction.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/split_cfa.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 61,
+          "path": "doc/processing/stars/unclipped.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/stars/desat.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 29,
+          "path": "doc/processing/stars/unclipped.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/stars/saturated.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 19,
+          "path": "doc/processing/stars/star-recomp.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/stars/starrecomp_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 52,
+          "path": "doc/processing/stars/unclipped.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/stars/unsaturated.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 142,
+          "path": "doc/processing/extraction.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/wave_extraction_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 36,
+          "path": "doc/processing/atrouwavelets.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/wavelet_dialog.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 12,
+          "path": "doc/processing/atrouwavelets.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/wavelets.svg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 22,
+          "path": "doc/processing/atrouwavelets.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/processing/wavelets_layers.svg"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 92,
+          "path": "doc/Intensity-Profiling.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/profiling/cfa-profile.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 73,
+          "path": "doc/Intensity-Profiling.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/profiling/color-profile.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 23,
+          "path": "doc/Intensity-Profiling.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/profiling/gui.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 135,
+          "path": "doc/Intensity-Profiling.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/profiling/measure.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 59,
+          "path": "doc/Intensity-Profiling.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/profiling/mono-profile.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 166,
+          "path": "doc/Intensity-Profiling.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/profiling/siril_plot_1.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 82,
+          "path": "doc/Intensity-Profiling.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/profiling/tri-profile.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 26,
+          "path": "doc/Scripts.rst"
+        },
+        {
+          "directive": "figure",
+          "line": 13,
+          "path": "doc/scripts/Python-examples.rst"
+        },
+        {
+          "directive": "figure",
+          "line": 44,
+          "path": "doc/scripts/Script-files.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/scripts/Scripts_menu.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 52,
+          "path": "doc/scripts/Script-files.rst"
+        },
+        {
+          "directive": "figure",
+          "line": 10,
+          "path": "doc/scripts/editor.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/scripts/script_editor.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 112,
+          "path": "doc/Sequences.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/sequences/frame_selector.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 156,
+          "path": "doc/Sequences.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/sequences/reference_frame.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 263,
+          "path": "doc/Sequences.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/sequences/sequence_clean.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 218,
+          "path": "doc/Sequences.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/sequences/sequence_export.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 87,
+          "path": "doc/Sequences.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/sequences/sequence_load.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 23,
+          "path": "doc/Statistics.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/statistics/statistics_gui.png"
+    },
+    {
+      "reason": "not selected by the locked CLI/deep-sky image policy",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 31,
+          "path": "doc/Statistics.rst"
+        }
+      ],
+      "upstream_path": "doc/_images/statistics/statistics_gui_cfa.png"
+    }
+  ],
+  "policy": {
+    "coverage": "selected",
+    "exclude": "decorative UI, icons, badges, animation, video, external resources, and unselected local references",
+    "formats": [
+      "png"
+    ],
+    "include": "RST-referenced scientific diagrams, parameter views, and before/after examples needed for deep-sky CLI reasoning"
+  },
+  "schema": "deep-sky-siril.siril-manual-image-selection/v1",
+  "selected": [
+    {
+      "path": "source/doc/_images/processing/bkg_extract.png",
+      "reason": "Background extraction model and sample placement are easier to interpret visually.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 10,
+          "path": "doc/processing/background.rst"
+        }
+      ],
+      "sha256": "577c92fe32b8ba5ebe04a3dd1e247ac0d809f8241dcc1fe1e417b4f98c7128db",
+      "size_bytes": 74926,
+      "upstream_path": "doc/_images/processing/bkg_extract.png"
+    },
+    {
+      "path": "source/doc/_images/processing/bkg_banding.png",
+      "reason": "Shows the background-extraction correction mode for banding.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 172,
+          "path": "doc/processing/background.rst"
+        }
+      ],
+      "sha256": "5d68d0d3187cc7a2ff2ca2ec65c5fb09e647186ffa770bcf35ac8499ecf2763c",
+      "size_bytes": 2514994,
+      "upstream_path": "doc/_images/processing/bkg_banding.png"
+    },
+    {
+      "path": "source/doc/_images/processing/banding_before.png",
+      "reason": "Scientific before-state for horizontal banding correction.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 8,
+          "path": "doc/processing/banding.rst"
+        }
+      ],
+      "sha256": "736742b438fb3fa2beeb4c0cb9b363f601e95902dcd63e234802e8844008c3ce",
+      "size_bytes": 491959,
+      "upstream_path": "doc/_images/processing/banding_before.png"
+    },
+    {
+      "path": "source/doc/_images/processing/banding_after.png",
+      "reason": "Scientific after-state for horizontal banding correction.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 35,
+          "path": "doc/processing/banding.rst"
+        }
+      ],
+      "sha256": "0a1afa2a8cf2d003be490ce238d910975046d9d74fc1317966f9cc027e5831f7",
+      "size_bytes": 509409,
+      "upstream_path": "doc/_images/processing/banding_after.png"
+    },
+    {
+      "path": "source/doc/_images/processing/color_pcc_dialog.png",
+      "reason": "Identifies PCC parameters and catalogue-dependent controls.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 36,
+          "path": "doc/processing/color-calibration/pcc.rst"
+        }
+      ],
+      "sha256": "9c4585266bf52c700a219eaeeb09e4f49c05ed024fc1eeabd42bb003567ec4f2",
+      "size_bytes": 16911,
+      "upstream_path": "doc/_images/processing/color_pcc_dialog.png"
+    },
+    {
+      "path": "source/doc/_images/processing/spcc_dialog.png",
+      "reason": "Identifies SPCC parameters and spectral-response controls.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 24,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "sha256": "115148909b148bcaf8aeb62d4597b13bec90ac7f93f241f1859feebbcaa32001",
+      "size_bytes": 56363,
+      "upstream_path": "doc/_images/processing/spcc_dialog.png"
+    },
+    {
+      "path": "source/doc/_images/processing/pcc_vs_spcc.png",
+      "reason": "Official visual comparison of PCC and SPCC calibration.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 37,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "sha256": "161df51ddd7f305972b56b6b73a0d706ee2dbbc059912bbfda2a754724fc3929",
+      "size_bytes": 954465,
+      "upstream_path": "doc/_images/processing/pcc_vs_spcc.png"
+    },
+    {
+      "path": "source/doc/_images/processing/SHO.png",
+      "reason": "Illustrates the documented narrowband SHO calibration workflow.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 237,
+          "path": "doc/processing/color-calibration/spcc.rst"
+        }
+      ],
+      "sha256": "95fdac1a43df87aceb54183b8949fdf7e85b2fec3bf7c6115efcebc6e656a37c",
+      "size_bytes": 669170,
+      "upstream_path": "doc/_images/processing/SHO.png"
+    },
+    {
+      "path": "source/doc/_images/denoising/noisy.png",
+      "reason": "Reference noisy input for the official denoising comparison.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 247,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "sha256": "97bbd178d3585594fcf35060db4a36a251b082c2a28e83aa406af2fe2d258107",
+      "size_bytes": 877986,
+      "upstream_path": "doc/_images/denoising/noisy.png"
+    },
+    {
+      "path": "source/doc/_images/denoising/denoised.png",
+      "reason": "Reference denoised output for the official denoising comparison.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 257,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "sha256": "e5b0ce8b51351c179ceb032b19aa899d0b615ce2447dd92d4cc1d5181cf085e0",
+      "size_bytes": 529279,
+      "upstream_path": "doc/_images/denoising/denoised.png"
+    },
+    {
+      "path": "source/doc/_images/denoising/denoise-with-vst.png",
+      "reason": "Documents the effect of variance-stabilizing denoising.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 277,
+          "path": "doc/processing/denoising.rst"
+        }
+      ],
+      "sha256": "35da87089f57624e3a73264ffa43a860e24d7c4cfc33bdf8cfff918504950f07",
+      "size_bytes": 605391,
+      "upstream_path": "doc/_images/denoising/denoise-with-vst.png"
+    },
+    {
+      "path": "source/doc/_images/processing/deconv_kerneltoobig.png",
+      "reason": "Official deconvolution failure example: oversized kernel.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 462,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "sha256": "bf83e91cce9eb06e4937ab29eac59dd0fc6ac6869559a7b94c5df3943c64b322",
+      "size_bytes": 367444,
+      "upstream_path": "doc/_images/processing/deconv_kerneltoobig.png"
+    },
+    {
+      "path": "source/doc/_images/processing/deconv_toomanyiters.png",
+      "reason": "Official deconvolution failure example: excessive iterations.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 470,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "sha256": "b42691c0532070ca61afdeb36bebac5360e51dfc0a15d9b34eebd72c995dc667",
+      "size_bytes": 395184,
+      "upstream_path": "doc/_images/processing/deconv_toomanyiters.png"
+    },
+    {
+      "path": "source/doc/_images/processing/deconv_multexcessivereg.png",
+      "reason": "Official deconvolution failure example: excessive regularization.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 478,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "sha256": "ecbab9f12676e6b30d379ce2fd9e668f6c11d5b8af0db69ac7658334c4ddd2cb",
+      "size_bytes": 143535,
+      "upstream_path": "doc/_images/processing/deconv_multexcessivereg.png"
+    },
+    {
+      "path": "source/doc/_images/processing/deconv_unsuitablealgorithm.png",
+      "reason": "Official deconvolution failure example: unsuitable algorithm.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 488,
+          "path": "doc/processing/deconvolution.rst"
+        }
+      ],
+      "sha256": "7e93d72390f9341fe77c384f686db2a7e9bbf649f0d27a94e04089a490be9128",
+      "size_bytes": 387017,
+      "upstream_path": "doc/_images/processing/deconv_unsuitablealgorithm.png"
+    },
+    {
+      "path": "source/doc/_images/processing/asinh.png",
+      "reason": "Shows the asinh stretch controls and curve.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 34,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "sha256": "04bb20d8075ed970cdd7532417fdb519350d961aa51badc4158d2b1f93bcc300",
+      "size_bytes": 26204,
+      "upstream_path": "doc/_images/processing/asinh.png"
+    },
+    {
+      "path": "source/doc/_images/processing/MTF.png",
+      "reason": "Shows the midtones transfer function controls and curve.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 124,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "sha256": "c187a2299d1269b0f840745c7d10ace5375c86695a81923e5c4386141367d4bc",
+      "size_bytes": 45755,
+      "upstream_path": "doc/_images/processing/MTF.png"
+    },
+    {
+      "path": "source/doc/_images/processing/GHS.png",
+      "reason": "Shows Generalised Hyperbolic Stretch controls and curve.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 238,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "sha256": "0d3c80f8d2d56c14ee3782ab351e1223311c16eb94f97332367fce340e6a0131",
+      "size_bytes": 99163,
+      "upstream_path": "doc/_images/processing/GHS.png"
+    },
+    {
+      "path": "source/doc/_images/processing/GHS_color.png",
+      "reason": "Shows GHS colour-stretch behavior.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 324,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "sha256": "2637400510103674fb8b0f0688184b471047aeeaf1d21ea4af320482133ad4bd",
+      "size_bytes": 45892,
+      "upstream_path": "doc/_images/processing/GHS_color.png"
+    },
+    {
+      "path": "source/doc/_images/processing/curves_s_curve.png",
+      "reason": "Documents the standard S-curve adjustment geometry.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 533,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "sha256": "f8ce011ce64d855af1184d84a7c5f87f86d713b292465df78e5e80c92c365ee6",
+      "size_bytes": 28020,
+      "upstream_path": "doc/_images/processing/curves_s_curve.png"
+    },
+    {
+      "path": "source/doc/_images/processing/curves_BP_WP_adj.png",
+      "reason": "Documents black-point and white-point curve adjustment.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 543,
+          "path": "doc/processing/stretching.rst"
+        }
+      ],
+      "sha256": "1efacf1467cf1e315fe8434ba019a517347717306f0992f3164a95cfff8f8115",
+      "size_bytes": 26695,
+      "upstream_path": "doc/_images/processing/curves_BP_WP_adj.png"
+    },
+    {
+      "path": "source/doc/_images/scripts/script_structure.png",
+      "reason": "Documents the structure and execution flow of a Siril script.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 150,
+          "path": "doc/scripts/Script-files.rst"
+        }
+      ],
+      "sha256": "40d3e66a77ecbc53b66b450e69de58f72ecd90d1f70903d2af52de26c270c13b",
+      "size_bytes": 57300,
+      "upstream_path": "doc/_images/scripts/script_structure.png"
+    },
+    {
+      "path": "source/doc/_images/processing/stars/starnet_dialog.png",
+      "reason": "Identifies the documented StarNet separation controls.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 81,
+          "path": "doc/processing/stars/starnet.rst"
+        }
+      ],
+      "sha256": "9f3783b9c7b58cebc353ccf509810ede21108b540e5ca285a5e1c43948e4db96",
+      "size_bytes": 32822,
+      "upstream_path": "doc/_images/processing/stars/starnet_dialog.png"
+    },
+    {
+      "path": "source/doc/_images/processing/stars/starrecomp.png",
+      "reason": "Illustrates the official star recomposition workflow.",
+      "references": [
+        {
+          "directive": "figure",
+          "line": 108,
+          "path": "doc/processing/stars/star-recomp.rst"
+        }
+      ],
+      "sha256": "f0e4b3db15c12098df75b173ce573abae7703357a9fe9a519171f52f93e528d7",
+      "size_bytes": 1527602,
+      "upstream_path": "doc/_images/processing/stars/starrecomp.png"
+    }
+  ]
+}

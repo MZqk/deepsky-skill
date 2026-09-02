@@ -1,0 +1,1 @@
+| Rescans the scripts folders and updates the Scripts menu. Note that this command may not be used headless (i.e. from siril-cli) and also that the update will happen asynchronously (i.e. the command will trigger the update but will not wait for the update to complete)

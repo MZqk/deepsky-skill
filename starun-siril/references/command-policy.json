@@ -1,0 +1,28 @@
+{
+  "schema": "starun-siril.command-policy.v1",
+  "contract_version": "1",
+  "required_prefix": [
+    "requires 1.4.4 1.5.0",
+    "set32bits"
+  ],
+  "max_script_bytes": 131072,
+  "max_effective_lines": 256,
+  "protocol_commands": {
+    "input.inspect": ["requires", "set32bits", "load", "stat", "savejpg", "close", "autostretch"],
+    "geometry.crop-near-black": ["requires", "set32bits", "load", "crop", "stat", "save", "autostretch", "savejpg", "close"],
+    "background.subtract": ["requires", "set32bits", "load", "boxselect", "stat", "pyscript", "subsky", "save", "autostretch", "savejpg", "close"],
+    "color.calibrate": ["requires", "set32bits", "set", "load", "pcc", "spcc", "stat", "save", "autostretch", "savejpg", "close"],
+    "color.map": ["requires", "set32bits", "load", "split", "close", "pm", "save", "rgbcomp", "stat", "autostretch", "savejpg"],
+    "restoration.denoise": ["requires", "set32bits", "load", "denoise", "stat", "save", "autostretch", "savejpg", "close"],
+    "restoration.deconvolve": ["requires", "set32bits", "load", "setfindstar", "findstar", "makepsf", "rl", "stat", "save", "autostretch", "savejpg", "close"],
+    "stars.separate": ["requires", "set32bits", "set", "load", "starnet", "stat", "save", "autostretch", "savejpg", "close", "pm"],
+    "stretch": ["requires", "set32bits", "load", "asinh", "autostretch", "mtf", "stat", "save", "savejpg", "close"],
+    "stars.recompose": ["requires", "set32bits", "load", "mtf", "save", "close", "pm", "stat", "savejpg"],
+    "color.finish": ["requires", "set32bits", "load", "satu", "rmgreen", "stat", "save", "savejpg", "close"],
+    "delivery.render": ["requires", "set32bits", "load", "stat", "savejpg", "close"]
+  },
+  "write_commands": ["save", "savejpg", "savetif32", "split", "rgbcomp", "findstar", "makepsf"],
+  "pyscript_protocols": {
+    "background.subtract": "siril_background_samples.py"
+  }
+}

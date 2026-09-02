@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "starun-siril.background-sample-contract.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "source", "fit_samples"],
+  "properties": {
+    "schema": {"const": "starun-siril.background-sample-contract.v1"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "width", "height"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": ".*\\S.*"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "fit_samples": {"$ref": "#/$defs/fitSamples"}
+  },
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+        "x": {"type": "number", "minimum": 0},
+        "y": {"type": "number", "minimum": 0}
+      }
+    },
+    "fitSamples": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "description": "IDs and coordinate pairs must be unique. Coordinates must satisfy 0 <= x < source.width and 0 <= y < source.height; runtime enforces these cross-field constraints.",
+      "items": {"$ref": "#/$defs/sample"}
+    }
+  }
+}

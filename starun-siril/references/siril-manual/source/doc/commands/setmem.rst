@@ -1,0 +1,5 @@
+| Sets a new ratio of used memory on free memory.
+| 
+| **Ratio** value should be between 0.05 and 2, depending on other activities of the machine. A higher ratio should allow siril to process faster, but setting the ratio of used memory above 1 will require the use of on-disk memory, which is very slow and unrecommended, even sometimes not supported, leading to system crash. A fixed amount of memory can also be set in the generic settings, with SET, instead of a ratio
+| 
+| Links: :ref:`set <set>`

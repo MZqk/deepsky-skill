@@ -4,7 +4,7 @@ description: 使用 Siril 1.4+ 将同一目标的多个已校准、已堆栈 FIT
 license: Proprietary
 metadata:
   slug: siril-mosaic
-  version: "0.1.0"
+  version: "1.0.1"
   displayName: Siril Mosaic
   summary: 使用 Siril 自动解算、配准并拼接已堆栈天文面板，交付可审计的线性 FITS 马赛克和显示预览。
   tags: [astronomy, siril, mosaic, fits]
