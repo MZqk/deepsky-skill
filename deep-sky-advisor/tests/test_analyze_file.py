@@ -46,7 +46,7 @@ class AnalyzeFileTests(unittest.TestCase):
 
             report = analyzer.analyze_image_file(input_path, root / "out")
 
-            self.assertEqual(report["schema_version"], "2.0")
+            self.assertEqual(report["schema_version"], "2.1")
             self.assertEqual(report["file"]["selected_hdu"], 1)
             self.assertEqual(report["classification"]["processing_stage"], "stacked_or_integrated")
             self.assertGreater(report["background"]["plane"]["x_change_across_frame"], 0.05)
@@ -76,6 +76,26 @@ class AnalyzeFileTests(unittest.TestCase):
                 report["color"]["background_ratios_to_mean"]["b"],
             )
             self.assertIn("channels_rgb_order", report["previews"])
+
+    def test_smart_telescope_device_detection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_path = root / "m42_stack.fits"
+            hdu = fits.PrimaryHDU(synthetic_star_field())
+            hdu.header["TELESCOP"] = "Seestar S50"
+            hdu.writeto(input_path)
+            report = analyzer.analyze_image_file(input_path, root / "out")
+
+            device = report["classification"]["device"]
+            self.assertEqual(device["id"], "seestar_s50")
+            self.assertEqual(device["match_source"], "header")
+            self.assertAlmostEqual(device["priors"]["image_scale_arcsec_px"], 2.39, places=2)
+
+    def test_device_detection_specific_before_base_and_unknown(self):
+        header = {"TELESCOP": "ZWO Seestar S50 Pro"}
+        device = analyzer.detect_device(header, "m42")
+        self.assertEqual(device["id"], "seestar_s50_pro")
+        self.assertIsNone(analyzer.detect_device({}, "random_target"))
 
     def test_no_stars_degrades_to_unavailable(self):
         yy, xx = np.mgrid[0:128, 0:128]

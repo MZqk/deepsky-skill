@@ -168,7 +168,10 @@ def _operation(
 
 def _is_narrowband(analysis, filter_override=None):
     filter_name = str(filter_override or _get(analysis, "classification.filter") or "").lower()
-    return any(token in filter_name for token in NARROWBAND_TOKENS)
+    if any(token in filter_name for token in NARROWBAND_TOKENS):
+        return True
+    device_filters = str(_get(analysis, "classification.device.priors.builtin_filters") or "").lower()
+    return any(token in device_filters for token in ("dual-band", "dual narrowband", "duo-band"))
 
 
 def _postprocessing_ready(analysis):
@@ -466,6 +469,7 @@ def _payload(analysis, operations, software, target_type, target_name, filter_na
             "target_type": target_type,
             "target_name": target_name,
             "filter": filter_name or _get(analysis, "classification.filter"),
+            "device": _get(analysis, "classification.device.label"),
         },
         "operations": operations,
         "required_information": required_info,
@@ -513,6 +517,7 @@ def render_markdown(advice):
         f"- 目标类型：{localized_value(context['target_type'])}",
         f"- 目标名称：{context.get('target_name') or '未知'}",
         f"- 滤镜/通道：{context.get('filter') or '未知'}",
+        f"- 拍摄设备：{context.get('device') or '未知'}",
         "",
         "## 处理优先级",
         "",

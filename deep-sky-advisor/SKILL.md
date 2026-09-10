@@ -4,7 +4,7 @@ description: Analyze supplied FITS, XISF, TIFF, PNG, or JPEG deep-sky astrophoto
 license: Proprietary
 metadata:
   slug: deep-sky-advisor
-  version: "0.1.0"
+  version: "0.2.0"
   displayName: Deep Sky Advisor
   summary: 对深空图像文件进行量化诊断，并提供保留真实性的后期处理建议。
   tags: [astronomy, astrophotography, diagnostics, fits]
@@ -108,7 +108,9 @@ The analyzer supports FITS/XISF/TIFF/PNG/JPEG and measures:
 - center/corner medians and a low-signal background-plane fit;
 - unsaturated star-candidate count, moment-based FWHM, axis ratio, eccentricity, and orientation;
 - RGB background medians, channel ratios, P99 signal, channel correlation, and collapsed channels;
-- metadata/filename-based frame role, processing-stage, transfer-state, and channel-model hints.
+- metadata/filename-based frame role, processing-stage, transfer-state, and channel-model hints;
+- smart telescope device detection (`classification.device`) with acquisition priors for
+  DWARFLAB and ZWO Seestar models.
 
 Read `references/diagnostic_metrics.md` before interpreting numeric findings. Respect each metric's
 evidence label and warning. In particular:
@@ -150,10 +152,29 @@ Classify, when evidence permits:
 - transfer state: linear, nonlinear, or unknown;
 - channel model: mono, RGB, probable OSC/CFA, named narrowband channel, or unknown;
 - target type: emission nebula, reflection nebula, galaxy, globular cluster, open cluster,
-  planetary nebula, dark nebula, supernova remnant, wide field, or unknown.
+  planetary nebula, dark nebula, supernova remnant, wide field, or unknown;
+- acquisition device, when headers or filename identify a smart telescope
+  (`classification.device`).
 
 Header keywords and filenames are evidence, not guaranteed truth. If classification is uncertain,
 keep it `unknown` and avoid stage-dependent destructive advice.
+
+### Smart telescope device priors
+
+When `classification.device` is present, read `references/smart_telescope_devices.md` before
+interpreting the analysis. Device priors cover focal length, sensor, image scale, sub-exposure
+caps, built-in filters, and tracking mode for DWARF 3 / DWARF mini / Draco and Seestar
+S30 / S30 Pro / S50 / S50 Pro.
+
+Apply the priors as `metadata`/`assumed` evidence only:
+
+- use image scale and sub-exposure caps to calibrate expectations for FWHM, saturation, and
+  field-rotation patterns;
+- use the built-in filter table to decide whether duo-band channel-separation advice is
+  physically supported;
+- treat on-device JPEG/TIFF exports as already nonlinear and processed;
+- never let a device prior override measured evidence from the file, and never quote inferred
+  sensor numbers (e.g. OS08B10) as device facts.
 
 ### 4. Inspect the preview
 

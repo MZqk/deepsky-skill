@@ -6,14 +6,150 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
 import numpy as np
 
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "2.1"
 IMAGE_EXTENSIONS = {".fit", ".fits", ".fts", ".xisf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+
+# Smart telescope priors. Priors are metadata/assumed evidence, never measured facts.
+# Keep entries acquisition-relevant only; see references/smart_telescope_devices.md.
+SMART_TELESCOPE_DEVICES = {
+    "seestar_s50_pro": {
+        "label": "ZWO Seestar S50 Pro",
+        "tokens": ("s50 pro", "s50pro", "s50_pro"),
+        "brand_tokens": ("seestar", "zwo"),
+        "priors": {
+            "focal_length_mm": 260, "aperture_mm": 50, "f_ratio": 5.2,
+            "sensor": "OmniVision OS08B10", "pixel_size_um": 2.9,
+            "image_scale_arcsec_px": 2.30, "max_sub_exposure_s": 60,
+            "builtin_filters": "UV/IR-Cut; dual narrowband OIII 30nm/Ha 20nm (tele); dark-frame",
+            "notes": "Sensor read noise/full well/QE not officially published; treat numeric claims as low confidence",
+        },
+    },
+    "seestar_s50": {
+        "label": "ZWO Seestar S50",
+        "tokens": ("s50",),
+        "brand_tokens": ("seestar", "zwo"),
+        "priors": {
+            "focal_length_mm": 250, "aperture_mm": 50, "f_ratio": 5.0,
+            "sensor": "Sony IMX462", "pixel_size_um": 2.9,
+            "image_scale_arcsec_px": 2.39, "max_sub_exposure_s": 30,
+            "builtin_filters": "Astro (UV/IR); light-pollution dual-band",
+            "notes": "No wide-field camera; small full well (chip spec ~11.2 ke) saturates bright cores early",
+        },
+    },
+    "seestar_s30_pro": {
+        "label": "ZWO Seestar S30 Pro",
+        "tokens": ("s30 pro", "s30pro", "s30_pro"),
+        "brand_tokens": ("seestar", "zwo"),
+        "priors": {
+            "focal_length_mm": 160, "aperture_mm": 30, "f_ratio": 5.3,
+            "sensor": "Sony IMX585", "pixel_size_um": 2.9,
+            "image_scale_arcsec_px": 3.74, "max_sub_exposure_s": 60,
+            "builtin_filters": "Astro (UV/IR); light-pollution dual-band",
+            "notes": "IMX585 has vendor-measured noise/QE; strong evidence base",
+        },
+    },
+    "seestar_s30": {
+        "label": "ZWO Seestar S30",
+        "tokens": ("s30",),
+        "brand_tokens": ("seestar", "zwo"),
+        "priors": {
+            "focal_length_mm": 150, "aperture_mm": 30, "f_ratio": 5.0,
+            "sensor": "Sony IMX662", "pixel_size_um": 2.9,
+            "image_scale_arcsec_px": 3.99, "max_sub_exposure_s": 60,
+            "builtin_filters": "Astro (UV/IR); light-pollution dual-band",
+            "notes": "Wide camera is daylight-only per comparison data",
+        },
+    },
+    "dwarf_mini": {
+        "label": "DWARFLAB DWARF mini",
+        "tokens": ("dwarf mini", "dwarfmini", "dwarf_mini"),
+        "brand_tokens": ("dwarf", "dwarflab"),
+        "priors": {
+            "focal_length_mm": 150, "aperture_mm": 30, "f_ratio": 5.0,
+            "sensor": "Sony IMX662", "pixel_size_um": 2.9,
+            "image_scale_arcsec_px": 3.99, "max_sub_exposure_s": 180,
+            "builtin_filters": "Astro; dual-band; dark-frame",
+            "notes": "Dark-frame filter produces true darks; a near-zero image may be a calibration frame",
+        },
+    },
+    "dwarf_draco": {
+        "label": "DWARFLAB Draco",
+        "tokens": ("draco",),
+        "brand_tokens": ("dwarf", "dwarflab"),
+        "priors": {
+            "focal_length_mm": 340, "aperture_mm": 90, "f_ratio": 3.8,
+            "sensor": "OmniVision OV50Q40 (2x2 binned output)", "pixel_size_um": 2.394,
+            "image_scale_arcsec_px": 1.45, "max_sub_exposure_s": 300,
+            "builtin_filters": "Astro 440-680nm; dark; H+O dual-band (OIII 500.7/Ha 656.3, 13nm); ND; SHO edition adds SII 671.6nm",
+            "notes": "Internal guider plus physical CMOS derotation; residual field rotation less likely than alt-az peers",
+        },
+    },
+    "dwarf_3": {
+        "label": "DWARFLAB DWARF 3",
+        "tokens": ("dwarf 3", "dwarf3", "dwarf iii"),
+        "brand_tokens": ("dwarf", "dwarflab"),
+        "priors": {
+            "focal_length_mm": 150, "aperture_mm": 35, "f_ratio": 4.3,
+            "sensor": "Sony IMX678", "pixel_size_um": 2.0,
+            "image_scale_arcsec_px": 2.75, "max_sub_exposure_s": 120,
+            "builtin_filters": "Standard (UV/IR); astro; dual-band",
+            "notes": "Small full well (chip spec ~11.3 ke); expect early bright-core saturation",
+        },
+    },
+}
+
+
+def _token_present(text, token):
+    pattern = r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])"
+    return re.search(pattern, text) is not None
+
+
+def detect_device(header, filename):
+    """Match smart telescope brand/model tokens from headers and filename.
+
+    Returns a heuristic device dict or None. Specific model tokens are checked
+    before shorter base-model tokens (S50 Pro before S50). Brand tokens alone
+    yield a brand-level match without model priors.
+    """
+    telescope = str(header.get("TELESCOP") or "").lower()
+    instrument = str(header.get("INSTRUME") or "").lower()
+    header_text = f"{telescope} {instrument}".strip()
+    for source_text, match_source in ((header_text, "header"), (filename, "filename")):
+        if not source_text:
+            continue
+        for device_id, entry in SMART_TELESCOPE_DEVICES.items():
+            if any(_token_present(source_text, token) for token in entry["tokens"]):
+                brand_hit = any(
+                    _token_present(source_text, token) for token in entry["brand_tokens"]
+                )
+                confidence = "medium" if (brand_hit or match_source == "header") else "low"
+                return {
+                    "evidence": "metadata_and_filename_heuristic",
+                    "id": device_id,
+                    "label": entry["label"],
+                    "match_source": match_source,
+                    "confidence": confidence,
+                    "priors": dict(entry["priors"]),
+                }
+    for brand in ("seestar", "dwarf", "dwarflab"):
+        combined = f"{header_text} {filename}"
+        if _token_present(combined, brand):
+            return {
+                "evidence": "metadata_and_filename_heuristic",
+                "id": "brand_only",
+                "label": "ZWO Seestar" if brand == "seestar" else "DWARFLAB",
+                "match_source": "header" if _token_present(header_text, brand) else "filename",
+                "confidence": "low",
+                "priors": {},
+            }
+    return None
 
 
 def _json_value(value):
@@ -525,6 +661,7 @@ def classify_input(path, metadata, raw):
         "channel_model": channel_model,
         "filter": header.get("FILTER"),
         "object": header.get("OBJECT"),
+        "device": detect_device(header, filename),
         "warnings": [
             "File names and headers are not guaranteed truth",
             "FITS/XISF containers can contain nonlinear processed data",

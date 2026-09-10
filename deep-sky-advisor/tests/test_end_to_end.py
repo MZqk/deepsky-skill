@@ -54,7 +54,7 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(operations["background_review"]["decision"], "review")
             self.assertIn("narrowband_mapping", operations)
             self.assertNotIn("color_calibration", operations)
-            self.assertEqual(advice["source_analysis_schema"], "2.0")
+            self.assertEqual(advice["source_analysis_schema"], "2.1")
 
 
 if __name__ == "__main__":
