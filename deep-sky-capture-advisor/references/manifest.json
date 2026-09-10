@@ -1,14 +1,14 @@
 {
   "authority_rule": "A bundled claim is authoritative only when all critical pages are stable, not stale, applicable, and covered by a human: verified.scope.",
   "bundle": {
-    "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
-    "content_page_count": 51,
-    "formal_page_sha256": "916b8272b73d245f3ed89d12552dafc365d08c64c97de0e5d05c888c64813ac0",
+    "catalog_sha256": "035acb94474d44ffd45383ed28bb7a0a0d4bc7f98f01177bb2a8c2b4cced9302",
+    "content_page_count": 52,
+    "formal_page_sha256": "0fcff233a2bd7941857d6f46faf69aa219ed6157263fdd33384a042bb46baad0",
     "human_verified_page_count": 0,
-    "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
-    "markdown_file_count": 52,
+    "knowledge_sha256": "d41164a632b6a44d94241fafe63b53b3b1944339bc82749703b6ee9c8a3f417b",
+    "markdown_file_count": 53,
     "navigation_page_count": 1,
-    "needs_human_review_count": 51,
+    "needs_human_review_count": 52,
     "unbundled_internal_source_count": 7
   },
   "distribution_notice": "SkillHub public non-authoritative beta 0.1.0. Source-rights and third-party disclosures are provided in NOTICE.md when present.",
@@ -37,7 +37,7 @@
     "08-FAQ/**/*.md (excluding index.md)",
     "09-踩坑与复盘/**/*.md (excluding index.md)"
   ],
-  "packaged_at": "2026-08-28T08:57:45+00:00",
+  "packaged_at": "2026-09-10T02:36:40+00:00",
   "runtime": {
     "query_network_access": false,
     "self_contained": true,
@@ -55,10 +55,10 @@
   "schema_version": 2,
   "skill_name": "deep-sky-capture-advisor",
   "source": {
-    "git_commit": "d4094fb5e7811f0cea072344f3d1dfae08d3a2b5",
-    "git_commit_date": "2026-08-27T22:21:41+08:00",
+    "git_commit": "e86c8f938673bf06862b01bf19f0d33ae68c86e8",
+    "git_commit_date": "2026-09-10T10:18:39+08:00",
     "name": "StarunWiki",
-    "retrieval_corpus_sha256": "4585dab44a298c1a6afe3501b58f3f9d19549aedf34bd920995ea522a1f22405",
+    "retrieval_corpus_sha256": "0ee2ae948f8ae162402ce181f9d19af8d58855f4fea6874a9290942fcb43d8df",
     "working_tree_dirty": false
   }
 }

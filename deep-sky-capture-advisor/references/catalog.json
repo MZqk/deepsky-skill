@@ -965,6 +965,7 @@
       "description": "按目标、光路、传感器尺寸、采样、噪声、温控能力和工作流选择深空相机；制冷 CMOS 常用于可重复的长曝光，但不是所有场景的硬门槛。",
       "difficulty": "进阶",
       "links": [
+        "02-器材百科/智能望远镜传感器对比：IMX585与OS08B10证据分级.md",
         "02-器材百科/滤镜系统.md",
         "03-拍摄SOP/校准帧规范.md"
       ],
@@ -973,7 +974,7 @@
         "owner": "knowledge-base-maintainer",
         "state": "needs-human-review"
       },
-      "sha256": "319946a21f530ae73c553b67f9a98f521fc9876607ea60c28ecee7ae7ed3a9b8",
+      "sha256": "737a92a6bd5f3d3c62f6e5d1e1be53aaf040efb10411c921c217a8d63152f50d",
       "sources": [
         {
           "accessed_at": "2026-08-27",
@@ -1052,13 +1053,13 @@
           "实时价格或库存、App/固件菜单、文件导出能力、设备增益曲线、实际成像表现或购买结论"
         ],
         "机型": [
-          "Starun 规格表访问日列出的 DWARF 3、DWARF mini、Seestar S30、Seestar S30 Pro、Seestar S50、Seestar S50 Pro"
+          "Starun 规格表访问日列出的 DWARF 3、DWARF mini、DWARF Draco、Seestar S30、Seestar S30 Pro、Seestar S50、Seestar S50 Pro"
         ],
         "条件": [
           "只用于型号识别与初筛，具体能力在使用或购买前回到厂商当前资料复核"
         ],
         "来源与时间": [
-          "第三方汇编页面在 2026-08-27T03:23:18Z 的当前快照；表格和厂商资料更新后须重新核验"
+          "第三方汇编页面在 2026-09-10 的当前快照（含当日 S50 Pro 官方规格二次复核与 DWARFLAB Draco 官方规格页录入）；表格和厂商资料更新后须重新核验"
         ],
         "用途": [
           "型号识别、字段解释、初步比较和定位下一份厂商资料"
@@ -1073,6 +1074,7 @@
       "difficulty": "新手",
       "links": [
         "01-新人入门/已有设备如何开始深空摄影.md",
+        "02-器材百科/智能望远镜传感器对比：IMX585与OS08B10证据分级.md",
         "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
         "03-拍摄SOP/智能望远镜首拍与数据交接.md",
         "04-后期处理/智能望远镜导出数据的Siril工作流.md"
@@ -1082,7 +1084,7 @@
         "owner": "knowledge-base-maintainer",
         "state": "needs-human-review"
       },
-      "sha256": "c54f9b104d1126fb52a30bde6aa71ff855d97b4fd0eca4670da1ef1c6fc0b936",
+      "sha256": "a24285d33ec6e1d2f9c90c04171f8f648836c1264ce8436a6a8a90b46e54ecdd",
       "sources": [
         {
           "accessed_at": "2026-08-27",
@@ -1103,17 +1105,17 @@
           "usage": "local-evidence-capture; public-link-only"
         },
         {
-          "accessed_at": "2026-08-27",
+          "accessed_at": "2026-09-10",
           "evidence_level": "primary",
           "id": "src-starun-telescope-specs",
           "resource": "https://starun.cloud/telescope",
           "rights": "unknown",
           "title": "Starun：智能望远镜参数规格对比",
           "usage": "link-only",
-          "version": "HTTP Last-Modified: 2026-08-27T03:23:18Z；浏览器访问快照"
+          "version": "2026-09-10 浏览器访问快照（7 机型、页面标注 65 个参数维度；含 S50 Pro 官方规格二次复核与 Draco 官方规格页录入）"
         }
       ],
-      "stale_after": "2026-11-27",
+      "stale_after": "2026-12-10",
       "status": "stable",
       "tags": [
         "智能望远镜",
@@ -1125,7 +1127,7 @@
       ],
       "title": "常见智能望远镜参数规格对照与使用边界",
       "type": "Equipment Reference",
-      "updated": "2026-08-27",
+      "updated": "2026-09-10",
       "verified": null
     },
     {
@@ -1214,6 +1216,99 @@
     {
       "applies_to": {
         "不适用": [
+          "实时价格与库存、具体设备的实际成像结论、未列出传感器的横向比较",
+          "行星、太阳、月球等高帧率场景的选型结论"
+        ],
+        "条件": [
+          "芯片规格不等于整机表现；整机增益曲线、固件与输出模式须回到设备厂商当前资料核验",
+          "推断区间仅用于量级论证，不得转写为官方参数"
+        ],
+        "系统": [
+          "Sony IMX585 与 OmniVision OS08B10 传感器，及搭载它们的智能望远镜（Seestar S30 Pro / S50 Pro）和同芯片天文相机"
+        ]
+      },
+      "audience": "比较 Seestar S30 Pro 与 S50 Pro 等智能望远镜传感器、或评估同芯片天文相机时需要区分官方数据、第三方实测与外推推断的用户",
+      "category": "02-器材百科",
+      "description": "按官方、实测、推断三级证据对比 Sony IMX585 与 OmniVision OS08B10 的深空相关性能；两者纸面规格接近，但可验证性、窄带 QE 证据与天文生态差距显著。",
+      "difficulty": "进阶",
+      "links": [
+        "02-器材百科/天文相机选型.md",
+        "02-器材百科/常见智能望远镜参数规格对照与使用边界.md",
+        "02-器材百科/智能望远镜：产品边界、文件导出与桌面后期前提.md",
+        "02-器材百科/滤镜系统.md"
+      ],
+      "path": "02-器材百科/智能望远镜传感器对比：IMX585与OS08B10证据分级.md",
+      "review": {
+        "owner": "knowledge-base-maintainer",
+        "state": "needs-human-review"
+      },
+      "sha256": "5daf885a687df2717b1554733614d94ca0b96cd380abe227b470ae2e45301b24",
+      "sources": [
+        {
+          "accessed_at": "2026-09-10",
+          "evidence_level": "primary",
+          "id": "src-ovt-os08b10-pb",
+          "resource": "https://www.ovt.com/wp-content/uploads/2024/07/OS08B10-PB-v1.0-WEB.pdf",
+          "rights": "unknown",
+          "title": "OmniVision OS08B10 Product Brief",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-09-10",
+          "evidence_level": "primary",
+          "id": "src-sony-imx585-flyer",
+          "resource": "https://www.sony-semicon.com/files/62/flyer_security/IMX585-AAMJ1_Flyer.pdf",
+          "rights": "unknown",
+          "title": "Sony IMX585-AAMJ1 Flyer（含 2021-06 发布稿的动态范围与近红外声明）",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-09-10",
+          "evidence_level": "primary",
+          "id": "src-zwo-asi585",
+          "resource": "https://www.zwoastro.com/product/asi585mc-mm/",
+          "rights": "unknown",
+          "title": "ZWO ASI585MC/MM 产品页",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-09-10",
+          "evidence_level": "primary",
+          "id": "src-playerone-uranus",
+          "resource": "https://player-one-astronomy.cn/?p=2878",
+          "rights": "unknown",
+          "title": "Player One Uranus-M/C 产品页",
+          "usage": "link-only"
+        },
+        {
+          "accessed_at": "2026-09-10",
+          "evidence_level": "primary",
+          "id": "src-qhy-minicam8",
+          "resource": "https://www.qhyccd.cn/?p=3521",
+          "rights": "unknown",
+          "title": "QHY miniCAM8 产品页（实测读噪、满阱、QE 曲线与线性 HDR）",
+          "usage": "link-only"
+        }
+      ],
+      "stale_after": "2027-03-10",
+      "status": "stable",
+      "tags": [
+        "传感器",
+        "IMX585",
+        "OS08B10",
+        "智能望远镜",
+        "Seestar",
+        "证据分级",
+        "器材选型"
+      ],
+      "title": "智能望远镜传感器对比：IMX585 与 OS08B10 的证据分级",
+      "type": "Comparison",
+      "updated": "2026-09-10",
+      "verified": null
+    },
+    {
+      "applies_to": {
+        "不适用": [
           "从其他型号、旧截图或文件名推断未明示的格式、校准帧、叠加状态或桌面软件兼容性"
         ],
         "数据": [
@@ -1240,6 +1335,7 @@
       "links": [
         "01-新人入门/已有设备如何开始深空摄影.md",
         "02-器材百科/常见智能望远镜参数规格对照与使用边界.md",
+        "02-器材百科/智能望远镜传感器对比：IMX585与OS08B10证据分级.md",
         "03-拍摄SOP/数据管理、命名、备份与可复现归档.md",
         "03-拍摄SOP/智能望远镜首拍与数据交接.md",
         "04-后期处理/智能望远镜导出数据的Siril工作流.md"
@@ -1249,7 +1345,7 @@
         "owner": "knowledge-base-maintainer",
         "state": "needs-human-review"
       },
-      "sha256": "0026fcdd80d72fd3705f4f47c3e7fe04582acda3b7ca9dfb946f3d6b18a1e1d8",
+      "sha256": "23f73179d84883b0a1fd820da76dc010110c2ab126de5d509bf9ebce5567b61c",
       "sources": [
         {
           "accessed_at": "2026-08-26",
