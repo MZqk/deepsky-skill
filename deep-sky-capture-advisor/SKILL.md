@@ -4,9 +4,9 @@ description: 基于内置的只读 Markdown 知识快照，为深空天文摄影
 license: Proprietary
 metadata:
   slug: deep-sky-capture-advisor
-  version: 1.0.1
+  version: 1.0.2
   displayName: 深空摄影知识顾问
-  summary: 面向 SkillHub 公开分发的中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。
+  summary: 中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。
   tags: [astronomy, astrophotography, deep-sky, siril, chinese]
   homepage: https://github.com/MZqk/deepsky-skill
 ---

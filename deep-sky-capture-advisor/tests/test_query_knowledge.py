@@ -72,12 +72,12 @@ def test_bundle_integrity_and_authority_state() -> None:
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["ok"] is True
-    assert payload["bundle"]["content_page_count"] == 51
+    assert payload["bundle"]["content_page_count"] == 52
     assert payload["bundle"]["human_verified_page_count"] == 0
-    assert payload["markdown_file_count"] == 52
+    assert payload["markdown_file_count"] == 53
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     assert manifest["bundle"]["navigation_page_count"] == 1
-    assert manifest["bundle"]["markdown_file_count"] == 52
+    assert manifest["bundle"]["markdown_file_count"] == 53
 
 
 def test_read_cannot_escape_the_bundled_root() -> None:
@@ -96,7 +96,7 @@ def test_catalog_preserves_scope_sources_and_explicit_raw_boundary() -> None:
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
     entries = catalog["entries"]
     unbundled = {item["path"] for item in catalog["unbundled_internal_sources"]}
-    assert len(entries) == 51
+    assert len(entries) == 52
     assert len(unbundled) == 7
     assert all(entry["applies_to"] and entry["sources"] for entry in entries)
     for entry in entries:

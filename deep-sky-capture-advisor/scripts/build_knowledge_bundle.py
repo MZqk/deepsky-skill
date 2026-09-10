@@ -1393,7 +1393,7 @@ def _stage_bundle(snapshot: SourceSnapshot, stage_references: Path, paths: Bundl
         },
         "runtime_files": expected_runtime_file_hashes(paths.skill_root),
         "distribution_notice": (
-            "SkillHub public non-authoritative beta 0.1.0. Source-rights and third-party "
+            "Public non-authoritative beta. Source-rights and third-party "
             "disclosures are provided in NOTICE.md when present."
         ),
         "authority_rule": (

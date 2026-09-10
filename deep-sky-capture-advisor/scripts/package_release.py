@@ -27,19 +27,19 @@ FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 # a new authorization lock instead of inheriting permission from this one.
 LOCKED_RELEASE = {
     "slug": "deep-sky-capture-advisor",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "displayName": "深空摄影知识顾问",
     "license": "Proprietary",
-    "summary": "面向 SkillHub 公开分发的中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
+    "summary": "中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
     "tags": ["astronomy", "astrophotography", "deep-sky", "siril", "chinese"],
     "homepage": "https://github.com/MZqk/deepsky-skill",
-    "source_commit": "d4094fb5e7811f0cea072344f3d1dfae08d3a2b5",
-    "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
-    "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
+    "source_commit": "e86c8f938673bf06862b01bf19f0d33ae68c86e8",
+    "catalog_sha256": "035acb94474d44ffd45383ed28bb7a0a0d4bc7f98f01177bb2a8c2b4cced9302",
+    "knowledge_sha256": "d41164a632b6a44d94241fafe63b53b3b1944339bc82749703b6ee9c8a3f417b",
     "authority": "nonauthoritative",
     "non_authoritative_disclosure": "非权威参考：内置依据尚未完成人工签署、已过期或超出核验范围。",
-    "distribution_target": "SkillHub public beta",
-    "authorized_on": "2026-08-30",
+    "distribution_target": "小红书 RED skill 公开发布",
+    "authorized_on": "2026-09-10",
     "authorization_basis": "explicit-user-instruction",
     "future_changes_automatically_authorized": False,
 }
@@ -300,15 +300,15 @@ def _validate_authorization(skill_root: Path, manifest: dict[str, Any]) -> dict[
         raise ReleasePackageError("Authorization lock targets a different Skill")
     if (
         authorization.get("authorization_scope")
-        != "skillhub-publication:deep-sky-capture-advisor@1.0.1"
+        != "xiaohongshu-red-skill:deep-sky-capture-advisor@1.0.2"
     ):
-        raise ReleasePackageError("Authorization scope does not match the locked SkillHub release")
+        raise ReleasePackageError("Authorization scope does not match the locked 小红书 RED skill release")
     if authorization.get("public_publication_authorized") is not True:
         raise ReleasePackageError("Public publication is not authorized by this lock")
-    if authorization.get("skillhub_publication_authorized") is not True:
-        raise ReleasePackageError("SkillHub publication is not authorized by this lock")
-    if authorization.get("other_publication_channels_authorized") is not False:
-        raise ReleasePackageError("Authorization unexpectedly covers another publication channel")
+    if authorization.get("skillhub_publication_authorized") is not False:
+        raise ReleasePackageError("Authorization unexpectedly covers the SkillHub channel")
+    if authorization.get("other_publication_channels_authorized") is not True:
+        raise ReleasePackageError("小红书 RED skill publication is not authorized by this lock")
     if {
         "skillhub_content_hash",
         "official_skillhub_content_hash",
@@ -483,7 +483,8 @@ def build_release(skill_root: Path, output: Path) -> dict[str, Any]:
         "authorized_on": LOCKED_RELEASE["authorized_on"],
         "authorization_basis": LOCKED_RELEASE["authorization_basis"],
         "future_changes_automatically_authorized": False,
-        "skillhub_publication_authorized": True,
+        "skillhub_publication_authorized": False,
+        "xiaohongshu_red_skill_publication_authorized": True,
         "external_publication_performed": False,
     }
 

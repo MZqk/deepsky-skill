@@ -26,10 +26,10 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 QUERY_SCRIPT = SKILL_ROOT / "scripts" / "query_knowledge.py"
 SNAPSHOT = {
     "skill_name": "deep-sky-capture-advisor",
-    "version": "0.1.0",
-    "source_commit": "d4094fb5e7811f0cea072344f3d1dfae08d3a2b5",
-    "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
-    "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
+    "version": "1.0.2",
+    "source_commit": "e86c8f938673bf06862b01bf19f0d33ae68c86e8",
+    "catalog_sha256": "035acb94474d44ffd45383ed28bb7a0a0d4bc7f98f01177bb2a8c2b4cced9302",
+    "knowledge_sha256": "d41164a632b6a44d94241fafe63b53b3b1944339bc82749703b6ee9c8a3f417b",
     "authority": "nonauthoritative",
 }
 

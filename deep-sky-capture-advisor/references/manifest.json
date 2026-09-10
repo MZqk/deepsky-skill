@@ -11,7 +11,7 @@
     "needs_human_review_count": 52,
     "unbundled_internal_source_count": 7
   },
-  "distribution_notice": "SkillHub public non-authoritative beta 0.1.0. Source-rights and third-party disclosures are provided in NOTICE.md when present.",
+  "distribution_notice": "Public non-authoritative beta. Source-rights and third-party disclosures are provided in NOTICE.md when present.",
   "excluded": [
     "raw/",
     "archive/",
@@ -37,7 +37,7 @@
     "08-FAQ/**/*.md (excluding index.md)",
     "09-踩坑与复盘/**/*.md (excluding index.md)"
   ],
-  "packaged_at": "2026-09-10T02:36:40+00:00",
+  "packaged_at": "2026-09-10T03:10:18+00:00",
   "runtime": {
     "query_network_access": false,
     "self_contained": true,
@@ -45,10 +45,10 @@
     "writes_to_bundle": false
   },
   "runtime_files": {
-    "NOTICE.md": "4ac389c3ef8d7f0ff6e7a482847f2378f2541ef56cf05c75473d7b26e6257b75",
-    "SKILL.md": "58d321fe74c6e525a05cdef86ba7785c656813b9857617f08c8097d7eab97826",
+    "NOTICE.md": "8acb38a554ed936f000c7346f90aa5ea889ead338816f3ffd606b33dedd93aeb",
+    "SKILL.md": "c5f2ecf1af84e3c714b67bb0b072bba0de87b1250c2e02d118879474a3086e13",
     "agents/openai.yaml": "54ee5f53279c972403e94923ca4912ae6a6be1da521df4f9e1d834ba86864b52",
-    "release-authorization.json": "54920a02ed59ea613650752dc78bc96b7751bfd849f163a66ae689d38e7c6246",
+    "release-authorization.json": "6e89b6a90de134702ad53196b15d23a643c40b0165f4ad87c9531a97eedc2342",
     "scripts/knowledge_common.py": "fe40e30c079142522629ff964ec1c4b109fd49f6b5bbd5b5958a61e2bc515907",
     "scripts/query_knowledge.py": "bc78986524f1a9c419e241f635606c3f130ab49bea6c7f0e258c4ffd55fe948c"
   },

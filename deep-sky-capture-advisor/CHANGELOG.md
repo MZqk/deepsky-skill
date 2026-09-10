@@ -2,12 +2,14 @@
 
 本文件记录 `deep-sky-capture-advisor` 的独立版本变更。
 
-## [Unreleased] - 2026-09-10（内容层更新，待发布构建）
+## [1.0.2] - 2026-09-10（小红书 RED skill 发布授权）
 
+- 新发布授权 `xiaohongshu-red-skill:deep-sky-capture-advisor@1.0.2`：覆盖 StarunWiki 源提交 `e86c8f9`、catalog `035acb94…`、knowledge `d41164a6…` 的精确快照；授权依据为 2026-09-10 用户显式指令，仅覆盖小红书 RED skill 渠道，不覆盖 SkillHub 与未来变更。
 - `02-器材百科/常见智能望远镜参数规格对照与使用边界.md`：Starun 规格表快照更新至 2026-09-10，覆盖 7 机型（新增 DWARFLAB Draco 预售）；记录 S50 Pro 官方规格二次复核（OS08B10 + IMX586）；新增“新机型未公开电性能字段不回填”停止条件；`stale_after` 延至 2026-12-10。
 - 新增 `02-器材百科/智能望远镜传感器对比：IMX585与OS08B10证据分级.md`：由用户提供的 IMX585 × OS08B10 对比分析蒸馏，按官方/实测/推断三级证据组织；推断区间保留标注，主观评分未收录。
 - `天文相机选型.md`、`智能望远镜：产品边界、文件导出与桌面后期前提.md`：关联知识补充上述新页链接。
-- 注意：知识包已按维护者流程从 StarunWiki 源提交 `e86c8f9` 本地重建（formal_page_sha256 `0fcff233…`，catalog_sha256 `035acb94…`），`query_knowledge.py --verify-bundle` 通过。本机 macOS 26.6.2 的 sandbox-exec 已失效（`sandbox_apply: Operation not permitted`），本次构建以同一受 pins 约束的本地 Git 直跑替代 OS 隔离；对外发布前仍须按 RELEASING 在 Linux CI（Bubblewrap）重验并取得新的发布授权。
+- `SKILL.md` 版本升至 1.0.2，summary 与 manifest `distribution_notice` 改为渠道中性表述；`NOTICE.md` 渠道更新为小红书 RED skill。
+- 构建注记：本机 macOS 26.6.2 的 sandbox-exec 已失效（`sandbox_apply: Operation not permitted`），本次构建以同一受 pins 约束的本地 Git 直跑替代 OS 隔离；后续对外发布仍建议按 RELEASING 在 Linux CI（Bubblewrap）重验。
 
 ## [1.0.1] - 2026-08-30
 

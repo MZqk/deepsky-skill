@@ -28,25 +28,25 @@ EXPECTED_AUTHORIZATION = {
     "schema_version": 1,
     "skill_name": "deep-sky-capture-advisor",
     "slug": "deep-sky-capture-advisor",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "displayName": "深空摄影知识顾问",
     "license": "Proprietary",
-    "summary": "面向 SkillHub 公开分发的中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
+    "summary": "中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
     "tags": ["astronomy", "astrophotography", "deep-sky", "siril", "chinese"],
     "homepage": "https://github.com/MZqk/deepsky-skill",
-    "authorization_scope": "skillhub-publication:deep-sky-capture-advisor@1.0.1",
-    "source_commit": "d4094fb5e7811f0cea072344f3d1dfae08d3a2b5",
-    "catalog_sha256": "5ec7724359b9ec9062b9fac42f87e136dec0238677eec5ed23b5f341b426c012",
-    "knowledge_sha256": "419443bbb2aa84a1766a5e9e834e975dd60be2a324a14a7699186bf9b98d3ddb",
+    "authorization_scope": "xiaohongshu-red-skill:deep-sky-capture-advisor@1.0.2",
+    "source_commit": "e86c8f938673bf06862b01bf19f0d33ae68c86e8",
+    "catalog_sha256": "035acb94474d44ffd45383ed28bb7a0a0d4bc7f98f01177bb2a8c2b4cced9302",
+    "knowledge_sha256": "d41164a632b6a44d94241fafe63b53b3b1944339bc82749703b6ee9c8a3f417b",
     "authority": "nonauthoritative",
     "non_authoritative_disclosure": "非权威参考：内置依据尚未完成人工签署、已过期或超出核验范围。",
-    "distribution_target": "SkillHub public beta",
-    "authorized_on": "2026-08-30",
+    "distribution_target": "小红书 RED skill 公开发布",
+    "authorized_on": "2026-09-10",
     "authorization_basis": "explicit-user-instruction",
     "future_changes_automatically_authorized": False,
     "public_publication_authorized": True,
-    "skillhub_publication_authorized": True,
-    "other_publication_channels_authorized": False,
+    "skillhub_publication_authorized": False,
+    "other_publication_channels_authorized": True,
 }
 
 EXPECTED_STATIC_ARCHIVE_FILES = {
@@ -97,8 +97,8 @@ def test_notice_preserves_proprietary_and_third_party_rights_boundaries() -> Non
     notice = (SKILL_ROOT / "NOTICE.md").read_text(encoding="utf-8")
     assert "proprietary" in notice
     assert "third-party" in notice
-    assert "deep-sky-capture-advisor@1.0.1" in notice
-    assert "SkillHub" in notice
+    assert "deep-sky-capture-advisor@1.0.2" in notice
+    assert "RED skill" in notice
     assert "future version" in notice
 
 
@@ -115,9 +115,9 @@ def test_skillhub_metadata_uses_quick_validate_compatible_frontmatter_shape() ->
     assert not {"slug", "version", "displayName", "summary", "tags", "homepage"} & top_level_keys
     assert _skill_metadata(SKILL_ROOT) == {
         "slug": "deep-sky-capture-advisor",
-        "version": "1.0.1",
+        "version": "1.0.2",
         "displayName": "深空摄影知识顾问",
-        "summary": "面向 SkillHub 公开分发的中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
+        "summary": "中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
         "tags": ["astronomy", "astrophotography", "deep-sky", "siril", "chinese"],
         "homepage": "https://github.com/MZqk/deepsky-skill",
         "license": "Proprietary",
@@ -179,7 +179,7 @@ def test_release_zip_contains_only_explicit_runtime_allowlist(tmp_path: Path) ->
         for path in (copied / "references" / "knowledge").rglob("*.md")
     }
     assert set(names) == EXPECTED_STATIC_ARCHIVE_FILES | expected_knowledge
-    assert len(names) == 60
+    assert len(names) == 61
     assert all("build_knowledge_bundle.py" not in name for name in names)
     assert all("package_release.py" not in name for name in names)
     assert all(not name.startswith("tests/") for name in names)
