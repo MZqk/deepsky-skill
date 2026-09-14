@@ -37,7 +37,7 @@
     "08-FAQ/**/*.md (excluding index.md)",
     "09-踩坑与复盘/**/*.md (excluding index.md)"
   ],
-  "packaged_at": "2026-09-10T03:10:18+00:00",
+  "packaged_at": "2026-09-10T08:01:56+00:00",
   "runtime": {
     "query_network_access": false,
     "self_contained": true,
@@ -45,12 +45,11 @@
     "writes_to_bundle": false
   },
   "runtime_files": {
-    "NOTICE.md": "8acb38a554ed936f000c7346f90aa5ea889ead338816f3ffd606b33dedd93aeb",
-    "SKILL.md": "c5f2ecf1af84e3c714b67bb0b072bba0de87b1250c2e02d118879474a3086e13",
-    "agents/openai.yaml": "54ee5f53279c972403e94923ca4912ae6a6be1da521df4f9e1d834ba86864b52",
-    "release-authorization.json": "6e89b6a90de134702ad53196b15d23a643c40b0165f4ad87c9531a97eedc2342",
-    "scripts/knowledge_common.py": "fe40e30c079142522629ff964ec1c4b109fd49f6b5bbd5b5958a61e2bc515907",
-    "scripts/query_knowledge.py": "bc78986524f1a9c419e241f635606c3f130ab49bea6c7f0e258c4ffd55fe948c"
+    "NOTICE.md": "077ecbba09cac6b58e3410704154b472ee1de8f437ac915d58a0c7cfc7e9e661",
+    "SKILL.md": "ba61dc1c5611c7d7c2d8d5f72fbb70542b9434d79fd7f93ab3a8e59b8818986e",
+    "agents/openai.yaml": "c294924e92f47d4db4ce193abb6374a9c75c090c453a759adff1eace980b817b",
+    "scripts/knowledge_common.py": "cf4e56156ed91bcf88344f7ce62f388af3632dd6a53f08999b2274afa394ac22",
+    "scripts/query_knowledge.py": "679648bea9479fec2b905f079269e2dfc6bab3536a6df84a8e820a93662be5ee"
   },
   "schema_version": 2,
   "skill_name": "deep-sky-capture-advisor",

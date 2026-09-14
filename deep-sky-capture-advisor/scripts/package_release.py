@@ -27,7 +27,7 @@ FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 # a new authorization lock instead of inheriting permission from this one.
 LOCKED_RELEASE = {
     "slug": "deep-sky-capture-advisor",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "displayName": "深空摄影知识顾问",
     "license": "Proprietary",
     "summary": "中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
@@ -47,7 +47,6 @@ LOCKED_RELEASE = {
 STATIC_RUNTIME_FILES = (
     "SKILL.md",
     "NOTICE.md",
-    "release-authorization.json",
     "agents/openai.yaml",
     "scripts/knowledge_common.py",
     "scripts/query_knowledge.py",
@@ -300,7 +299,7 @@ def _validate_authorization(skill_root: Path, manifest: dict[str, Any]) -> dict[
         raise ReleasePackageError("Authorization lock targets a different Skill")
     if (
         authorization.get("authorization_scope")
-        != "xiaohongshu-red-skill:deep-sky-capture-advisor@1.0.2"
+        != f"xiaohongshu-red-skill:{LOCKED_RELEASE['slug']}@{LOCKED_RELEASE['version']}"
     ):
         raise ReleasePackageError("Authorization scope does not match the locked 小红书 RED skill release")
     if authorization.get("public_publication_authorized") is not True:

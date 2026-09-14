@@ -217,6 +217,33 @@ def test_unknown_format_with_known_software_is_not_hidden_by_partial_match() -> 
     assert guidance["requires_web_verification"] is True
 
 
+def test_bare_gear_and_colloquial_first_contact_queries_stay_in_scope() -> None:
+    # Regression: newcomer questions phrased with a bare gear noun, or with the verb-object form
+    # "拍深空", were rejected as unrelated_to_deep_sky_astrophotography even though the declared
+    # scope explicitly covers equipment planning.
+    for query in (
+        "第一次拍深空需要什么器材",
+        "拍深空需要什么器材",
+        "器材推荐",
+        "需要什么设备",
+    ):
+        completed = run_query(query, "--top", "5")
+        assert completed.returncode == 0, (query, completed.stderr)
+        payload = json.loads(completed.stdout)
+        guidance = payload["guidance"]
+        assert guidance["skill_scope"] == "in_scope", query
+        assert guidance["should_exit_skill"] is False, query
+        assert guidance["bundle_coverage"] == "sufficient", query
+        assert payload["results"], query
+
+    purchase = run_query("我要拍深空，买什么", "--top", "5")
+    assert purchase.returncode == 0, purchase.stderr
+    purchase_payload = json.loads(purchase.stdout)
+    assert purchase_payload["guidance"]["skill_scope"] == "in_scope"
+    assert purchase_payload["guidance"]["bundle_coverage"] == "sufficient"
+    assert "预算采购" in purchase_payload["guidance"]["matched_core_terms"]
+
+
 def test_out_of_scope_query_exits_without_turning_empty_results_into_web_research() -> None:
     completed = run_query("How do I make pizza?", "--top", "5")
     assert completed.returncode == 0, completed.stderr
@@ -252,7 +279,7 @@ def test_file_backed_analysis_exits_to_adjacent_advisor() -> None:
     guidance = payload["guidance"]
     assert payload["results"] == []
     assert guidance["skill_scope"] == "out_of_scope"
-    assert guidance["recommended_route"] == "$deep-sky-advisor"
+    assert guidance["recommended_route"] == "deep-sky-advisor"
     assert guidance["requires_web_verification"] is False
 
 

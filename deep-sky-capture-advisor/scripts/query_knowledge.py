@@ -127,15 +127,23 @@ INTENT_ALIASES: tuple[tuple[str, bool, tuple[str, ...]], ...] = (
             "深空摄影",
             "深空拍摄",
             "深空天文摄影",
+            # Colloquial verb-object forms ("拍深空") are how newcomers actually phrase the same
+            # domain, so they must establish scope exactly like the noun form.
+            "拍深空",
+            "拍摄深空",
             "deep sky astrophotography",
             "deep-sky astrophotography",
             "astrophotography",
         ),
     ),
     ("深空摄影概念", True, ("深空摄影是什么", "什么是深空摄影", "what is astrophotography")),
-    ("新手入门", True, ("首拍", "第一次拍摄", "first session", "first light", "从零", "新手", "beginner", "入门")),
+    ("新手入门", True, ("首拍", "第一次拍摄", "第一次拍", "first time shooting", "first session", "first light", "从零", "新手", "beginner", "入门")),
     ("已有器材起步", True, ("已有设备", "已有器材", "existing equipment", "gear i have")),
-    ("预算采购", True, ("预算", "购买", "采购", "buying", "purchase", "budget")),
+    # A bare gear noun ("器材", "设备") is a typical first-contact question from somebody who does
+    # not own a rig yet. It must establish scope instead of being rejected as an unrelated request;
+    # coverage is proven by the equipment pages' own metadata, not by assuming a specific device.
+    ("器材与装备", True, ("器材", "设备", "装备", "equipment", "gear")),
+    ("预算采购", True, ("预算", "购买", "采购", "选购", "买", "buying", "purchase", "budget")),
     ("系统兼容性", True, ("兼容性", "兼容", "compatibility", "compatible", "system design", "系统设计")),
     ("智能望远镜", True, ("智能望远镜", "智能镜", "smart telescope", "seestar", "dwarf 3", "dwarf mini")),
     ("望远镜选型", True, ("望远镜", "主镜", "镜筒", "telescope", "telescopes", "ota")),
@@ -752,9 +760,9 @@ def _explicit_exit(query: str) -> tuple[list[str], str | None]:
         normalized,
     )
     if image_noun and modification:
-        return ["file_backed_pixel_processing"], "$deep-sky-processor"
+        return ["file_backed_pixel_processing"], "deep-sky-processor"
     if image_noun and inspection:
-        return ["file_backed_image_analysis"], "$deep-sky-advisor"
+        return ["file_backed_image_analysis"], "deep-sky-advisor"
 
     excluded_patterns = {
         "excluded_planetary_imaging": (

@@ -40,6 +40,10 @@ REQUIRED_RUNTIME_FILES = (
 )
 OPTIONAL_RUNTIME_FILES = (
     "NOTICE.md",
+)
+# Maintainer-side governance files: kept in the repository for audit, but never
+# part of the shipped runtime closure or the release ZIP allowlist.
+EXCLUDED_RUNTIME_FILES = (
     "release-authorization.json",
 )
 
@@ -499,8 +503,14 @@ def _collect_knowledge_files(knowledge_root: Path) -> dict[str, bytes]:
 def expected_runtime_file_hashes(skill_root: Path) -> dict[str, str]:
     """Return the exact supported runtime-file closure and its SHA-256 map."""
 
-    expected = list(REQUIRED_RUNTIME_FILES)
+    expected = [
+        relative
+        for relative in REQUIRED_RUNTIME_FILES
+        if relative not in EXCLUDED_RUNTIME_FILES
+    ]
     for relative in OPTIONAL_RUNTIME_FILES:
+        if relative in EXCLUDED_RUNTIME_FILES:
+            continue
         if _lexists(skill_root / relative):
             expected.append(relative)
     result: dict[str, str] = {}

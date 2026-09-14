@@ -2,6 +2,17 @@
 
 本文件记录 `deep-sky-capture-advisor` 的独立版本变更。
 
+## [1.0.3] - 2026-09-10（小红书 RED skill 发布授权，范围路由修复）
+
+- 修复范围路由误判：`scripts/query_knowledge.py` 的 `INTENT_ALIASES` 是字面子串匹配，领域词条没有动宾倒装形式（"拍深空"/"拍摄深空"），也没有独立的 "器材/设备/装备" 意图，采购意图只收 "购买"。实测 `第一次拍深空需要什么器材`、`拍深空需要什么器材`、`器材推荐`、`需要什么设备`、`我要拍深空，买什么` 此前一律被判 `out_of_scope` 并要求退出本技能，与 SKILL.md 声明的器材规划适用范围直接矛盾。
+- 新增 "器材与装备" 意图，其覆盖由器材页自身元数据证明；"新手入门" 补 "第一次拍"；"预算采购" 补 "买""选购"。
+- `SKILL.md` 第 1 步增加护栏：范围判定属字面匹配，明显落在适用边界内却被判 `out_of_scope` 且没有 `recommended_route` 的请求不得据此直接拒答，应按网络核验路径继续。
+- `package_release.py` 的授权 scope 断言改为从 `LOCKED_RELEASE` 派生，避免版本号在多处硬编码漂移。
+- 新增回归测试 `test_bare_gear_and_colloquial_first_contact_queries_stay_in_scope`；`manifest.runtime_files` 随本次运行时闭包变更刷新。
+- 新发布授权 `xiaohongshu-red-skill:deep-sky-capture-advisor@1.0.3`：源提交 `e86c8f9`、catalog `035acb94…`、knowledge `d41164a6…` 不变；授权依据为 2026-09-10 用户显式指令，仅覆盖小红书 RED skill 渠道，不覆盖 SkillHub 与未来变更。
+- 结构规范修正：`release-authorization.json` 移出运行时闭包（`knowledge_common.py` 新增 `EXCLUDED_RUNTIME_FILES`）与 `package_release.py` 发布白名单，文件保留在仓库供治理审计，授权校验仍从磁盘读取；SKILL.md、`query_knowledge.py` 路由值与 `agents/openai.yaml` 中的 `$skill` 伪语法统一改为自然语言/裸技能名；删除陈旧测试产物 `tests/trace-results-0.1.0.json`；`manifest.runtime_files` 相应刷新。
+- 注意：`dist/` 中的 `deep-sky-capture-advisor-1.0.3.zip` 构建于上述修正之前，未随之重建；下次重建发布包时以上变更才会进入产物。
+
 ## [1.0.2] - 2026-09-10（小红书 RED skill 发布授权）
 
 - 新发布授权 `xiaohongshu-red-skill:deep-sky-capture-advisor@1.0.2`：覆盖 StarunWiki 源提交 `e86c8f9`、catalog `035acb94…`、knowledge `d41164a6…` 的精确快照；授权依据为 2026-09-10 用户显式指令，仅覆盖小红书 RED skill 渠道，不覆盖 SkillHub 与未来变更。

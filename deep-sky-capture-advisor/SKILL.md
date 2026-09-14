@@ -4,7 +4,7 @@ description: 基于内置的只读 Markdown 知识快照，为深空天文摄影
 license: Proprietary
 metadata:
   slug: deep-sky-capture-advisor
-  version: 1.0.2
+  version: 1.0.3
   displayName: 深空摄影知识顾问
   summary: 中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。
   tags: [astronomy, astrophotography, deep-sky, siril, chinese]
@@ -34,7 +34,7 @@ metadata:
 - 目标、季节、天空条件、软件、常见问题和故障排查。
 
 不得声称已经测量或目视检查用户附带的 FITS、XISF、TIFF、PNG 或 JPEG 文件。如已安装，文件
-实测诊断应交给 `$deep-sky-advisor`，实际像素处理应交给 `$deep-sky-processor`；如果没有这些
+实测诊断应交给 deep-sky-advisor 技能，实际像素处理应交给 deep-sky-processor 技能；如果没有这些
 Skill，应说明缺少对应处理路径，不得假装完成。不得将行星、太阳、月球、目视观测、普通摄影或
 无关问题路由到此知识包。
 
@@ -59,7 +59,11 @@ Skill，应说明缺少对应处理路径，不得假装完成。不得将行星
    使用任何命中项前先读取 `guidance`：
 
    - 如果 `skill_scope` 为 `out_of_scope`，或 `should_exit_skill` 为 true，应停止使用本 Skill，
-     并在存在 `recommended_route` 时按其建议转交；超出范围且结果为空，不构成联网检索的理由；
+     并在存在 `recommended_route` 时按其建议转交；超出范围且结果为空，不构成联网检索的理由。
+     范围判定只做字面匹配，因此当问题明显落在上述适用边界内（例如口语化的器材、新手或
+     “拍深空”问法）却被判为 `out_of_scope`，且没有 `recommended_route` 时，不得据此直接拒答：
+     应在推理中标注该判定与适用边界的冲突，并按第 5 步对缺少的内置覆盖做网络核验；只有确认
+     请求属于非深空领域时才可以退出。
    - `bundle_coverage: sufficient` 表示每个已识别的核心意图都在标题、标签、描述、分类或小标题
      中有匹配；仅正文词语重合不能证明覆盖充分；
    - `bundle_coverage: insufficient` 不返回结果。对未覆盖但仍在本 Skill 范围内的主张使用网络
