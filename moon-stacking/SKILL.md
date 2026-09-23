@@ -82,9 +82,12 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
   * **物理 Airy PSF + Split Bregman 去卷积**：还原光学低通弥散，消灭亮缘黑环暗斑；
   * **高光保护自适应拉伸**：中值自适应保留高光动态余量，绝无死白溢出；
   * **插值感知联动小波重构 (Interp-Aware Wavelet Tuning)**：
+    * **时序先于 CLAHE**：坚决在拉伸后直接执行小波分解，杜绝 CLAHE 预先放大平坦月海背景噪声并污染小波高频细节层；
     * 若前置使用 `--interp li`（双线性）：小波第 1 层自动放宽至 `1.10`（`wrecons 1.10 1.22 1.25 ...`），补偿双线性高频滚降，兼具极高清晰度与零振铃；
     * 若前置使用 `--interp cu`（双三次）：小波第 1 层自动锁定抑制在 `1.05`（`wrecons 1.05 1.20 1.25 ...`），过滤 Bicubic 负旁瓣引起的微过冲；
-    * 支持通过 `--wavelet-l1 <val>` 显式微调第 1 层系数。
+    * 支持通过 `--wavelet-l1 <val>` 显式微调第 1 层系数；
+  * **轻量化局部自适应对比度 (Post-Wavelet CLAHE)**：
+    * 移至小波重构之后执行，针对已确立的干净断崖地貌做宏观反差烘托；默认采用保守的 `--clahe-clip 1.0`（从激进的 1.5 调低，杜绝月海沙砾浮噪），支持传入 `<=0` 完全旁路禁用。
 * 自动生成产物：
   * `moon_master.fit`：32 位未锐化母版；
   * `moon_natural.tif`：16 位小波细节母版；

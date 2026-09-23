@@ -844,21 +844,24 @@ def cmd_postprocess(args) -> None:
     # Full professional lunar post-processing chain:
     # 1. Airy / Gaussian Deconvolution (Split Bregman / Wiener / RL)
     # 2. Planetary channel MTF white balance & stretch with highlight protection
-    # 3. CLAHE local adaptive contrast enhancement
-    # 4. Multiscale 'à trous' B-Spline wavelet detail reconstruction (frequency-inverted)
+    # 3. Multiscale 'à trous' B-Spline wavelet detail reconstruction (executed BEFORE CLAHE to avoid noise amplification)
+    # 4. Lightweight CLAHE (post-wavelet macro contrast, default clip=1.0)
     # 5. Fine unsharp mask for micro-contrast
     # 6. Progressive mineral saturation boost (preserving neutral black space)
+    clahe_clip = float(getattr(args, "clahe_clip", 1.0))
+    clahe_lines = [f"clahe {clahe_clip:.1f} 32"] if clahe_clip > 0 else []
+
     lines = [
         "requires 1.4.4",
         f"load {master.name}",
         *deconv_lines,
         # 2. Planetary MTF white balance & background offset neutralization
         *mtf_lines,
-        # 3. CLAHE local contrast
-        "clahe 1.5 32",
-        # 4. 5-layer B-spline wavelet transform (frequency-inverted noise attenuation)
+        # 3. 5-layer B-spline wavelet transform (frequency-inverted noise attenuation)
         "wavelet 5 2",
         wrecons_cmd,
+        # 4. Lightweight CLAHE local contrast (operates on clean reconstructed details)
+        *clahe_lines,
         # 5. Micro-contrast unsharp mask (tight radius to prevent dark rings)
         "unsharp 1.0 0.3",
         # Export natural version
@@ -1006,6 +1009,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--no-adc", action="store_true", help="Disable Atmospheric Dispersion Correction (RGB channel alignment)")
     a.add_argument("--midtone", type=float, default=0.13, help="MTF midtone stretch value with highlight protection (default: 0.13)")
     a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: adaptive 1.05 for bicubic, 1.10 for bilinear)")
+    a.add_argument("--clahe-clip", type=float, default=1.0, help="CLAHE clip limit (default: 1.0, set <=0 to bypass CLAHE)")
     a.add_argument("--aperture", type=float, default=80.0, help="Telescope aperture in mm (for Airy PSF)")
     a.add_argument("--focal", type=float, default=400.0, help="Telescope focal length in mm (for Airy PSF)")
     a.add_argument("--pixel-size", type=float, default=3.73, help="Sensor pixel size in microns (for Airy PSF)")
@@ -1036,6 +1040,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--no-adc", action="store_true")
     a.add_argument("--midtone", type=float, default=0.13)
     a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: adaptive 1.05 for cu, 1.10 for li)")
+    a.add_argument("--clahe-clip", type=float, default=1.0, help="CLAHE clip limit (default: 1.0, set <=0 to bypass CLAHE)")
     a.add_argument("--aperture", type=float, default=80.0)
     a.add_argument("--focal", type=float, default=400.0)
     a.add_argument("--pixel-size", type=float, default=3.73)
