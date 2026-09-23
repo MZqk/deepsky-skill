@@ -5,11 +5,8 @@ displayName: Siril Moon Stacking
 version: 1.0.1
 license: Proprietary
 description: |
-  AI 主导的月面天文摄影与幸运成像处理助手。专为月球单帧连拍、短曝光序列及月面全盘摄影设计。
-  充分融合 Siril 1.4.4 CLI 官方原生能力（RAW 解码与去马赛克、序列管理、Winsorized 堆叠、
-  多尺度 B-Spline 小波反卷积细节重构、矿物月色彩提取）与轻量级 Python 亚像素频域配准插件。
-  支持将输入的相机 RAW（.ORF, .CR2, .NEF, .ARW 等）或 FITS/SER 序列处理为真实高解析力的
-  自然细节版 JPG/TIFF 及地质信息丰富的矿物月色彩成片。
+  AI-directed lunar lucky imaging and surface astrophotography processor combining Siril 1.4.4 CLI with Python sub-pixel FFT registration. Use when the user wants to align, stack, wavelet-deconvolve, and enhance lunar RAW/SER/FITS image sequences, correct atmospheric dispersion, or produce mineral moon color images under authenticity constraints.
+  AI 主导的月面天文摄影与幸运成像处理助手。融合 Siril 1.4.4 CLI 与 Python 亚像素频域配准插件，支持月球单帧连拍与 SER/FITS 序列的选帧堆叠、小波反卷积、色散校正与矿物月色彩提取。
 ---
 
 # Siril Moon Stacking

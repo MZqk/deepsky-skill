@@ -1,6 +1,8 @@
 ---
 name: siril-mosaic
-description: 使用 Siril 1.4+ 将同一目标的多个已校准、已堆栈 FITS 面板自动拼接为完整天文马赛克，并以输入哈希、天体测量、最大画布配准、重叠归一化、线性 FITS 和视觉审查完成验收。不用于 RAW 灯光帧校准、去拜耳或普通全景照片。
+description: |
+  Automatically platesolves, registers, normalizes, and stitches multiple calibrated deep-sky FITS panels into an astrophotography mosaic using Siril 1.4+ CLI. Use when the user requests astronomical mosaic stitching, multi-panel alignment, or widefield mosaic processing from stacked FITS panels. Do not use for camera RAW calibration, debayering, or general terrestrial photo panoramas.
+  使用 Siril 1.4+ CLI 将同一目标的多个已校准/已堆栈 FITS 面板自动解算、配准并拼接为完整天文马赛克，交付线性 32-bit FITS 与显示预览。不用于 RAW 灯光帧校准、去拜耳或普通全景照片。
 license: Proprietary
 metadata:
   slug: siril-mosaic

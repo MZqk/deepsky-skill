@@ -1,6 +1,8 @@
 ---
 name: deep-sky-advisor
-description: Analyze supplied FITS, XISF, TIFF, PNG, or JPEG deep-sky astrophotography files and provide evidence-based post-processing advice for Siril, PixInsight, or Photoshop. Use when the user provides an image file or explicitly requests file-level quantitative diagnosis of gradients, background noise, clipping, stars, color, stretching, or artifacts without asking the agent to modify pixels. Do not use for text-only deep-sky astrophotography guidance; when installed, use deep-sky-capture-advisor for that.
+description: |
+  Analyze supplied FITS, XISF, TIFF, PNG, or JPEG deep-sky astrophotography files and provide evidence-based post-processing advice for Siril, PixInsight, or Photoshop. Use when the user provides an image file or explicitly requests file-level quantitative diagnosis of gradients, background noise, clipping, stars, color, stretching, or artifacts without asking the agent to modify pixels. Do not use for text-only deep-sky astrophotography guidance; when installed, use deep-sky-capture-advisor for that.
+  分析提供的深空 FITS/XISF/TIFF/图像文件，对光害梯度、背景底噪、动态截断、星点、色彩与伪影进行量化诊断，并提供有依据的后期处理建议（不直接修改像素）。
 license: Proprietary
 metadata:
   slug: deep-sky-advisor

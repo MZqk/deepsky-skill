@@ -1,10 +1,8 @@
 ---
 name: starun-siril
-description: >
-  使用 Siril 1.4 CLI 处理单个已完成校准、配准和堆栈的深空 master，或按需生成、执行和审查
-  单项 Siril .ssf 脚本，并从版本锁定的离线 Siril 1.4.4 手册查询功能、命令和参数。用于背景扣除、
-  颜色校准与窄带映射、降噪、反卷积、StarNet 分星、拉伸、合星、最终调色和 JPEG 交付；
-  不用于原始帧堆栈、GUI 自动化或普通摄影修图。
+description: |
+  Processes a single calibrated and stacked deep-sky master using headless Siril 1.4 CLI sessions and audited .ssf scripts based on the offline Siril 1.4.4 manual. Use when the user requests Siril command execution/script generation, background extraction, photometric color calibration, deconvolution, StarNet star removal/recomposition, stretching, or narrowband color mapping. Do not use for RAW light frame stacking, GUI automation, or general photo retouching.
+  使用 Siril 1.4 CLI 独立会话与可审计脚本处理单个已堆栈深空 master。用于背景扣除、光度校色与窄带映射、小波反卷积、StarNet 分星、拉伸、合星与调色交付。不用于原始帧堆栈或通用修图。
 license: Proprietary
 metadata:
   slug: starun-siril

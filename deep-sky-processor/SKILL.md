@@ -1,12 +1,8 @@
 ---
 name: deep-sky-processor
 description: |
-  AI 主导的深空天文后期助手。用于把深空天文原始叠加后的 FITS、XISF、
-  TIFF、PNG/JPG 图像，在真实性约束下处理成更美观的 JPG/TIFF 成片。
-  AI 负责视觉判断、天体类型策略、参数选择、风格取舍和质量审查；本地脚本
-  只作为诊断、可控图像变换和量化审查工具。适用于发射星云、反射星云、
-  星系、星团、行星状星云、暗星云、宽场星野的真实风格美化、拉伸、
-  去光害、校色、降噪、缩星、细节增强和最终 JPG 输出。
+  AI-directed deep-sky astrophotography post-processing assistant under strict authenticity constraints. Processes stacked FITS, XISF, or TIFF masters into natural and enhanced JPG/TIFF results. Use when the user asks to stretch, denoise, remove light pollution/gradients, calibrate color, reduce stars, enhance DSO details, or execute end-to-end post-processing for nebulae, galaxies, or star clusters. Do not use for camera RAW stacking or general non-astronomical photo retouching.
+  AI 主导的深空天文后期助手。在严苛真实性约束下，将已叠加的深空 FITS/XISF/TIFF 母版通过拉伸、去光害、校色、降噪、缩星与细节增强处理为自然版和增强版 JPG/TIFF 成片。
 license: Proprietary
 metadata:
   slug: deep-sky-processor

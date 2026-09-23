@@ -1,6 +1,8 @@
 ---
 name: deep-sky-capture-advisor
-description: 基于内置的只读 Markdown 知识快照，为深空天文摄影的器材、采集规划与标准流程、目标、观测条件、软件、后期处理概念、常见问题和故障排查提供有来源依据的纯文本回答；遇到知识缺口或时效性事实时使用网络核验。适用于学习、规划、比较、操作指导，或根据用户描述进行诊断。不用于检查或修改图像文件，也不用于行星、太阳、月球、目视观测或普通摄影问题。
+description: |
+  Text-based deep-sky astrophotography guidance advisor based on curated internal knowledge snapshots. Use when the user asks questions about deep-sky equipment, target planning, acquisition workflows, troubleshooting, software, or post-processing concepts. Do not use for inspecting or modifying actual image files (use deep-sky-advisor or deep-sky-processor), nor for planetary, lunar, solar, or visual astronomy questions.
+  基于内置只读知识快照的深空天文摄影顾问。用于解答深空摄影器材选型、目标规划、拍摄流程、软件与后期概念及排障咨询。不用于检查/修改图像文件，不用于行星、太阳、月球或目视观测。
 license: Proprietary
 metadata:
   slug: deep-sky-capture-advisor
