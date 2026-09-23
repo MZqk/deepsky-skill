@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-check and regression tests for moon-stacking registration math.
+"""Self-check and regression tests for siril-moon-stacking registration math.
 
 Verifies:
   1. Subpixel phase correlation accuracy on synthetic shifts (error < 0.05 px)
