@@ -1038,7 +1038,51 @@ def run_script(
     }
     atomic_write_json(receipt_path, receipt)
     session_state._append_run(session / "manifest.json", manifest, receipt_path, receipt)
+    if success:
+        _try_generate_run_metrics(session, run_id, protocol, source, expected)
     return receipt
+
+
+def _try_generate_run_metrics(
+    session: Path,
+    run_id: str,
+    protocol: str,
+    source: Path,
+    expected_paths: Sequence[Path],
+) -> None:
+    """Best-effort quantitative metrics generation for diagnostic reporting."""
+    try:
+        import deep_sky_siril_metrics as metrics_mod
+
+        candidate: Path | None = None
+        stars_tsv: Path | None = None
+        for out in expected_paths:
+            name_lower = out.name.lower()
+            if name_lower.endswith(".tsv") and "star" in name_lower and out.is_file():
+                stars_tsv = out
+            elif candidate is None and any(
+                name_lower.endswith(ext)
+                for ext in (".fit", ".fits", ".jpg", ".jpeg", ".png", ".tif", ".tiff")
+            ) and out.is_file():
+                candidate = out
+
+        if stars_tsv is None:
+            c_stars = session / "reports" / run_id / "stars.tsv"
+            if c_stars.is_file():
+                stars_tsv = c_stars
+
+        if candidate is not None and candidate.is_file():
+            metrics_out = session / "reports" / run_id / "metrics.json"
+            metrics_mod.generate_metric_report(
+                run_id=run_id,
+                protocol=protocol,
+                candidate_path=candidate,
+                parent_path=source if source.is_file() else None,
+                stars_tsv_path=stars_tsv,
+                output_path=metrics_out,
+            )
+    except Exception:
+        pass
 
 
 def _validate_selection(selection: dict[str, Any]) -> None:

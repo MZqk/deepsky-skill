@@ -14,14 +14,15 @@
 - 说明具体观察，不写无法从材料证明的推断。
 
 ## 通用门
-
-- `structure`：真实细节保留，无抹除、伪结构、振铃、泄漏或塑料感。
-- `background`：渐变改善，无坑洞、误减、条纹或色块。
-- `color`：过渡连续，无通道裁剪或无来源的真实性声明。
-- `stars`：星核、星径、星色和光晕自然，无重复星或明显残留。
+ 
+- `structure`：真实细节保留，无抹除、伪结构、振铃、泄漏或塑料感。可参考 `reports/<run-id>/metrics.json` 中的边缘保持与动态范围跨度。
+- `background`：渐变改善，无坑洞、误减、条纹或色块。暗部截断率 `shadow_clip_rate` 需低于 0.01%，背景方差平稳或下降。
+- `color`：过渡连续，无通道裁剪或无来源的真实性声明。背景中性度残差稳定。
+- `stars`：星核、星径、星色和光晕自然，无重复星或明显残留。可参考 `stars.tsv` 提取的平均 FWHM 变化与 roundness，振铃指数无异常下陷。
 - `geometry`：构图、裁边、尺寸和 WCS 变化符合协议预期。
 
 候选没有明确优于父源时写 `reject` 并保留父源；证据无法可靠判断时写 `uncertain` 并安全停止。
+每次 run 成功后自动输出的 `reports/<run-id>/metrics.json` 可作为 Agent 填写 review notes 的客观物理证据。
 
 ## Unknown 输入
 

@@ -1,6 +1,8 @@
 # deepsky-skill
 
-面向 Codex 的深空摄影 Skill 集合，覆盖拍摄知识、图像诊断、真实性约束下的后期处理，以及 Siril 天文马赛克拼接。
+[![skills.sh](https://skills.sh/b/MZqk/deepsky-skill)](https://skills.sh/MZqk/deepsky-skill)
+
+面向 Codex 与各类 AI Coding Agent 的深空摄影 Skill 集合，覆盖拍摄知识、图像诊断、真实性约束下的后期处理，以及 Siril 天文马赛克拼接。
 
 本仓库采用“领域单仓、独立发布单元”的组织方式：每个顶层 Skill 独立维护依赖、虚拟环境、测试、版本、许可和发布记录；仓库根目录只维护索引、结构校验、CI 和轻量路由契约。
 
@@ -32,6 +34,25 @@
 各 Skill 可按需要包含 `scripts/`、`references/`、`assets/`、`tests/` 和 `agents/openai.yaml`。每个 Skill 还维护自己的 `CHANGELOG.md`、许可文件、`RELEASING.md` 和 `requirements-dev.txt`。
 
 ## 安装
+
+### 方式一：使用 Skills CLI（推荐，支持主流 Agent 并触发 skills.sh 遥测收录）
+
+本项目支持通过开放标准 Skills CLI 一键安装到 Claude Code、Cursor、Windsurf、Codex 等主流 Coding Agent。通过 `npx skills add` 安装会自动向 [skills.sh](https://skills.sh) 触发安装遥测，完成本仓库 Skill 的登记收录与热度榜单更新：
+
+```bash
+# 安装整个仓库的所有 Skill 到当前项目 Agent
+npx skills add MZqk/deepsky-skill
+
+# 或指定安装特定 Skill（例如 deep-sky-processor）
+npx skills add MZqk/deepsky-skill -s deep-sky-processor
+
+# 全局安装到所有受支持的 Agent
+npx skills add MZqk/deepsky-skill -g
+```
+
+> **遥测说明**：`npx skills add` 命令会向 `skills.sh` 遥测接口发送匿名安装事件（仅含 Skill 标识与时间戳，不包含任何隐私数据），使 Skill 自动进入 [skills.sh](https://skills.sh/MZqk/deepsky-skill) 目录与热度排行。若需关闭遥测，可设置环境变量 `DISABLE_TELEMETRY=1`。
+
+### 方式二：手动软链接到 Codex Skills 目录
 
 将需要的 Skill 目录软链接到 Codex Skills 目录：
 

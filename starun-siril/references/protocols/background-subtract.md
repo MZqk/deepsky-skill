@@ -7,15 +7,23 @@
 
 ## 样点协议
 
-- 实际查看父源预览，由 Agent 根据画面与渐变选择足够且有代表性的真实背景样点；
-- 样点必须位于图像范围内，并避开目标、恒星晕、发射结构或尘埃；
+- 实际查看父源预览，由 Agent 确认画面与渐变是否需要背景扣除；
+- 推荐使用自动化采样工具直接生成哈希绑定的合同：
+  ```bash
+  python3 /abs/starun-siril/scripts/siril_auto_samples.py \
+    --source "/abs/current-parent.fit" \
+    --output "/abs/session/reports/030-background/background-sample-contract.json" \
+    --target-type [emission_nebula|galaxy|cluster|general]
+  ```
+  该工具通过双重掩模自动避开星点与高亮主体，经局部方差极小化和 Sigma 剔除后输出合规合同；
+- 亦可由 Agent 手动指定样点：样点必须位于图像范围内，避开目标、恒星晕、发射结构或尘埃；
 - 创建 `reports/NNN-background/background-sample-contract.json`，使用
   [background sample contract Schema](../background-sample-contract.schema.json)，绑定父源绝对路径、
   SHA-256 与实际尺寸；
 - 样点 ID 和坐标不可重复，坐标必须是有限数且位于图像边界内。
 
-目标、星晕和尘埃的识别是 Agent 的视觉判断，不另外写入机器合同。候选执行后仍按通用
-review receipt 审查父源与结果，背景样点合同不包含独立 review。
+目标、星晕和尘埃的识别可由自动算法掩模辅助并结合 Agent 视觉确认，不另外写入机器合同。
+候选执行后仍按通用 review receipt 审查父源与结果，背景样点合同不包含独立 review。
 
 ## 模型
 

@@ -57,6 +57,8 @@ STATIC_RELEASE_FILES = (
     "scripts/deep_sky_siril_tooling.py",
     "scripts/deep_sky_siril_validation.py",
     "scripts/siril_background_samples.py",
+    "scripts/siril_auto_samples.py",
+    "scripts/deep_sky_siril_metrics.py",
     "THIRD_PARTY_NOTICES.md",
     "references/manual-query.md",
     "scripts/query_siril_manual.py",

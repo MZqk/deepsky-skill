@@ -82,6 +82,8 @@ def test_release_bundle_has_exact_runtime_inventory(tmp_path: Path) -> None:
         "deep_sky_siril_validation.py",
         "query_siril_manual.py",
         "siril_background_samples.py",
+        "siril_auto_samples.py",
+        "deep_sky_siril_metrics.py",
         "siril_manual_bundle.py",
     }
 
