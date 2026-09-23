@@ -1,5 +1,8 @@
 ---
 name: siril-moon-stacking
+slug: siril-moon-stacking
+displayName: Siril Moon Stacking
+version: 1.0.1
 description: |
   AI 主导的月面天文摄影与幸运成像处理助手。专为月球单帧连拍、短曝光序列及月面全盘摄影设计。
   充分融合 Siril 1.4.4 CLI 官方原生能力（RAW 解码与去马赛克、序列管理、Winsorized 堆叠、
