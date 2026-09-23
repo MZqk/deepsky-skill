@@ -10,5 +10,19 @@ venv_*/
 .superpowers/
 /.workbuddy/
 /.codex/
+/.zcode/
 /siril-mosaic/dev-runs/
 /dist/
+
+# Editor & temporary files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Testing & linting caches
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
