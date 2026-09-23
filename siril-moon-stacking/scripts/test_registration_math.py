@@ -141,6 +141,24 @@ def test_otsu_frame_selection() -> list[str]:
     return failures
 
 
+def test_utility_frame_selection() -> list[str]:
+    failures = []
+    # Gradually decaying distribution: 20 frames from 2500 down to 1000
+    frames = [{"index": i, "sharpness": 2500.0 - (i - 1) * 75.0} for i in range(1, 21)]
+
+    kept, meta = _select_frames_by_quality(frames, total_count=20, select_mode="utility", utility_alpha=2.0, utility_beta=1.0)
+    print(f"MTF-SNR Utility test (alpha=2.0, beta=1.0): kept {len(kept)}/20 frames, cutoff={meta.get('threshold', 0):.1f} ({meta.get('threshold_rel', 0)*100:.1f}%)")
+    if not (5 <= len(kept) <= 15):
+        failures.append(f"Utility model returned unexpected frame count: {len(kept)}")
+
+    # Alias 'mtf-snr' check
+    kept_alias, _ = _select_frames_by_quality(frames, total_count=20, select_mode="mtf-snr")
+    if kept_alias != kept:
+        failures.append(f"'mtf-snr' alias did not match 'utility' mode output")
+
+    return failures
+
+
 def main() -> int:
     failures = []
     print("--- Running test_subpixel_shifts ---")
@@ -151,6 +169,8 @@ def main() -> int:
     failures.extend(test_siril_r0_format())
     print("\n--- Running test_otsu_frame_selection ---")
     failures.extend(test_otsu_frame_selection())
+    print("\n--- Running test_utility_frame_selection ---")
+    failures.extend(test_utility_frame_selection())
 
     if failures:
         print("\nTESTS FAILED:")

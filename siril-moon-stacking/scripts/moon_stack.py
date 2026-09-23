@@ -472,6 +472,8 @@ def _select_frames_by_quality(
     select_mode: str = "otsu",
     keep_percent: float | None = None,
     quality_threshold: float = 0.75,
+    utility_alpha: float = 2.0,
+    utility_beta: float = 1.0,
 ) -> tuple[set[int], dict]:
     """Intelligent frame selection based on reference frame quality or user criteria.
 
@@ -479,6 +481,9 @@ def _select_frames_by_quality(
       - 'otsu' (default): Adaptive bimodal clustering using Otsu's threshold on the 1D
         sharpness spectrum. Automatically identifies natural seeing breakpoint between
         calm seeing and turbulent/blurred frames without arbitrary manual percentages.
+      - 'utility' / 'mtf-snr': MTF-SNR joint utility optimization model. Maximizes
+        U(k) = (mean_contrast_norm(k) ** alpha) * (sqrt(k / N) ** beta), finding
+        the mathematically optimal trade-off between optical resolution and noise reduction.
       - 'relative': Retains frames with sharpness >= quality_threshold * reference_sharpness.
       - 'percent': Traditional percentage ranking (with small-sample tiering if keep_percent is None).
     """
@@ -490,6 +495,10 @@ def _select_frames_by_quality(
     valid_items.sort(key=lambda it: it["sharpness"], reverse=True)
     ref_sharpness = float(valid_items[0]["sharpness"])
     sharpnesses = np.array([it["sharpness"] for it in valid_items], dtype=np.float64)
+
+    # Normalize select_mode
+    if select_mode in ("mtf-snr", "mtf_snr"):
+        select_mode = "utility"
 
     # If keep_percent is explicitly specified by user (> 0), honor it as 'percent' mode
     if keep_percent is not None and keep_percent > 0:
@@ -524,6 +533,48 @@ def _select_frames_by_quality(
                 otsu_kept = valid_items[:min_k]
                 meta["safety_clamped"] = "min_k"
             kept_indices = {it["index"] for it in otsu_kept}
+
+    elif select_mode == "utility":
+        # MTF-SNR joint utility optimization
+        s_min = float(sharpnesses.min())
+        s_max = float(sharpnesses.max())
+        n_valid = len(valid_items)
+
+        if n_valid < 4:
+            kept_indices = {it["index"] for it in valid_items}
+            meta["threshold"] = float(valid_items[-1]["sharpness"])
+            meta["threshold_rel"] = 1.0
+            meta["reason"] = "sample size < 4, retained all valid frames"
+        elif (s_max - s_min) < 1e-4:
+            kept_indices = {it["index"] for it in valid_items}
+            meta["threshold"] = s_min
+            meta["threshold_rel"] = 1.0
+            meta["reason"] = "uniform sharpness distribution"
+        else:
+            # Baseline-adjusted normalized sharpness in [0, 1]
+            q_norm = (sharpnesses - s_min) / (s_max - s_min + 1e-6)
+            min_k = min(n_valid, max(3, int(round(total_count * 0.10))))
+            max_k = min(n_valid, max(min_k, int(round(total_count * 0.95))))
+
+            utility_scores = []
+            for k in range(1, n_valid + 1):
+                q_mean = float(np.mean(q_norm[:k]))
+                snr_factor = float(np.sqrt(k / total_count))
+                u = (q_mean ** float(utility_alpha)) * (snr_factor ** float(utility_beta))
+                utility_scores.append(u)
+
+            search_scores = utility_scores[min_k - 1 : max_k]
+            best_k_offset = int(np.argmax(search_scores))
+            best_k = min_k + best_k_offset
+
+            u_kept = valid_items[:best_k]
+            kept_indices = {it["index"] for it in u_kept}
+            cutoff_s = float(valid_items[best_k - 1]["sharpness"])
+            meta["threshold"] = cutoff_s
+            meta["threshold_rel"] = round(cutoff_s / ref_sharpness, 4)
+            meta["utility_alpha"] = float(utility_alpha)
+            meta["utility_beta"] = float(utility_beta)
+            meta["max_utility"] = round(float(utility_scores[best_k - 1]), 4)
 
     elif select_mode == "relative":
         abs_threshold = ref_sharpness * float(quality_threshold)
@@ -693,6 +744,8 @@ def cmd_register(args) -> None:
     select_mode = getattr(args, "select_mode", "otsu")
     keep_pct_arg = getattr(args, "keep_percent", None)
     quality_thresh = getattr(args, "quality_threshold", 0.75)
+    u_alpha = getattr(args, "utility_alpha", 2.0)
+    u_beta = getattr(args, "utility_beta", 1.0)
 
     kept_indices, select_meta = _select_frames_by_quality(
         valid_items,
@@ -700,6 +753,8 @@ def cmd_register(args) -> None:
         select_mode=select_mode,
         keep_percent=keep_pct_arg,
         quality_threshold=quality_thresh,
+        utility_alpha=u_alpha,
+        utility_beta=u_beta,
     )
 
     for it in image_files:
@@ -1074,9 +1129,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--work", required=True)
     a.add_argument("--seq", default="moon_")
     a.add_argument("--roi", type=int, default=1024)
-    a.add_argument("--select-mode", default="otsu", choices=["otsu", "relative", "percent"],
-                   help="Frame selection mode: 'otsu' (adaptive bimodal seeing clustering, default), 'relative' (relative to reference frame), 'percent' (fixed/tiered percentage)")
+    a.add_argument("--select-mode", default="otsu", choices=["otsu", "utility", "mtf-snr", "relative", "percent"],
+                   help="Frame selection mode: 'otsu' (adaptive bimodal seeing clustering, default), 'utility'/'mtf-snr' (MTF-SNR joint utility optimization), 'relative' (relative to reference frame), 'percent' (fixed/tiered percentage)")
     a.add_argument("--quality-threshold", type=float, default=0.75, help="Minimum sharpness relative to reference frame (0.0 - 1.0) for 'relative' mode (default: 0.75)")
+    a.add_argument("--utility-alpha", type=float, default=2.0, help="MTF/contrast weight exponent for 'utility' mode (default: 2.0)")
+    a.add_argument("--utility-beta", type=float, default=1.0, help="SNR weight exponent for 'utility' mode (default: 1.0)")
     a.add_argument("--keep-percent", type=float, default=None, help="Frame selection ratio in percent (switches to 'percent' mode if specified)")
     a.add_argument("--min-confidence", type=float, default=0.15)
     a.set_defaults(func=cmd_register)
@@ -1117,9 +1174,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--limit", type=int, default=0, help="Limit number of frames to import (0=all)")
     a.add_argument("--seq", default="moon_")
     a.add_argument("--roi", type=int, default=1024)
-    a.add_argument("--select-mode", default="otsu", choices=["otsu", "relative", "percent"],
-                   help="Frame selection mode: 'otsu' (adaptive bimodal seeing clustering, default), 'relative' (relative to reference frame), 'percent' (fixed/tiered percentage)")
+    a.add_argument("--select-mode", default="otsu", choices=["otsu", "utility", "mtf-snr", "relative", "percent"],
+                   help="Frame selection mode: 'otsu' (adaptive bimodal seeing clustering, default), 'utility'/'mtf-snr' (MTF-SNR joint utility optimization), 'relative' (relative to reference frame), 'percent' (fixed/tiered percentage)")
     a.add_argument("--quality-threshold", type=float, default=0.75, help="Minimum sharpness relative to reference frame (0.0 - 1.0) for 'relative' mode (default: 0.75)")
+    a.add_argument("--utility-alpha", type=float, default=2.0, help="MTF/contrast weight exponent for 'utility' mode (default: 2.0)")
+    a.add_argument("--utility-beta", type=float, default=1.0, help="SNR weight exponent for 'utility' mode (default: 1.0)")
     a.add_argument("--keep-percent", type=float, default=None, help="Frame selection ratio in percent (switches to 'percent' mode if specified)")
     a.add_argument("--min-confidence", type=float, default=0.15)
     a.add_argument("--framing", default="min", choices=["min", "max", "cog"])
