@@ -466,6 +466,97 @@ def align_rgb_channels(master_path: Path, patch_size: int = 512) -> dict:
         }
 
 
+def _select_frames_by_quality(
+    valid_items: list[dict],
+    total_count: int,
+    select_mode: str = "otsu",
+    keep_percent: float | None = None,
+    quality_threshold: float = 0.75,
+) -> tuple[set[int], dict]:
+    """Intelligent frame selection based on reference frame quality or user criteria.
+
+    Modes:
+      - 'otsu' (default): Adaptive bimodal clustering using Otsu's threshold on the 1D
+        sharpness spectrum. Automatically identifies natural seeing breakpoint between
+        calm seeing and turbulent/blurred frames without arbitrary manual percentages.
+      - 'relative': Retains frames with sharpness >= quality_threshold * reference_sharpness.
+      - 'percent': Traditional percentage ranking (with small-sample tiering if keep_percent is None).
+    """
+    import numpy as np
+
+    if not valid_items:
+        return set(), {"mode": select_mode, "kept_count": 0, "kept_percent": 0.0}
+
+    valid_items.sort(key=lambda it: it["sharpness"], reverse=True)
+    ref_sharpness = float(valid_items[0]["sharpness"])
+    sharpnesses = np.array([it["sharpness"] for it in valid_items], dtype=np.float64)
+
+    # If keep_percent is explicitly specified by user (> 0), honor it as 'percent' mode
+    if keep_percent is not None and keep_percent > 0:
+        select_mode = "percent"
+
+    meta: dict = {
+        "mode": select_mode,
+        "ref_sharpness": ref_sharpness,
+    }
+
+    if select_mode == "otsu":
+        if len(valid_items) < 4:
+            kept_indices = {it["index"] for it in valid_items}
+            meta["threshold"] = float(valid_items[-1]["sharpness"])
+            meta["threshold_rel"] = 1.0
+            meta["reason"] = "sample size < 4, retained all valid frames"
+        elif (sharpnesses.max() - sharpnesses.min()) < 1e-4:
+            kept_indices = {it["index"] for it in valid_items}
+            meta["threshold"] = float(sharpnesses.min())
+            meta["threshold_rel"] = 1.0
+            meta["reason"] = "uniform sharpness distribution"
+        else:
+            from skimage.filters import threshold_otsu
+
+            th = float(threshold_otsu(sharpnesses))
+            meta["threshold"] = th
+            meta["threshold_rel"] = round(th / ref_sharpness, 4)
+            otsu_kept = [it for it in valid_items if it["sharpness"] >= th]
+            # Safety bounds: keep at least 3 frames (or all if < 3) and at least 10%
+            min_k = min(len(valid_items), max(3, int(round(total_count * 0.10))))
+            if len(otsu_kept) < min_k:
+                otsu_kept = valid_items[:min_k]
+                meta["safety_clamped"] = "min_k"
+            kept_indices = {it["index"] for it in otsu_kept}
+
+    elif select_mode == "relative":
+        abs_threshold = ref_sharpness * float(quality_threshold)
+        rel_kept = [it for it in valid_items if it["sharpness"] >= abs_threshold]
+        min_k = min(len(valid_items), max(3, int(round(total_count * 0.10))))
+        if len(rel_kept) < min_k:
+            rel_kept = valid_items[:min_k]
+            meta["safety_clamped"] = "min_k"
+        kept_indices = {it["index"] for it in rel_kept}
+        meta["threshold"] = abs_threshold
+        meta["threshold_rel"] = float(quality_threshold)
+
+    else:  # percent
+        if keep_percent is None or keep_percent <= 0:
+            if total_count <= 60:
+                keep_percent = 70.0
+            elif total_count <= 300:
+                keep_percent = 50.0
+            else:
+                keep_percent = 30.0
+        n_keep = max(1, int(round(total_count * float(keep_percent) / 100.0)))
+        kept_indices = {it["index"] for it in valid_items[:n_keep]}
+        meta["keep_percent"] = float(keep_percent)
+        if n_keep <= len(valid_items):
+            cutoff_s = float(valid_items[n_keep - 1]["sharpness"])
+            meta["threshold"] = cutoff_s
+            meta["threshold_rel"] = round(cutoff_s / ref_sharpness, 4)
+
+    meta["kept_count"] = len(kept_indices)
+    meta["kept_percent"] = round(len(kept_indices) / total_count * 100.0, 2)
+    return kept_indices, meta
+
+
 def cmd_register(args) -> None:
     from astropy.io import fits
 
@@ -598,30 +689,24 @@ def cmd_register(args) -> None:
         it["theta"] = theta
         it["homography"] = _compute_rigid_homography(theta, total_dx, total_dy, cx_img, cy_img)
 
-    # Determine adaptive keep percentage if not explicitly provided
-    keep_pct = getattr(args, "keep_percent", None)
-    if keep_pct is None or keep_pct <= 0:
-        if len(image_files) <= 60:
-            keep_pct = 70.0
-            log(f"adaptive frame selection: small sequence ({len(image_files)} frames) -> keep {keep_pct}% to maximize SNR")
-        elif len(image_files) <= 300:
-            keep_pct = 50.0
-            log(f"adaptive frame selection: medium sequence ({len(image_files)} frames) -> keep {keep_pct}%")
-        else:
-            keep_pct = 30.0
-            log(f"adaptive frame selection: large sequence ({len(image_files)} frames) -> keep {keep_pct}% for lucky imaging")
-    else:
-        keep_pct = float(keep_pct)
+    # Adaptive frame selection using Otsu bimodal clustering (or user-selected mode)
+    select_mode = getattr(args, "select_mode", "otsu")
+    keep_pct_arg = getattr(args, "keep_percent", None)
+    quality_thresh = getattr(args, "quality_threshold", 0.75)
 
-    # Sort valid frames by sharpness for selection
-    valid_items.sort(key=lambda it: it["sharpness"], reverse=True)
-    n_keep = max(1, int(round(len(image_files) * keep_pct / 100.0)))
-    kept_indices = {it["index"] for it in valid_items[:n_keep]}
+    kept_indices, select_meta = _select_frames_by_quality(
+        valid_items,
+        total_count=len(image_files),
+        select_mode=select_mode,
+        keep_percent=keep_pct_arg,
+        quality_threshold=quality_thresh,
+    )
 
     for it in image_files:
         it["selected"] = it["index"] in kept_indices
 
-    log(f"frame selection: keeping {len(kept_indices)}/{len(image_files)} best frames ({keep_pct}%)")
+    th_str = f"{select_meta['threshold']:.1f} ({select_meta.get('threshold_rel', 0)*100:.1f}% of ref)" if "threshold" in select_meta else "N/A"
+    log(f"frame selection: mode='{select_meta['mode']}', cutoff={th_str}, keeping {len(kept_indices)}/{len(image_files)} best frames ({select_meta['kept_percent']}%)")
 
     # Inject R0 homography matrices & selection into Siril's .seq file
     new_s_line = (
@@ -646,10 +731,12 @@ def cmd_register(args) -> None:
     ranking_data = {
         "sequence": seq_name,
         "reference_index": ref_idx,
+        "reference_sharpness": float(best_item["sharpness"]),
         "dual_anchors": [dual_roi1, dual_roi2] if has_dual_anchor else [dual_roi1],
         "total_frames": len(image_files),
         "kept_frames": len(kept_indices),
-        "keep_percent": keep_pct,
+        "keep_percent": select_meta["kept_percent"],
+        "selection_meta": select_meta,
         "frames": [
             {
                 "index": it["index"],
@@ -987,7 +1074,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--work", required=True)
     a.add_argument("--seq", default="moon_")
     a.add_argument("--roi", type=int, default=1024)
-    a.add_argument("--keep-percent", type=float, default=None, help="Frame selection ratio (default: adaptive based on total frames)")
+    a.add_argument("--select-mode", default="otsu", choices=["otsu", "relative", "percent"],
+                   help="Frame selection mode: 'otsu' (adaptive bimodal seeing clustering, default), 'relative' (relative to reference frame), 'percent' (fixed/tiered percentage)")
+    a.add_argument("--quality-threshold", type=float, default=0.75, help="Minimum sharpness relative to reference frame (0.0 - 1.0) for 'relative' mode (default: 0.75)")
+    a.add_argument("--keep-percent", type=float, default=None, help="Frame selection ratio in percent (switches to 'percent' mode if specified)")
     a.add_argument("--min-confidence", type=float, default=0.15)
     a.set_defaults(func=cmd_register)
 
@@ -1027,7 +1117,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--limit", type=int, default=0, help="Limit number of frames to import (0=all)")
     a.add_argument("--seq", default="moon_")
     a.add_argument("--roi", type=int, default=1024)
-    a.add_argument("--keep-percent", type=float, default=None, help="Frame selection ratio (default: adaptive)")
+    a.add_argument("--select-mode", default="otsu", choices=["otsu", "relative", "percent"],
+                   help="Frame selection mode: 'otsu' (adaptive bimodal seeing clustering, default), 'relative' (relative to reference frame), 'percent' (fixed/tiered percentage)")
+    a.add_argument("--quality-threshold", type=float, default=0.75, help="Minimum sharpness relative to reference frame (0.0 - 1.0) for 'relative' mode (default: 0.75)")
+    a.add_argument("--keep-percent", type=float, default=None, help="Frame selection ratio in percent (switches to 'percent' mode if specified)")
     a.add_argument("--min-confidence", type=float, default=0.15)
     a.add_argument("--framing", default="min", choices=["min", "max", "cog"])
     a.add_argument("--interp", default="cu", choices=["cu", "li", "la", "none", "cubic", "linear", "lanczos", "bilinear"],

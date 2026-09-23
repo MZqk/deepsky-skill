@@ -55,10 +55,10 @@ python scripts/moon_stack.py import --input /path/to/moon_raws --work /path/to/w
 ### Step 2: 智能选帧与刚体亚像素配准
 自动识别月面反差特征，通过双锚点互相关解算亚像素视场旋转角 $\theta$ 与平移 $(dx, dy)$：
 ```bash
-# 智能选帧（小样本自动保留 70% 保证 SNR，大批量保留 30% 幸运成像）
+# 智能选帧（默认基于参考帧质量运行 Otsu 双峰自动聚类，精准分割平静视宁度与湍流断崖；支持 --select-mode otsu/relative/percent）
 python scripts/moon_stack.py register --work /path/to/work
 ```
-* Python 会自动生成包含 `R0 ... H cosθ -sinθ h13 sinθ cosθ h23 0 0 1` 刚体单应性矩阵（遵循 FITS 图像原点在左下角的坐标系约定）及 `I <index> 1/0` 选帧标记的 Siril 标准 `.seq` 文件，彻底根除长间隔连拍带来的月盘外围视旋转模糊。
+* Python 会自动运行基于参考帧锐度的 Otsu 视宁度双峰聚类算法，自动解算断崖阈值，并生成包含 `R0 ... H cosθ -sinθ h13 sinθ cosθ h23 0 0 1` 刚体单应性矩阵（遵循 FITS 图像原点在左下角的坐标系约定）及 `I <index> 1/0` 选帧标记的 Siril 标准 `.seq` 文件，彻底根除长间隔连拍带来的月盘外围视旋转模糊与劣质帧污染。
 
 ### Step 3: Siril 原生插值重采样与堆叠
 由 Siril CLI 原生执行多线程重采样与高动态堆叠（严格保持 Clamping，绝不加 `-noclamp` 避免数值越界）：

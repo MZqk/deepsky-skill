@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from moon_stack import _locate_high_contrast_roi, _subpixel_phase_correlation
+from moon_stack import _locate_high_contrast_roi, _select_frames_by_quality, _subpixel_phase_correlation
 
 
 def translate(src: np.ndarray, tx: float, ty: float) -> np.ndarray:
@@ -114,6 +114,33 @@ def test_siril_r0_format() -> list[str]:
     return failures
 
 
+def test_otsu_frame_selection() -> list[str]:
+    failures = []
+    # Synthetic bimodal distribution: 10 sharp frames (~2500), 10 blurry frames (~1200)
+    rng = np.random.default_rng(123)
+    sharp_frames = [{"index": i, "sharpness": float(rng.normal(2500, 50))} for i in range(1, 11)]
+    blurry_frames = [{"index": i, "sharpness": float(rng.normal(1200, 50))} for i in range(11, 21)]
+    all_frames = sharp_frames + blurry_frames
+
+    kept, meta = _select_frames_by_quality(all_frames, total_count=20, select_mode="otsu")
+    print(f"Otsu bimodal test: kept {len(kept)}/20 frames, threshold={meta.get('threshold', 0):.1f}")
+    if kept != set(range(1, 11)):
+        failures.append(f"Otsu failed to separate bimodal distribution: expected 1..10, got {kept}")
+
+    # Small sample test (< 4 frames)
+    tiny = [{"index": 1, "sharpness": 2000.0}, {"index": 2, "sharpness": 1500.0}]
+    kept_tiny, meta_tiny = _select_frames_by_quality(tiny, total_count=2, select_mode="otsu")
+    if len(kept_tiny) != 2:
+        failures.append(f"Otsu should retain all frames for tiny samples (<4), got {len(kept_tiny)}")
+
+    # Percentage override test
+    kept_pct, meta_pct = _select_frames_by_quality(all_frames, total_count=20, select_mode="otsu", keep_percent=30)
+    if len(kept_pct) != 6:
+        failures.append(f"keep_percent=30 override failed: expected 6 frames, got {len(kept_pct)}")
+
+    return failures
+
+
 def main() -> int:
     failures = []
     print("--- Running test_subpixel_shifts ---")
@@ -122,6 +149,8 @@ def main() -> int:
     failures.extend(test_roi_localization())
     print("\n--- Running test_siril_r0_format ---")
     failures.extend(test_siril_r0_format())
+    print("\n--- Running test_otsu_frame_selection ---")
+    failures.extend(test_otsu_frame_selection())
 
     if failures:
         print("\nTESTS FAILED:")
