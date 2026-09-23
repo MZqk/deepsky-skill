@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -31,7 +34,18 @@ SEMVER_PATTERN = re.compile(
 FRONTMATTER_PATTERN = re.compile(
     r"\A---\r?\n(?P<yaml>.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL
 )
+VERSION_QUOTED_PATTERN = re.compile(
+    r'^\s*version\s*:\s*"([^"]+)"\s*$', re.MULTILINE
+)
 REQUIRED_FILES = ("CHANGELOG.md", "RELEASING.md", "requirements-dev.txt")
+
+
+def parse_semver(version_str: str) -> tuple[int, int, int]:
+    match = SEMVER_PATTERN.match(version_str.strip())
+    if not match:
+        raise ValueError(f"invalid SemVer: {version_str!r}")
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
 
 
 class FrontmatterError(ValueError):
@@ -156,6 +170,15 @@ def validate_skill_dir(skill_dir: Path) -> list[str]:
     if not isinstance(version, str) or not SEMVER_PATTERN.fullmatch(version):
         errors.append(f"{prefix} metadata.version must be a SemVer string")
         version = None
+    else:
+        try:
+            raw_text = skill_md.read_text(encoding="utf-8")
+            if not VERSION_QUOTED_PATTERN.search(raw_text):
+                errors.append(
+                    f"{prefix} metadata.version in SKILL.md must be enclosed in double quotes (e.g. \"{version}\")"
+                )
+        except Exception:
+            pass
     for key in ("displayName", "summary"):
         value = metadata.get(key)
         if not isinstance(value, str) or not value.strip():
@@ -205,7 +228,7 @@ def validate_skill_dir(skill_dir: Path) -> list[str]:
     releasing = skill_dir / "RELEASING.md"
     if releasing.is_file():
         releasing_text = releasing.read_text(encoding="utf-8")
-        if f"{slug}/vX.Y.Z" not in releasing_text:
+        if f"{slug}/vX.Y.Z" not in releasing_text and f"skill/{slug}/vX.Y.Z" not in releasing_text:
             errors.append(f"{prefix} RELEASING.md must document namespaced tags")
 
     requirements_dev = skill_dir / "requirements-dev.txt"
@@ -344,9 +367,158 @@ def validate_readme(repo_root: Path, skill_names: Iterable[str]) -> list[str]:
     return errors
 
 
+def validate_manifest(repo_root: Path, skill_names: Iterable[str]) -> list[str]:
+    """Validate root skills.manifest.json structure and consistency with SKILL.md files."""
+    manifest_path = repo_root / "skills.manifest.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        return ["missing regular root manifest skills.manifest.json"]
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return [f"skills.manifest.json is not valid JSON: {exc}"]
+
+    if not isinstance(data, dict):
+        return ["skills.manifest.json root must be a JSON object"]
+
+    skills_dict = data.get("skills")
+    if not isinstance(skills_dict, dict):
+        return ["skills.manifest.json must contain a 'skills' object mapping slugs to configurations"]
+
+    errors: list[str] = []
+    expected_slugs = set(skill_names)
+    manifest_slugs = set(skills_dict.keys())
+
+    if manifest_slugs != expected_slugs:
+        missing = sorted(expected_slugs - manifest_slugs)
+        extra = sorted(manifest_slugs - expected_slugs)
+        errors.append(f"skills.manifest.json skills mismatch; missing={missing}, extra={extra}")
+
+    for slug in sorted(manifest_slugs & expected_slugs):
+        entry = skills_dict[slug]
+        prefix = f"skills.manifest.json[{slug}]:"
+        if not isinstance(entry, dict):
+            errors.append(f"{prefix} value must be an object")
+            continue
+        path_val = entry.get("path")
+        if path_val != slug:
+            errors.append(f"{prefix} path must match slug {slug!r}, got {path_val!r}")
+        manifest_ver = entry.get("version")
+        if not isinstance(manifest_ver, str) or not SEMVER_PATTERN.fullmatch(manifest_ver):
+            errors.append(f"{prefix} version must be a SemVer string, got {manifest_ver!r}")
+            continue
+
+        skill_md = repo_root / slug / "SKILL.md"
+        if skill_md.is_file():
+            try:
+                fm = load_frontmatter(skill_md)
+                skill_ver = (fm.get("metadata") or {}).get("version")
+                if manifest_ver != skill_ver:
+                    errors.append(
+                        f"{prefix} version {manifest_ver!r} does not match {slug}/SKILL.md version {skill_ver!r}"
+                    )
+            except Exception:
+                pass
+
+    return errors
+
+
+def validate_version_bump(
+    repo_root: Path,
+    base: str,
+    head: str = "HEAD",
+) -> list[str]:
+    """Validate that any modified Skill has monotonically increased its version and documented it in CHANGELOG."""
+    errors: list[str] = []
+    diff_proc = subprocess.run(
+        ["git", "diff", "--name-only", "-z", "--diff-filter=ACDMRTUXB", base, head],
+        cwd=repo_root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if diff_proc.returncode != 0:
+        return [f"git diff failed against base {base!r}: {diff_proc.stderr.decode().strip()}"]
+
+    raw_paths = [os.fsdecode(p) for p in diff_proc.stdout.split(b"\0") if p]
+    skills = discover_skill_dirs(repo_root)
+
+    changed_slugs: set[str] = set()
+    for raw_p in raw_paths:
+        parts = PurePosixPath(raw_p.replace("\\", "/")).parts
+        if parts and parts[0] in skills:
+            changed_slugs.add(parts[0])
+
+    for slug in sorted(changed_slugs):
+        prefix = f"{slug}:"
+        skill_dir = skills[slug]
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.is_file():
+            continue
+
+        try:
+            curr_fm = load_frontmatter(skill_md)
+            curr_ver_str = (curr_fm.get("metadata") or {}).get("version")
+            if not curr_ver_str:
+                continue
+            curr_ver = parse_semver(curr_ver_str)
+        except Exception as exc:
+            errors.append(f"{prefix} cannot parse current version: {exc}")
+            continue
+
+        # Fetch old version from git base
+        old_proc = subprocess.run(
+            ["git", "show", f"{base}:{slug}/SKILL.md"],
+            cwd=repo_root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if old_proc.returncode == 0:
+            try:
+                old_text = old_proc.stdout.decode("utf-8")
+                old_fm_match = FRONTMATTER_PATTERN.match(old_text)
+                if old_fm_match:
+                    old_fm = yaml.safe_load(old_fm_match.group("yaml")) or {}
+                    old_ver_str = (old_fm.get("metadata") or {}).get("version") or old_fm.get("version")
+                    if old_ver_str and SEMVER_PATTERN.fullmatch(old_ver_str):
+                        old_ver = parse_semver(old_ver_str)
+                        if curr_ver <= old_ver:
+                            errors.append(
+                                f"{prefix} version was not bumped after modifications; "
+                                f"current={curr_ver_str}, base {base}={old_ver_str}"
+                            )
+            except Exception:
+                pass
+
+        # Verify CHANGELOG has entry with content for curr_ver_str
+        changelog_path = skill_dir / "CHANGELOG.md"
+        if changelog_path.is_file():
+            cl_text = changelog_path.read_text(encoding="utf-8")
+            pattern = re.compile(
+                rf"^##\s+\[{re.escape(curr_ver_str)}\][^\n]*\n(?P<bodycontent>(?:(?!^##\s+\[).|\n)*)",
+                re.MULTILINE,
+            )
+            m = pattern.search(cl_text)
+            if not m:
+                errors.append(f"{prefix} CHANGELOG.md missing entry for version {curr_ver_str}")
+            else:
+                body = m.group("bodycontent").strip()
+                non_empty_lines = [
+                    l for l in body.splitlines() if l.strip() and not l.strip().startswith("#")
+                ]
+                if not non_empty_lines:
+                    errors.append(
+                        f"{prefix} CHANGELOG.md section ## [{curr_ver_str}] has no change description items"
+                    )
+
+    return errors
+
+
 def validate_repository(
     repo_root: Path = REPO_ROOT,
     selected_skills: Iterable[str] | None = None,
+    diff_base: str | None = None,
+    diff_head: str = "HEAD",
 ) -> list[str]:
     """Validate selected Skills, or the entire repository when selection is omitted."""
 
@@ -364,10 +536,15 @@ def validate_repository(
         targets = [skills[name] for name in selected if name in skills]
     else:
         targets = list(skills.values())
+        errors.extend(validate_manifest(repo_root, skills))
         errors.extend(validate_readme(repo_root, skills))
 
     for skill_dir in targets:
         errors.extend(validate_skill_dir(skill_dir))
+
+    if diff_base:
+        errors.extend(validate_version_bump(repo_root, diff_base, diff_head))
+
     return errors
 
 
@@ -385,12 +562,26 @@ def build_parser() -> argparse.ArgumentParser:
         dest="skills",
         help="validate one Skill; repeat for more, omit to validate the whole repository",
     )
+    parser.add_argument(
+        "--diff-base",
+        help="verify modified skills bumped version and updated CHANGELOG compared to git base",
+    )
+    parser.add_argument(
+        "--diff-head",
+        default="HEAD",
+        help="git head revision for diff comparison (default: HEAD)",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    errors = validate_repository(args.repo_root, args.skills)
+    errors = validate_repository(
+        args.repo_root,
+        args.skills,
+        diff_base=args.diff_base,
+        diff_head=args.diff_head,
+    )
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)

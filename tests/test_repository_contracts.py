@@ -9,9 +9,11 @@ from pathlib import Path
 
 import pytest
 
+from scripts.bump_skill_version import bump_skill
 from scripts.validate_repository import (
     discover_skill_dirs,
     load_frontmatter,
+    validate_manifest,
     validate_readme,
     validate_repository,
     validate_skill_dir,
@@ -33,12 +35,12 @@ def test_repository_structure_and_readme_are_valid() -> None:
         (
             "Analyze this FITS image file for gradients",
             "file_backed_image_analysis",
-            "$deep-sky-advisor",
+            "deep-sky-advisor",
         ),
         (
             "Process this deep-sky image and produce an image",
             "file_backed_pixel_processing",
-            "$deep-sky-processor",
+            "deep-sky-processor",
         ),
     ),
 )
@@ -189,3 +191,74 @@ def test_readme_validation_rejects_path_escape(tmp_path: Path) -> None:
         "local link escapes the repository" in error
         for error in validate_readme(tmp_path, skill_names)
     )
+
+
+def test_skills_manifest_matches_repository() -> None:
+    skills = discover_skill_dirs(REPO_ROOT)
+    assert validate_manifest(REPO_ROOT, skills) == []
+
+
+def test_bump_skill_version_workflow(tmp_path: Path) -> None:
+    skill = _copy_governance_fixture(tmp_path)
+    manifest_data = {
+        "version": "1.0.0",
+        "skills": {
+            skill.name: {"path": skill.name, "version": "0.1.0"}
+        },
+    }
+    manifest_path = tmp_path / "skills.manifest.json"
+    manifest_path.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
+
+    # Bump patch
+    old_v, new_v = bump_skill(
+        skill.name,
+        "patch",
+        message="Fix a bug in registration",
+        repo_root=tmp_path,
+        date_str="2026-09-23",
+    )
+    assert old_v == "0.1.0"
+    assert new_v == "0.1.1"
+
+    # Check SKILL.md
+    fm = load_frontmatter(skill / "SKILL.md")
+    assert fm["metadata"]["version"] == "0.1.1"
+    raw_md = (skill / "SKILL.md").read_text(encoding="utf-8")
+    assert 'version: "0.1.1"' in raw_md
+
+    # Check CHANGELOG.md
+    cl = (skill / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## [0.1.1] - 2026-09-23" in cl
+    assert "- Fix a bug in registration" in cl
+
+    # Check skills.manifest.json
+    m_content = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert m_content["skills"][skill.name]["version"] == "0.1.1"
+
+    # Bump minor
+    old_v, new_v = bump_skill(
+        skill.name,
+        "minor",
+        message="Add mineral moon feature",
+        repo_root=tmp_path,
+        date_str="2026-09-24",
+    )
+    assert old_v == "0.1.1"
+    assert new_v == "0.2.0"
+
+    # Test downgrade rejection
+    with pytest.raises(ValueError, match="strictly greater"):
+        bump_skill(
+            skill.name,
+            "0.1.5",
+            repo_root=tmp_path,
+        )
+
+
+def test_manifest_validation_rejects_mismatch(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "skills.manifest.json"
+    manifest_path.write_text(json.dumps({"skills": {}}, indent=2), encoding="utf-8")
+    errors = validate_manifest(tmp_path, ["skill-a"])
+    assert any("skills mismatch" in err for err in errors)
+
+

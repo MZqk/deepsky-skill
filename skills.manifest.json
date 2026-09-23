@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "skills": {
+    "deep-sky-advisor": {
+      "path": "deep-sky-advisor",
+      "version": "0.2.0"
+    },
+    "deep-sky-capture-advisor": {
+      "path": "deep-sky-capture-advisor",
+      "version": "1.0.3"
+    },
+    "deep-sky-processor": {
+      "path": "deep-sky-processor",
+      "version": "0.1.0"
+    },
+    "siril-moon-stacking": {
+      "path": "siril-moon-stacking",
+      "version": "1.0.1"
+    },
+    "siril-mosaic": {
+      "path": "siril-mosaic",
+      "version": "1.0.1"
+    },
+    "starun-siril": {
+      "path": "starun-siril",
+      "version": "0.1.0"
+    }
+  }
+}

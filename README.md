@@ -14,7 +14,9 @@
 | [`deep-sky-capture-advisor`](deep-sky-capture-advisor/) | 使用内置可追溯知识快照回答深空摄影器材、拍摄、后期与排障问题 | 带适用条件、审核状态与来源路径的建议 |
 | [`deep-sky-advisor`](deep-sky-advisor/) | 分析 FITS、XISF、TIFF、PNG 或 JPEG 深空图像，并给出有证据支持的后期建议 | 诊断数据、预览图、处理建议报告 |
 | [`deep-sky-processor`](deep-sky-processor/) | 在真实性约束下，通过分阶段审查完成深空图像后期 | 自然版和增强版 JPG，可选 TIFF 母版 |
+| [`siril-moon-stacking`](siril-moon-stacking/) | 融合 Siril 1.4.4 CLI 与亚像素频域配准，完成月面幸运成像堆叠与矿物月处理 | 32 位 FITS、TIFF 与高质量 JPG 成片 |
 | [`siril-mosaic`](siril-mosaic/) | 使用 Siril 自动解算、配准并拼接已堆栈天文面板 | 线性 32-bit FITS、显示预览和审计记录 |
+| [`starun-siril`](starun-siril/) | 以独立、可审计的 Siril CLI 会话处理已堆栈深空 master | 可审计的 .ssf 脚本与真实像素审查产物 |
 <!-- skills-index:end -->
 
 每个 Skill 的完整行为、约束和工作流均定义在对应目录的 `SKILL.md` 中。
@@ -27,7 +29,9 @@
 ├── deep-sky-capture-advisor/ # 自包含的深空摄影知识顾问
 ├── deep-sky-advisor/         # 深空图像诊断与后期建议
 ├── deep-sky-processor/       # AI 主导的深空图像处理工作流
-└── siril-mosaic/             # Siril 天文马赛克拼接与视觉验收
+├── siril-moon-stacking/      # 月面幸运成像堆叠与矿物月处理
+├── siril-mosaic/             # Siril 天文马赛克拼接与视觉验收
+└── starun-siril/             # 独立可审计的 Siril CLI 会话处理深空 master
 ```
 <!-- skills-tree:end -->
 
@@ -63,27 +67,13 @@ mkdir -p "$CODEX_SKILLS_DIR"
 ln -s "$(pwd)/deep-sky-capture-advisor" "$CODEX_SKILLS_DIR/deep-sky-capture-advisor"
 ln -s "$(pwd)/deep-sky-advisor" "$CODEX_SKILLS_DIR/deep-sky-advisor"
 ln -s "$(pwd)/deep-sky-processor" "$CODEX_SKILLS_DIR/deep-sky-processor"
+ln -s "$(pwd)/siril-moon-stacking" "$CODEX_SKILLS_DIR/siril-moon-stacking"
 ln -s "$(pwd)/siril-mosaic" "$CODEX_SKILLS_DIR/siril-mosaic"
+ln -s "$(pwd)/starun-siril" "$CODEX_SKILLS_DIR/starun-siril"
 ```
 <!-- skills-install:end -->
 
-四个 Skill 使用彼此独立的 Python 3.12 虚拟环境。从仓库根目录执行：
-
-```bash
-python3.12 -m venv deep-sky-capture-advisor/.venv
-deep-sky-capture-advisor/.venv/bin/python -m pip install -r deep-sky-capture-advisor/requirements-dev.txt
-
-python3.12 -m venv deep-sky-advisor/.venv
-deep-sky-advisor/.venv/bin/python -m pip install -r deep-sky-advisor/requirements-dev.txt
-
-python3.12 -m venv deep-sky-processor/.venv
-deep-sky-processor/.venv/bin/python -m pip install -r deep-sky-processor/requirements-dev.txt
-
-python3.12 -m venv siril-mosaic/.venv
-siril-mosaic/.venv/bin/python -m pip install -r siril-mosaic/requirements-dev.txt
-```
-
-`deep-sky-capture-advisor` 的运行脚本只使用 Python 标准库；`deep-sky-advisor` 和 `deep-sky-processor` 的运行依赖分别声明在各自的 `requirements.txt` 中。`siril-mosaic` 的 Python 入口只使用标准库，但实际拼接要求 Siril 1.4+；缺少可靠 WCS 时还可能需要已配置索引的本机 Astrometry.net。
+六个 Skill 使用彼此独立的 Python 虚拟环境。
 
 ## 使用
 
@@ -97,7 +87,11 @@ siril-mosaic/.venv/bin/python -m pip install -r siril-mosaic/requirements-dev.tx
 
 使用 $deep-sky-processor 将这张星云图处理为自然版和增强版 JPG。
 
+使用 $siril-moon-stacking 对这组月面 RAW/SER 序列进行亚像素对齐与矿物月增强。
+
 使用 $siril-mosaic 将这个目录中的已堆栈面板拼成完整天文马赛克。
+
+使用 $starun-siril 在独立 Siril 会话中对已堆栈 deep-sky master 进行背景扣除与拉伸。
 ```
 <!-- skills-usage:end -->
 

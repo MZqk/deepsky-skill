@@ -1,12 +1,16 @@
 ---
 name: siril-moon-stacking
-slug: siril-moon-stacking
-displayName: Siril Moon Stacking
-version: 1.0.1
-license: Proprietary
 description: |
   AI-directed lunar lucky imaging and surface astrophotography processor combining Siril 1.4.4 CLI with Python sub-pixel FFT registration. Use when the user wants to align, stack, wavelet-deconvolve, and enhance lunar RAW/SER/FITS image sequences, correct atmospheric dispersion, or produce mineral moon color images under authenticity constraints.
   AI 主导的月面天文摄影与幸运成像处理助手。融合 Siril 1.4.4 CLI 与 Python 亚像素频域配准插件，支持月球单帧连拍与 SER/FITS 序列的选帧堆叠、小波反卷积、色散校正与矿物月色彩提取。
+license: Proprietary
+metadata:
+  slug: siril-moon-stacking
+  version: "1.0.1"
+  displayName: Siril Moon Stacking
+  summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
+  tags: [astronomy, lunar, siril, lucky-imaging]
+  homepage: https://github.com/MZqk/deepsky-skill
 ---
 
 # Siril Moon Stacking

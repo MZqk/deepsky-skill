@@ -80,7 +80,8 @@ def _load_luminance_thumbnail(
                 thumb = img.convert("L").resize(
                     (target_dim, target_dim), Image.Resampling.BILINEAR
                 )
-                raw_data = list(thumb.getdata())
+                getter = getattr(thumb, "get_flattened_data", None) or thumb.getdata
+                raw_data = list(getter())
                 lum_grid = [
                     [
                         raw_data[y * target_dim + x] / 255.0
@@ -109,29 +110,68 @@ def _load_luminance_thumbnail(
                     break
             data_offset = len(header_bytes)
 
-        # Read dimensions and bitpix
+        # Read dimensions, channels, bitpix, and bzero
         header_text = header_bytes.decode("ascii", errors="ignore")
         bitpix = -32
+        bzero = 0.0
+        bscale = 1.0
+        naxis3 = 1
         for card in [header_text[i : i + 80] for i in range(0, len(header_text), 80)]:
             if card.startswith("BITPIX  "):
                 try:
                     bitpix = int(card[10:30].strip())
                 except ValueError:
                     pass
+            elif card.startswith("BZERO   "):
+                try:
+                    bzero = float(card[10:30].strip())
+                except ValueError:
+                    pass
+            elif card.startswith("BSCALE  "):
+                try:
+                    bscale = float(card[10:30].strip())
+                except ValueError:
+                    pass
+            elif card.startswith("NAXIS3  "):
+                try:
+                    naxis3 = int(card[10:30].strip())
+                except ValueError:
+                    pass
 
-        dtype_map = {-32: ">f4", -64: ">f8", 16: ">i2", 32: ">i4", 8: ">u1"}
-        dtype = dtype_map.get(bitpix, ">f4")
-        step_x = max(1, orig_w // target_dim)
-        step_y = max(1, orig_h // target_dim)
+        # Select numpy dtype
+        if bitpix == 16:
+            dtype = ">i2"
+        elif bitpix == 8:
+            dtype = ">u1"
+        elif bitpix == 32:
+            dtype = ">i4"
+        elif bitpix in (-32, -64):
+            dtype = ">f4" if bitpix == -32 else ">f8"
+        else:
+            dtype = ">f4"
 
+        shape = (naxis3, orig_h, orig_w) if naxis3 > 1 else (orig_h, orig_w)
         mmap_arr = np.memmap(
             source_path,
             dtype=dtype,
             mode="r",
             offset=data_offset,
-            shape=(orig_h, orig_w),
+            shape=shape,
         )
-        sub = mmap_arr[::step_y, ::step_x][:target_dim, :target_dim].astype(float)
+
+        step_x = max(1, orig_w // target_dim)
+        step_y = max(1, orig_h // target_dim)
+
+        if naxis3 >= 3:
+            # Green channel (index 1) has best SNR for luminance
+            layer = mmap_arr[1]
+        elif naxis3 == 2:
+            layer = mmap_arr[0]
+        else:
+            layer = mmap_arr
+
+        raw_sub = layer[::step_y, ::step_x][:target_dim, :target_dim].astype(np.float64)
+        sub = raw_sub * bscale + bzero
         # Normalize to 0..1
         min_v = float(np.percentile(sub, 1))
         max_v = float(np.percentile(sub, 99))
@@ -330,9 +370,9 @@ def generate_background_samples(
     seen_coords: set[tuple[float, float]] = set()
 
     for idx, (tx, ty, _) in enumerate(selected_candidates, 1):
-        # Center in original coordinate space
-        orig_x = round(min(orig_w - 1.0, max(0.0, (tx + 0.5) * scale_x)), 2)
-        orig_y = round(min(orig_h - 1.0, max(0.0, (ty + 0.5) * scale_y)), 2)
+        # Center in original coordinate space (integer pixel center)
+        orig_x = float(int(min(orig_w - 1, max(0, (tx + 0.5) * scale_x))))
+        orig_y = float(int(min(orig_h - 1, max(0, (ty + 0.5) * scale_y))))
         coord = (orig_x, orig_y)
         if coord in seen_coords:
             continue

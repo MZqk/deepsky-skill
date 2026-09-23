@@ -57,6 +57,7 @@ _PYTHON_ERROR_LINE = re.compile(
 _JPEG_EXIF_ERROR = "Error: Unable to read EXIF metadata"
 _BROKEN_PIPE_ERROR = "BrokenPipeError: [Errno 32] Broken pipe"
 _BROKEN_PIPE_COMPANION = "Exception ignored while flushing sys.stdout:"
+_DENOISE_COPYFITS_ERROR = "error: no suitable data in src fits"
 _SCRIPT_SUCCESS = "log: Script execution finished successfully."
 _AUTOSTRETCH_MTF = re.compile(
     rf"Applying MTF with values\s+"
@@ -167,6 +168,29 @@ def diagnose_siril_log(
             if previous >= 0 and normalized[previous] == _BROKEN_PIPE_COMPANION:
                 safe_broken_pipe_companions.add(previous)
 
+    safe_denoise_lines: set[int] = set()
+    for index, line in enumerate(normalized):
+        if line.lower() != _DENOISE_COPYFITS_ERROR:
+            continue
+        if (
+            exit_code == 0
+            and not timed_out
+            and execution_valid
+            and any(success_index > index for success_index in success_lines)
+        ):
+            preceding_denoise = any(
+                "running command: denoise" in normalized[k].lower()
+                or "running command denoise" in normalized[k].lower()
+                for k in range(max(0, index - 5), index)
+            )
+            following_nlbayes = any(
+                "nl-bayes denoise" in normalized[k].lower()
+                or "nl-bayes auto" in normalized[k].lower()
+                for k in range(index + 1, min(len(normalized), index + 10))
+            )
+            if preceding_denoise and following_nlbayes:
+                safe_denoise_lines.add(index)
+
     findings: list[dict[str, Any]] = []
 
     def finding(index: int, *, code: str, severity: str) -> None:
@@ -195,6 +219,12 @@ def diagnose_siril_log(
                 finding(index, code="unclassified_siril_error", severity="fatal")
             continue
         if line == _BROKEN_PIPE_COMPANION and index in safe_broken_pipe_companions:
+            continue
+        if line.lower() == _DENOISE_COPYFITS_ERROR:
+            if index in safe_denoise_lines:
+                finding(index, code="denoise_copyfits_nonfatal", severity="warning")
+            else:
+                finding(index, code="unclassified_siril_error", severity="fatal")
             continue
         if _looks_like_runtime_error(line):
             finding(index, code="unclassified_siril_error", severity="fatal")

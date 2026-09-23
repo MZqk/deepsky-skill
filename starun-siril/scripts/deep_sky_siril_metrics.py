@@ -73,19 +73,31 @@ def parse_stars_tsv(path: Path) -> dict[str, Any]:
 
         header_idx = -1
         col_fwhm = -1
+        col_fwhmx = -1
+        col_fwhmy = -1
         col_roundness = -1
 
-        for i, line in enumerate(lines[:10]):
+        for i, line in enumerate(lines[:15]):
             clean = line.strip().lower()
-            if not clean or clean.startswith("#"):
+            if not clean:
                 continue
+            if clean.startswith("#"):
+                clean = clean.lstrip("#").strip()
             parts = re.split(r"[\t,]+", clean) if "\t" in clean or "," in clean else clean.split()
+            found_header = False
             for col_i, part in enumerate(parts):
-                if "fwhm" in part:
+                if "fwhmx" in part and ("px" in part or "[" not in part):
+                    col_fwhmx = col_i
+                    found_header = True
+                elif "fwhmy" in part and ("px" in part or "[" not in part):
+                    col_fwhmy = col_i
+                    found_header = True
+                elif "fwhm" in part and "[" not in part:
                     col_fwhm = col_i
+                    found_header = True
                 elif part.startswith("round") or part == "roundness" or "eccent" in part:
                     col_roundness = col_i
-            if col_fwhm != -1:
+            if found_header:
                 header_idx = i
                 break
 
@@ -100,10 +112,25 @@ def parse_stars_tsv(path: Path) -> dict[str, Any]:
                 else line_str.split()
             )
             try:
-                if col_fwhm != -1 and col_fwhm < len(parts):
-                    val = float(parts[col_fwhm])
-                    if math.isfinite(val) and 0.1 < val < 50.0:
-                        fwhms.append(val)
+                val = None
+                if (
+                    col_fwhmx != -1
+                    and col_fwhmy != -1
+                    and col_fwhmx < len(parts)
+                    and col_fwhmy < len(parts)
+                ):
+                    vx = float(parts[col_fwhmx])
+                    vy = float(parts[col_fwhmy])
+                    if math.isfinite(vx) and math.isfinite(vy) and 0.1 < vx < 50.0 and 0.1 < vy < 50.0:
+                        val = (vx + vy) / 2.0
+                        if col_roundness == -1 and max(vx, vy) > 0:
+                            roundness_list.append(min(vx, vy) / max(vx, vy))
+                elif col_fwhm != -1 and col_fwhm < len(parts):
+                    v = float(parts[col_fwhm])
+                    if math.isfinite(v) and 0.1 < v < 50.0:
+                        val = v
+                if val is not None:
+                    fwhms.append(val)
                 if col_roundness != -1 and col_roundness < len(parts):
                     r_val = float(parts[col_roundness])
                     if math.isfinite(r_val) and 0.0 <= r_val <= 1.0:
@@ -167,7 +194,10 @@ def analyze_image_histogram(image_path: Path) -> dict[str, Any]:
                 data_offset = len(header)
 
             header_text = header.decode("ascii", errors="ignore")
-            w, h = 0, 0
+            w, h, c = 0, 0, 1
+            bitpix = -32
+            bzero = 0.0
+            bscale = 1.0
             for card in [header_text[i : i + 80] for i in range(0, len(header_text), 80)]:
                 if card.startswith("NAXIS1  "):
                     try:
@@ -179,10 +209,46 @@ def analyze_image_histogram(image_path: Path) -> dict[str, Any]:
                         h = int(card[10:30].strip())
                     except ValueError:
                         pass
+                elif card.startswith("NAXIS3  "):
+                    try:
+                        c = int(card[10:30].strip())
+                    except ValueError:
+                        pass
+                elif card.startswith("BITPIX  "):
+                    try:
+                        bitpix = int(card[10:30].strip())
+                    except ValueError:
+                        pass
+                elif card.startswith("BZERO   "):
+                    try:
+                        bzero = float(card[10:30].strip())
+                    except ValueError:
+                        pass
+                elif card.startswith("BSCALE  "):
+                    try:
+                        bscale = float(card[10:30].strip())
+                    except ValueError:
+                        pass
 
-            total_valid_pixels = w * h if (w > 0 and h > 0) else None
+            if bitpix == 16:
+                dtype = ">i2"
+                norm_factor = 65535.0 if bzero >= 32767.0 else 32767.0
+            elif bitpix == 8:
+                dtype = ">u1"
+                norm_factor = 255.0
+            elif bitpix == 32:
+                dtype = ">i4"
+                norm_factor = 2147483647.0
+            elif bitpix in (-32, -64):
+                dtype = ">f4" if bitpix == -32 else ">f8"
+                norm_factor = 1.0
+            else:
+                dtype = ">f4"
+                norm_factor = 1.0
+
+            total_valid_pixels = w * h * c if (w > 0 and h > 0) else None
             data_arr = np.memmap(
-                resolved, dtype=">f4", mode="r", offset=data_offset
+                resolved, dtype=dtype, mode="r", offset=data_offset
             )
             if total_valid_pixels is not None and total_valid_pixels <= len(data_arr):
                 data_slice = data_arr[:total_valid_pixels]
@@ -190,7 +256,10 @@ def analyze_image_histogram(image_path: Path) -> dict[str, Any]:
                 data_slice = data_arr
 
             stride = max(1, len(data_slice) // 65536)
-            sub = data_slice[::stride].astype(float)
+            sub = data_slice[::stride].astype(np.float64) * bscale + bzero
+            if norm_factor != 1.0:
+                sub = sub / norm_factor
+            sub = np.clip(sub, 0.0, 1.0)
             pixels = sub.tolist()
         except Exception:
             pass
@@ -212,10 +281,11 @@ def analyze_image_histogram(image_path: Path) -> dict[str, Any]:
     p95 = sorted_p[int(n * 0.95)]
     dynamic_span = max(0.0, p95 - p05)
 
-    # Linearity diagnosis: linear astronomical masters exhibit extreme positive skewness (> 4.0)
-    is_linear = skew > 3.8 and med_val < 0.08
+    # Linearity diagnosis: linear astronomical masters exhibit extreme positive skewness (> 3.5)
+    # and tightly clustered pixel mass (narrow dynamic_span < 0.08)
+    is_linear = skew > 3.5 and dynamic_span < 0.08 and med_val < 0.35
     state_recommendation = "linear" if is_linear else "nonlinear"
-    conf = min(0.99, max(0.50, abs(skew - 3.8) / 4.0 + 0.50))
+    conf = min(0.99, max(0.50, abs(skew - 3.5) / 4.0 + 0.50))
 
     return {
         "sample_count": n,

@@ -1056,20 +1056,33 @@ def _try_generate_run_metrics(
 
         candidate: Path | None = None
         stars_tsv: Path | None = None
+        image_candidates: list[Path] = []
         for out in expected_paths:
             name_lower = out.name.lower()
             if name_lower.endswith(".tsv") and "star" in name_lower and out.is_file():
                 stars_tsv = out
-            elif candidate is None and any(
+            elif any(
                 name_lower.endswith(ext)
                 for ext in (".fit", ".fits", ".jpg", ".jpeg", ".png", ".tif", ".tiff")
             ) and out.is_file():
-                candidate = out
+                image_candidates.append(out)
 
         if stars_tsv is None:
             c_stars = session / "reports" / run_id / "stars.tsv"
             if c_stars.is_file():
                 stars_tsv = c_stars
+
+        if image_candidates:
+            def _candidate_rank(p: Path) -> tuple[int, int, int, int]:
+                s = p.as_posix()
+                is_report_or_psf = 1 if ("/reports/" in s or "psf" in p.name.lower()) else 0
+                is_preview = 1 if "/previews/" in s else 0
+                is_artifact = 0 if "/artifacts/" in s else 1
+                matches_run = 0 if p.name.startswith(run_id) else 1
+                return (is_report_or_psf, is_preview, is_artifact, matches_run)
+
+            image_candidates.sort(key=_candidate_rank)
+            candidate = image_candidates[0]
 
         if candidate is not None and candidate.is_file():
             metrics_out = session / "reports" / run_id / "metrics.json"
