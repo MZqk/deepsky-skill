@@ -223,24 +223,19 @@ def cmd_import(args) -> None:
 # ----------------------------------------------------------------- 2. register
 
 def _locate_high_contrast_roi(plane, roi_size: int = 1024, downsample: int = 4) -> tuple[int, int, int, int]:
-    """Locate the lunar terrain region with maximum texture gradient (e.g. crater cluster or terminator).
-    Insensitive to lunar phase, crescent moon, and ignores pure dark space or flat seas.
-    """
+    """Locate the primary lunar terrain region with maximum texture gradient."""
     import cv2
     import numpy as np
 
     h, w = plane.shape
     small = cv2.resize(plane, (w // downsample, h // downsample), interpolation=cv2.INTER_AREA)
 
-    # Gradient energy
     gx = cv2.Sobel(small, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(small, cv2.CV_32F, 0, 1, ksize=3)
     grad_mag = np.sqrt(gx * gx + gy * gy)
 
-    # Mask out background space
     thr = small.mean() + 0.5 * small.std()
-    mask = small > thr
-    grad_mag[~mask] = 0.0
+    grad_mag[small <= thr] = 0.0
 
     sh, sw = small.shape
     s_roi = max(32, roi_size // downsample)
@@ -267,6 +262,89 @@ def _locate_high_contrast_roi(plane, roi_size: int = 1024, downsample: int = 4) 
     x1 = min(w, x0 + roi_size)
     y1 = min(h, y0 + roi_size)
     return x0, y0, x1, y1
+
+
+def _locate_dual_anchor_rois(plane, roi_size: int = 512, downsample: int = 4) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int] | None]:
+    """Locate two distinct, well-separated high-contrast lunar terrain ROIs for rigid rotation estimation."""
+    import cv2
+    import numpy as np
+
+    h, w = plane.shape
+    small = cv2.resize(plane, (w // downsample, h // downsample), interpolation=cv2.INTER_AREA)
+
+    gx = cv2.Sobel(small, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(small, cv2.CV_32F, 0, 1, ksize=3)
+    grad_mag = np.sqrt(gx * gx + gy * gy)
+
+    thr = small.mean() + 0.5 * small.std()
+    grad_mag[small <= thr] = 0.0
+
+    sh, sw = small.shape
+    s_roi = max(32, roi_size // downsample)
+    step = max(8, s_roi // 2)
+
+    candidates = []
+    for sy in range(0, max(1, sh - s_roi), step):
+        for sx in range(0, max(1, sw - s_roi), step):
+            score = float(grad_mag[sy : sy + s_roi, sx : sx + s_roi].sum())
+            candidates.append((score, sx + s_roi // 2, sy + s_roi // 2))
+
+    if not candidates:
+        r1 = _locate_high_contrast_roi(plane, roi_size=roi_size, downsample=downsample)
+        return r1, None
+
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    best1 = candidates[0]
+    cx1 = best1[1] * downsample
+    cy1 = best1[2] * downsample
+
+    half = roi_size // 2
+    r1 = (
+        int(min(max(cx1 - half, 0), max(w - roi_size, 0))),
+        int(min(max(cy1 - half, 0), max(h - roi_size, 0))),
+        min(w, int(min(max(cx1 - half, 0), max(w - roi_size, 0))) + roi_size),
+        min(h, int(min(max(cy1 - half, 0), max(h - roi_size, 0))) + roi_size),
+    )
+
+    # Secondary anchor must be sufficiently far away (at least 1/4 of frame dimension)
+    min_distance = min(w, h) // 4
+    best2 = None
+    for cand in candidates[1:]:
+        c_x = cand[1] * downsample
+        c_y = cand[2] * downsample
+        if np.hypot(c_x - cx1, c_y - cy1) >= min_distance:
+            best2 = cand
+            break
+
+    if not best2:
+        return r1, None
+
+    cx2 = best2[1] * downsample
+    cy2 = best2[2] * downsample
+    r2 = (
+        int(min(max(cx2 - half, 0), max(w - roi_size, 0))),
+        int(min(max(cy2 - half, 0), max(h - roi_size, 0))),
+        min(w, int(min(max(cx2 - half, 0), max(w - roi_size, 0))) + roi_size),
+        min(h, int(min(max(cy2 - half, 0), max(h - roi_size, 0))) + roi_size),
+    )
+    return r1, r2
+
+
+def _compute_rigid_homography(theta: float, dx: float, dy: float, cx: float, cy: float) -> str:
+    """Format Siril R0 homography matrix for rigid rotation (theta in rad) + translation (dx, dy).
+    Coordinates follow Siril FITS convention: Y=0 at bottom, increasing upwards.
+    """
+    import math
+
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    h11 = cos_t
+    h12 = sin_t
+    h13 = cx * (1.0 - cos_t) - cy * sin_t - dx
+    h21 = -sin_t
+    h22 = cos_t
+    h23 = cy * (1.0 - cos_t) + cx * sin_t + dy
+    return f"H {h11:.6f} {h12:.6f} {h13:.4f} {h21:.6f} {h22:.6f} {h23:.4f} 0 0 1"
 
 
 def _read_frame_plane(path: Path):
@@ -458,10 +536,67 @@ def cmd_register(args) -> None:
     ref_dy = best_item["coarse_dy"]
     log(f"selected reference frame: #{ref_idx} (sharpness={best_item['sharpness']:.1f}, resp={best_item['resp']:.2f})")
 
-    # Compute final shift relative to best reference frame
+    # Pass 2: Dual-anchor rigid transformation estimation (field rotation theta + translation dx, dy)
+    import math
+
+    ref_item = next(it for it in image_files if it["index"] == ref_idx)
+    ref_plane = _read_frame_plane(ref_item["path"])
+    fh, fw = ref_plane.shape
+    cx_img, cy_img = fw / 2.0, fh / 2.0
+
+    dual_roi1, dual_roi2 = _locate_dual_anchor_rois(ref_plane, roi_size=min(args.roi, 512))
+    has_dual_anchor = dual_roi2 is not None
+    if has_dual_anchor:
+        log(f"dual anchors localized for rigid rotation: Anchor 1={dual_roi1}, Anchor 2={dual_roi2}")
+        p1_center = ((dual_roi1[0] + dual_roi1[2]) / 2.0, (dual_roi1[1] + dual_roi1[3]) / 2.0)
+        p2_center = ((dual_roi2[0] + dual_roi2[2]) / 2.0, (dual_roi2[1] + dual_roi2[3]) / 2.0)
+        ref_p1 = ref_plane[dual_roi1[1]:dual_roi1[3], dual_roi1[0]:dual_roi1[2]]
+        ref_p2 = ref_plane[dual_roi2[1]:dual_roi2[3], dual_roi2[0]:dual_roi2[2]]
+        vec_ref = (p2_center[0] - p1_center[0], p2_center[1] - p1_center[1])
+        angle_ref = math.atan2(vec_ref[1], vec_ref[0])
+    else:
+        log(f"single anchor localized: {dual_roi1}")
+        ref_p1 = ref_plane[dual_roi1[1]:dual_roi1[3], dual_roi1[0]:dual_roi1[2]]
+
     for it in image_files:
-        it["dx"] = it["coarse_dx"] - ref_dx
-        it["dy"] = it["coarse_dy"] - ref_dy
+        plane = _read_frame_plane(it["path"])
+        dx_c = it["coarse_dx"] - ref_dx
+        dy_c = it["coarse_dy"] - ref_dy
+
+        sx0 = int(round(dual_roi1[0] + dx_c))
+        sy0 = int(round(dual_roi1[1] + dy_c))
+        sx1 = sx0 + (dual_roi1[2] - dual_roi1[0])
+        sy1 = sy0 + (dual_roi1[3] - dual_roi1[1])
+        if sx0 >= 0 and sy0 >= 0 and sx1 <= fw and sy1 <= fh:
+            target_p1 = plane[sy0:sy1, sx0:sx1]
+            f_dx1, f_dy1, resp1 = _subpixel_phase_correlation(ref_p1, target_p1)
+            total_dx = dx_c + f_dx1
+            total_dy = dy_c + f_dy1
+        else:
+            total_dx, total_dy = dx_c, dy_c
+
+        theta = 0.0
+        if has_dual_anchor:
+            sx2_0 = int(round(dual_roi2[0] + dx_c))
+            sy2_0 = int(round(dual_roi2[1] + dy_c))
+            sx2_1 = sx2_0 + (dual_roi2[2] - dual_roi2[0])
+            sy2_1 = sy2_0 + (dual_roi2[3] - dual_roi2[1])
+            if sx2_0 >= 0 and sy2_0 >= 0 and sx2_1 <= fw and sy2_1 <= fh:
+                target_p2 = plane[sy2_0:sy2_1, sx2_0:sx2_1]
+                f_dx2, f_dy2, resp2 = _subpixel_phase_correlation(ref_p2, target_p2)
+                if resp2 >= 0.15:
+                    p2_mov = (p2_center[0] + dx_c + f_dx2, p2_center[1] + dy_c + f_dy2)
+                    p1_mov = (p1_center[0] + total_dx, p1_center[1] + total_dy)
+                    vec_mov = (p2_mov[0] - p1_mov[0], p2_mov[1] - p1_mov[1])
+                    angle_mov = math.atan2(vec_mov[1], vec_mov[0])
+                    d_theta = -(angle_mov - angle_ref)
+                    if abs(d_theta) < 0.1:  # Physical limit: within ~5.7 degrees
+                        theta = d_theta
+
+        it["dx"] = total_dx
+        it["dy"] = total_dy
+        it["theta"] = theta
+        it["homography"] = _compute_rigid_homography(theta, total_dx, total_dy, cx_img, cy_img)
 
     # Determine adaptive keep percentage if not explicitly provided
     keep_pct = getattr(args, "keep_percent", None)
@@ -495,7 +630,7 @@ def cmd_register(args) -> None:
     )
 
     new_seq_lines = [
-        "#Siril sequence file. Generated by moon-stacking with subpixel registration",
+        "#Siril sequence file. Generated by moon-stacking with rigid homography registration",
         new_s_line,
         "L 3",
     ]
@@ -503,12 +638,7 @@ def cmd_register(args) -> None:
         new_seq_lines.append(f"I {it['index']} {1 if it['selected'] else 0}")
 
     for it in image_files:
-        # Homography line: R0 [fwhmX] [fwhmY] [round] [ang] [bg] [stars] H 1 0 H13 0 1 H23 0 0 1
-        # NOTE: In FITS, Y=0 is bottom and increases upward (opposite to NumPy row indexing).
-        # A downward shift (+dy in NumPy) corresponds to a -dy shift in FITS coordinates.
-        # To align moving frame to reference in FITS, Siril requires H23 = +dy (not -dy).
-        dx, dy = it["dx"], it["dy"]
-        new_seq_lines.append(f"R0 1.0 1.0 1.0 0 0.0 1 H 1 0 {-dx:.4f} 0 1 {dy:.4f} 0 0 1")
+        new_seq_lines.append(f"R0 1.0 1.0 1.0 0 0.0 1 {it['homography']}")
 
     seq_path.write_text("\n".join(new_seq_lines) + "\n", encoding="utf-8")
     log(f"updated Siril sequence file: {seq_path}")
@@ -516,7 +646,7 @@ def cmd_register(args) -> None:
     ranking_data = {
         "sequence": seq_name,
         "reference_index": ref_idx,
-        "roi": [rx0, ry0, rx1, ry1],
+        "dual_anchors": [dual_roi1, dual_roi2] if has_dual_anchor else [dual_roi1],
         "total_frames": len(image_files),
         "kept_frames": len(kept_indices),
         "keep_percent": keep_pct,
@@ -526,7 +656,8 @@ def cmd_register(args) -> None:
                 "file": it["file"],
                 "sharpness": it["sharpness"],
                 "response": it["resp"],
-                "shift": [it["dx"], it["dy"]],
+                "shift": [round(it["dx"], 4), round(it["dy"], 4)],
+                "rotation_deg": round(math.degrees(it["theta"]), 4),
                 "selected": it["selected"],
             }
             for it in image_files
@@ -571,21 +702,33 @@ def cmd_stack(args) -> None:
 
     framing = getattr(args, "framing", "min")
     maximize_flag = " -maximize" if framing == "max" else ""
+
+    interp_raw = getattr(args, "interp", "cu")
+    interp_map = {
+        "linear": "li", "bilinear": "li", "li": "li",
+        "cubic": "cu", "bicubic": "cu", "cu": "cu",
+        "lanczos": "la", "lanczos4": "la", "la": "la",
+        "none": "no", "no": "no"
+    }
+    interp = interp_map.get(str(interp_raw).lower(), "cu")
+
     lines = [
         "requires 1.4.4",
-        # Multithreaded subpixel bicubic resampling and framing
-        f"seqapplyreg {seq_name} -framing={framing} -interp=cu -filter-incl",
+        # Multithreaded subpixel resampling with strict clamping (no -noclamp) to avoid undershoot overflows
+        f"seqapplyreg {seq_name} -framing={framing} -interp={interp} -filter-incl",
         f"{stack_cmd}{maximize_flag}",
         "exit",
     ]
 
-    log(f"executing Siril seqapplyreg (framing={framing}) & stack pipeline...")
+    log(f"executing Siril seqapplyreg (framing={framing}, interp={interp}, clamped) & stack pipeline...")
     receipt = run_siril_script(args.siril, lines, work, logs_dir / "02_align_stack.log", args.timeout)
     if receipt["exit_code"] != 0 or not master.exists():
         die(f"stacking failed (exit {receipt['exit_code']}); see {receipt['log']}")
 
+    receipt["interp"] = interp
+    receipt["framing"] = framing
     dump_json(work / "stack_receipt.json", receipt)
-    log(f"master stack generated successfully: {master}")
+    log(f"master stack generated successfully: {master} (interp={interp})")
 
 
 # -------------------------------------------------------------- 4. postprocess
@@ -647,38 +790,64 @@ def cmd_postprocess(args) -> None:
         bg_r = float(np.median(d[0, :100, :100]))
         bg_g = float(np.median(d[1, :100, :100]))
         bg_b = float(np.median(d[2, :100, :100]))
-        # Measure lunar highlight peaks per channel (99.9th percentile)
-        p99_r = float(np.percentile(d[0], 99.9))
-        p99_g = float(np.percentile(d[1], 99.9))
-        p99_b = float(np.percentile(d[2], 99.9))
+        # Measure lunar highlight peaks per channel (99.95th percentile with 10% dynamic headroom)
+        p999_r = float(np.percentile(d[0], 99.95))
+        p999_g = float(np.percentile(d[1], 99.95))
+        p999_b = float(np.percentile(d[2], 99.95))
 
-        hi_r = max(p99_r * 1.05, bg_r + 0.005)
-        hi_g = max(p99_g * 1.05, bg_g + 0.005)
-        hi_b = max(p99_b * 1.05, bg_b + 0.005)
+        hi_r = max(p999_r * 1.10, bg_r + 0.01)
+        hi_g = max(p999_g * 1.10, bg_g + 0.01)
+        hi_b = max(p999_b * 1.10, bg_b + 0.01)
 
-        log(f"calibrating planetary white balance (bg=[{bg_r:.5f}, {bg_g:.5f}, {bg_b:.5f}], hi=[{hi_r:.5f}, {hi_g:.5f}, {hi_b:.5f}])")
+        mid_val = getattr(args, "midtone", 0.13)
+        log(f"calibrating planetary white balance with highlight protection (bg=[{bg_r:.5f}, {bg_g:.5f}, {bg_b:.5f}], hi=[{hi_r:.5f}, {hi_g:.5f}, {hi_b:.5f}], midtone={mid_val})")
         mtf_lines = [
-            f"mtf {bg_r:.6f} 0.20 {hi_r:.6f} R",
-            f"mtf {bg_g:.6f} 0.20 {hi_g:.6f} G",
-            f"mtf {bg_b:.6f} 0.20 {hi_b:.6f} B",
+            f"mtf {bg_r:.6f} {mid_val:.2f} {hi_r:.6f} R",
+            f"mtf {bg_g:.6f} {mid_val:.2f} {hi_g:.6f} G",
+            f"mtf {bg_b:.6f} {mid_val:.2f} {hi_b:.6f} B",
             "rmgreen 1 0.8",
         ]
     else:
         plane = d if d.ndim == 2 else d[0]
         bg_val = float(np.median(plane[:100, :100]))
-        p99_val = float(np.percentile(plane, 99.9))
-        hi_val = max(p99_val * 1.05, bg_val + 0.005)
+        p999_val = float(np.percentile(plane, 99.95))
+        hi_val = max(p999_val * 1.10, bg_val + 0.01)
+        mid_val = getattr(args, "midtone", 0.13)
         mtf_lines = [
-            f"mtf {bg_val:.6f} 0.20 {hi_val:.6f}",
+            f"mtf {bg_val:.6f} {mid_val:.2f} {hi_val:.6f}",
         ]
+
+    # Detect interpolation method from stack receipt for interp-aware wavelet tuning
+    interp_used = "cu"
+    stack_receipt_file = work / "stack_receipt.json"
+    if stack_receipt_file.exists():
+        try:
+            sr = load_json(stack_receipt_file)
+            interp_used = sr.get("interp", "cu")
+        except Exception:
+            pass
+
+    wavelet_l1 = getattr(args, "wavelet_l1", None)
+    if wavelet_l1 is None:
+        if interp_used == "li":
+            wavelet_l1 = 1.10
+            wrecons_cmd = "wrecons 1.10 1.22 1.25 1.15 1.00 1.00"
+            log(f"interp-aware wavelet tuning: using {wrecons_cmd} (bilinear MTF compensation mode)")
+        else:
+            wavelet_l1 = 1.05
+            wrecons_cmd = "wrecons 1.05 1.20 1.25 1.15 1.00 1.00"
+            log(f"interp-aware wavelet tuning: using {wrecons_cmd} (bicubic overshoot-suppression mode)")
+    else:
+        wrecons_cmd = f"wrecons {wavelet_l1:.2f} 1.20 1.25 1.15 1.00 1.00"
+        log(f"custom wavelet tuning: using {wrecons_cmd}")
 
     # Full professional lunar post-processing chain:
     # 1. Airy / Gaussian Deconvolution (Split Bregman / Wiener / RL)
-    # 2. Planetary channel MTF white balance & stretch
+    # 2. Planetary channel MTF white balance & stretch with highlight protection
     # 3. CLAHE local adaptive contrast enhancement
-    # 4. Multiscale 'à trous' B-Spline wavelet detail reconstruction
+    # 4. Multiscale 'à trous' B-Spline wavelet detail reconstruction (frequency-inverted)
     # 5. Fine unsharp mask for micro-contrast
-    # 6. Progressive mineral saturation boost
+    # 6. Progressive mineral saturation boost (preserving neutral black space)
     lines = [
         "requires 1.4.4",
         f"load {master.name}",
@@ -687,17 +856,17 @@ def cmd_postprocess(args) -> None:
         *mtf_lines,
         # 3. CLAHE local contrast
         "clahe 1.5 32",
-        # 4. 5-layer B-spline wavelet transform
+        # 4. 5-layer B-spline wavelet transform (frequency-inverted noise attenuation)
         "wavelet 5 2",
-        "wrecons 1.3 1.2 1.1 1.0 1.0 1.0",
-        # 5. Micro-contrast unsharp mask
-        "unsharp 1.2 0.4",
+        wrecons_cmd,
+        # 5. Micro-contrast unsharp mask (tight radius to prevent dark rings)
+        "unsharp 1.0 0.3",
         # Export natural version
         "savetif moon_natural -astro",
         "savejpg moon_natural 95",
         # 6. Progressive mineral saturation boost
-        "satu 0.8 1.2",
-        "satu 0.5 1.0",
+        "satu 0.7 1.2",
+        "satu 0.4 1.0",
         # Export mineral version
         "savejpg moon_mineral 95",
         "exit",
@@ -824,6 +993,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--seq", default="moon_")
     a.add_argument("--out", default="moon_master.fit")
     a.add_argument("--framing", default="min", choices=["min", "max", "cog"], help="Framing mode for resampling")
+    a.add_argument("--interp", default="cu", choices=["cu", "li", "la", "none", "cubic", "linear", "lanczos", "bilinear"],
+                   help="Resampling interpolation: 'li'/'linear' (bilinear, conservative, zero overshoot), 'cu'/'cubic' (bicubic, high MTF, default), 'la'/'lanczos' (lanczos4)")
     a.add_argument("--sigma", nargs=2, default=["3", "3"])
     a.add_argument("--norm", default="addscale")
     a.set_defaults(func=cmd_stack)
@@ -833,6 +1004,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--master", default="moon_master.fit")
     a.add_argument("--deconv", default="sb", choices=["sb", "wiener", "rl", "none"], help="Deconvolution method (sb=Split Bregman, wiener, rl, none)")
     a.add_argument("--no-adc", action="store_true", help="Disable Atmospheric Dispersion Correction (RGB channel alignment)")
+    a.add_argument("--midtone", type=float, default=0.13, help="MTF midtone stretch value with highlight protection (default: 0.13)")
+    a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: adaptive 1.05 for bicubic, 1.10 for bilinear)")
     a.add_argument("--aperture", type=float, default=80.0, help="Telescope aperture in mm (for Airy PSF)")
     a.add_argument("--focal", type=float, default=400.0, help="Telescope focal length in mm (for Airy PSF)")
     a.add_argument("--pixel-size", type=float, default=3.73, help="Sensor pixel size in microns (for Airy PSF)")
@@ -853,12 +1026,16 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--keep-percent", type=float, default=None, help="Frame selection ratio (default: adaptive)")
     a.add_argument("--min-confidence", type=float, default=0.15)
     a.add_argument("--framing", default="min", choices=["min", "max", "cog"])
+    a.add_argument("--interp", default="cu", choices=["cu", "li", "la", "none", "cubic", "linear", "lanczos", "bilinear"],
+                   help="Resampling interpolation: 'li'/'linear' (bilinear, zero overshoot), 'cu'/'cubic' (bicubic, default)")
     a.add_argument("--out", default="moon_master.fit")
     a.add_argument("--master", default="moon_master.fit")
     a.add_argument("--sigma", nargs=2, default=["3", "3"])
     a.add_argument("--norm", default="addscale")
     a.add_argument("--deconv", default="sb", choices=["sb", "wiener", "rl", "none"])
     a.add_argument("--no-adc", action="store_true")
+    a.add_argument("--midtone", type=float, default=0.13)
+    a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: adaptive 1.05 for cu, 1.10 for li)")
     a.add_argument("--aperture", type=float, default=80.0)
     a.add_argument("--focal", type=float, default=400.0)
     a.add_argument("--pixel-size", type=float, default=3.73)

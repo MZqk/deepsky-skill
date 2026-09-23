@@ -52,29 +52,39 @@ python scripts/moon_stack.py probe
 python scripts/moon_stack.py import --input /path/to/moon_raws --work /path/to/work
 ```
 
-### Step 2: 智能选帧与亚像素配准
-自动识别月面反差特征，计算浮点亚像素偏移并评估帧质量：
+### Step 2: 智能选帧与刚体亚像素配准
+自动识别月面反差特征，通过双锚点互相关解算亚像素视场旋转角 $\theta$ 与平移 $(dx, dy)$：
 ```bash
-# 挑选前 30% 最清晰帧（可选参数 --roi 1024 --keep-percent 30）
-python scripts/moon_stack.py register --work /path/to/work --keep-percent 30
+# 智能选帧（小样本自动保留 70% 保证 SNR，大批量保留 30% 幸运成像）
+python scripts/moon_stack.py register --work /path/to/work
 ```
-* Python 会自动生成包含 `R0 ... H 1 0 -dx 0 1 dy 0 0 1` 单应性矩阵（遵循 FITS 图像原点在左下角的坐标系约定）及 `I <index> 1/0` 选帧标记的 Siril 标准 `.seq` 文件。
+* Python 会自动生成包含 `R0 ... H cosθ -sinθ h13 sinθ cosθ h23 0 0 1` 刚体单应性矩阵（遵循 FITS 图像原点在左下角的坐标系约定）及 `I <index> 1/0` 选帧标记的 Siril 标准 `.seq` 文件，彻底根除长间隔连拍带来的月盘外围视旋转模糊。
 
 ### Step 3: Siril 原生插值重采样与堆叠
-由 Siril CLI 原生执行多线程重采样与高动态堆叠：
+由 Siril CLI 原生执行多线程重采样与高动态堆叠（严格保持 Clamping，绝不加 `-noclamp` 避免数值越界）：
 ```bash
 # 自动生成并执行 02_align_stack.ssf
-python scripts/moon_stack.py stack --work /path/to/work
+# 模式 A（默认高锐度）：--interp cu（双三次插值，追求光学极限 MTF，配合后续小波 L1 抑制）
+# 模式 B（稳健防过冲）：--interp li（双线性插值，凸组合绝不过冲，彻底根除环形山边缘振铃暗环）
+python scripts/moon_stack.py stack --work /path/to/work --framing min --interp cu
 ```
-* Siril 调用 `seqapplyreg -framing=min -interp=cu` 完成亚像素重采样并统一裁切；
+* Siril 调用 `seqapplyreg -framing=min -interp={cu|li} -filter-incl` 完成亚像素重采样并统一裁切；
 * Siril 调用 `stack rej w 3 3 -norm=addscale -filter-included` 生成 32 位 `moon_master.fit`。
 
-### Step 4: Siril 原生小波锐化与双版本交付
-自动恢复视宁度模糊并提取矿物地质色彩：
+### Step 4: ADC 大气色散对齐与插值联动小波重构
+自动执行通道亚像素对准、Airy 物理反卷积与插值自适应细节重构：
 ```bash
 # 自动生成并执行 03_postprocess.ssf
-python scripts/moon_stack.py postprocess --work /path/to/work
+python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aperture 80 --focal 400
 ```
+* 自动执行：
+  * **ADC 亚像素通道对齐**：校准 R/B 相对 G 的空间偏移，消除边缘红蓝伪彩色彩边；
+  * **物理 Airy PSF + Split Bregman 去卷积**：还原光学低通弥散，消灭亮缘黑环暗斑；
+  * **高光保护自适应拉伸**：中值自适应保留高光动态余量，绝无死白溢出；
+  * **插值感知联动小波重构 (Interp-Aware Wavelet Tuning)**：
+    * 若前置使用 `--interp li`（双线性）：小波第 1 层自动放宽至 `1.10`（`wrecons 1.10 1.22 1.25 ...`），补偿双线性高频滚降，兼具极高清晰度与零振铃；
+    * 若前置使用 `--interp cu`（双三次）：小波第 1 层自动锁定抑制在 `1.05`（`wrecons 1.05 1.20 1.25 ...`），过滤 Bicubic 负旁瓣引起的微过冲；
+    * 支持通过 `--wavelet-l1 <val>` 显式微调第 1 层系数。
 * 自动生成产物：
   * `moon_master.fit`：32 位未锐化母版；
   * `moon_natural.tif`：16 位小波细节母版；
@@ -90,7 +100,7 @@ python scripts/moon_stack.py verify --work /path/to/work
 > **一键执行模式**：
 > 也可以直接使用 `all` 命令一步完成全套流水线：
 > ```bash
-> python scripts/moon_stack.py all --input /path/to/moon_raws --work /path/to/work --keep-percent 30
+> python scripts/moon_stack.py all --input /path/to/moon_raws --work /path/to/work --deconv sb
 > ```
 
 ---
@@ -120,3 +130,9 @@ python scripts/moon_stack.py verify --work /path/to/work
 5. **月面偏绿与过曝/欠拉伸 (Green Cast & Overexposure)**：
    * 原因：拜尔阵列（RGGB）绿光通道灵敏度偏高，且相机存在基底偏置（Black Pedestal）；深空常用的 `autostretch` 默认以 80% 黑背景为参考将其拉伸至 0.25 灰度，导致行星/月面高光剧烈溢出。
    * 规范：采用月面专用的通道独立 `mtf` 动态截取背景偏置并匹配高光，结合 `rmgreen` 消除色相偏色，再进行小波细节恢复。
+6. **环形山边缘硬振铃/白边暗环防御 (Overshoot & Ringing Prevention)**：
+   * 原因：双三次（Bicubic）插值核在阶跃边缘存在负旁瓣，对于阳光直射的亮坑壁与深邃阴影交界处易产生微过冲（白边）与下冲（黑圈）；若小波锐化过猛会被成倍放大。
+   * 规范：
+     * 极端高反差或追求绝对零伪影时，建议使用 `--interp li`（双线性稳健模式），并联动自动放宽小波第 1 层至 `1.10`；
+     * 追求极限 MTF 分辨力时使用 `--interp cu`（双三次模式），并严格锁定小波第 1 层在 `1.05` 抑制过冲；
+     * 无论何种模式，Siril `seqapplyreg` 均严格保持默认 Clamping，绝不使用 `-noclamp`。
