@@ -135,3 +135,35 @@ Siril 原生的 'à trous'（带孔）B-Spline 小波算法将图像分解为不
      $$\Delta I_{locked} \equiv 0.0000\%$$
      从根本上切断了多面板拼接的色差与明暗阶梯断层。
 
+---
+
+## 7. 光学参数智能反推与 Airy 斑尺度匹配物理学 (Optical Parameter Inversion)
+
+在天文物理反卷积（如 Split Bregman / Wiener）中，点扩散函数（PSF）的准确度直接决定了细节还原的真实性与极限解析力：
+
+### 1. 焦距低估的物理病理
+* **衍射核几何关系**：
+  对望远镜口径 $D$、焦距 $f$、传感器像元大小 $p$，在绿光（$\lambda = 550\text{ nm}$）下的 Airy 斑第一暗环角半径与像元采样半径为：
+  $$\theta_{Airy} = 1.22 \frac{\lambda}{D}, \quad N_{px\_Airy} = 1.22 \frac{\lambda \cdot f}{D \cdot p} = 1.22 \lambda \frac{F}{p}$$
+* **误差放大后果**：
+  若实际焦距为 $864\text{ mm}$，而算法硬编码使用 $400\text{ mm}$，则计算出的 Airy 斑像元半径仅为 $0.90\text{ px}$（真实应为 $1.95\text{ px}$）。
+  反卷积算法在频域由于逆滤波传递函数核过窄，产生严重的“欠反卷积”，光学弥散未被充分消除；后级小波为了补偿锐度往往被迫过冲，诱发人工白边。
+
+### 2. 天体测量月盘几何反推数学模型
+月球在像平面上成像的物理尺寸由针孔光学几何严格确定：
+$$y = D_{px} \cdot p \cdot 10^{-3}\text{ mm}$$
+月球绕地椭圆轨道的角视直径 $\theta$ 变化严格受天体力学约束：
+* **近地点极大视直径**：$\theta_{max} = 33.50' \approx 0.5583^\circ \approx 0.009745\text{ rad}$
+* **远地点极小视直径**：$\theta_{min} = 29.40' \approx 0.4900^\circ \approx 0.008552\text{ rad}$
+* **平均角视直径**：$\theta_{mean} = 31.07' \approx 0.5178^\circ \approx 0.009038\text{ rad}$
+
+由小角成像几何关系：
+$$y = 2 f \tan\left(\frac{\theta}{2}\right) \approx f \cdot \theta$$
+反推望远镜真实物理有效焦距：
+$$f_{est} = \frac{y}{\theta_{mean}}, \quad f \in \left[\frac{y}{\theta_{max}}, \frac{y}{\theta_{min}}\right]$$
+在实测 $D_{px} = 2097\text{ px}$、$p = 3.73\ \mu\text{m}$ 时，像平面物理直径 $y = 7.82\text{ mm}$，精确反推有效焦距为 **$f \approx 865.5\text{ mm} \approx 866\text{ mm}$（物理区间 $803\sim 915\text{ mm}$）**。
+
+### 3. 焦比 $F$ 与反卷积联动
+由反推焦距 $f$ 与设备口径 $D$ 自动解算出系统的物理工作焦比 $F = f / D$（如 $F/10.8$），生成的 Airy PSF 完美吻合望远镜的真实光学衍射弥散，使反卷积真正发挥光学低通还原效能。
+
+

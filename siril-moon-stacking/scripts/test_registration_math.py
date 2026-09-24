@@ -30,6 +30,7 @@ from moon_stack import (
     _select_frames_by_quality,
     _subpixel_phase_correlation,
     _suppress_lunar_limb_glare,
+    _infer_optical_parameters,
     cmd_postprocess,
 )
 
@@ -888,6 +889,68 @@ def test_histogram_color_lock_pipeline() -> None:
     assert not failures, f"Failures in test_histogram_color_lock_pipeline: {failures}"
 
 
+def test_infer_optical_parameters_math() -> None:
+    failures = []
+    import argparse
+    from astropy.io import fits
+
+    # 1. Test geometric inversion from synthetic lunar disc
+    # Let R = 1045.8 px => D = 2091.6 px. With pixel = 3.73um:
+    # sensor_dia = 2091.6 * 0.00373 = 7.801668 mm
+    # theta_mean = 0.009037905 rad
+    # f_est = 7.801668 / (2 * tan(theta_mean / 2)) = 863.2 mm ~ 864 mm
+    h, w = 2400, 2400
+    yy, xx = np.mgrid[0:h, 0:w]
+    xc_syn, yc_syn = 1200.0, 1200.0
+    R_syn = 1045.8
+    dist = np.sqrt((xx - xc_syn)**2 + (yy - yc_syn)**2)
+
+    syn_img = np.zeros((h, w), dtype=np.float32)
+    syn_img[dist <= R_syn] = 0.5 + 0.1 * np.cos(dist[dist <= R_syn] / 15.0)
+    falloff = (dist > R_syn) & (dist <= R_syn + 5.0)
+    syn_img[falloff] = 0.5 * (1.0 - (dist[falloff] - R_syn) / 5.0)
+
+    hdr = fits.Header()
+    hdr["XPIXSZ"] = 3.73000
+
+    args_default = argparse.Namespace(focal=None, pixel_size=None, aperture=None)
+    opt = _infer_optical_parameters(hdr, syn_img, args_default, mosaic_mode="disc")
+
+    print(f"Inferred optics: fl={opt['focal_length']}mm ({opt['focal_source']}), px={opt['pixel_size']}um ({opt['pixel_size_source']}), F/{opt['f_ratio']}, Airy={opt['airy_radius_px']}px")
+
+    if not (850.0 <= opt["focal_length"] <= 875.0):
+        failures.append(f"Geometric inversion focal length unexpected: {opt['focal_length']}mm (expected ~864mm)")
+    if "geometric inversion" not in opt["focal_source"]:
+        failures.append(f"Expected geometric inversion source, got {opt['focal_source']}")
+    if opt["pixel_size"] != 3.73:
+        failures.append(f"Expected pixel_size 3.73 from Header, got {opt['pixel_size']}")
+    if not (1.8 <= opt["airy_radius_px"] <= 2.1):
+        failures.append(f"Airy radius unexpected: {opt['airy_radius_px']}px (expected ~1.94px)")
+
+    # 2. Test user override
+    args_override = argparse.Namespace(focal=600.0, pixel_size=2.9, aperture=100.0)
+    opt_ovr = _infer_optical_parameters(hdr, syn_img, args_override, mosaic_mode="disc")
+    if opt_ovr["focal_length"] != 600.0 or opt_ovr["focal_source"] != "user" or opt_ovr["aperture"] != 100.0 or opt_ovr["pixel_size"] != 2.9:
+        failures.append(f"User override failed: {opt_ovr}")
+
+    # 3. Test mosaic tile mode bypass
+    hdr_with_focal = fits.Header()
+    hdr_with_focal["FOCALLEN"] = 750.0
+    hdr_with_focal["XPIXSZ"] = 3.73
+    opt_tile = _infer_optical_parameters(hdr_with_focal, syn_img, args_default, mosaic_mode="tile")
+    if opt_tile["focal_length"] != 750.0 or "FITS Header" not in opt_tile["focal_source"]:
+        failures.append(f"Tile mode should bypass geometric inversion and use Header FOCALLEN: {opt_tile}")
+
+    # 4. Test pure default fallback (empty header, tile mode)
+    hdr_empty = fits.Header()
+    opt_fallback = _infer_optical_parameters(hdr_empty, np.zeros((100, 100)), args_default, mosaic_mode="tile")
+    if opt_fallback["focal_length"] != 400.0 or opt_fallback["pixel_size"] != 3.73:
+        failures.append(f"Default fallback failed: {opt_fallback}")
+
+    print("Optical parameter inference unit test passed")
+    assert not failures, f"Failures in test_infer_optical_parameters_math: {failures}"
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -903,6 +966,7 @@ def main() -> int:
         ("test_anti_brittle_metrics_math", test_anti_brittle_metrics_math),
         ("test_mosaic_tile_mode_pipeline", test_mosaic_tile_mode_pipeline),
         ("test_histogram_color_lock_pipeline", test_histogram_color_lock_pipeline),
+        ("test_infer_optical_parameters_math", test_infer_optical_parameters_math),
         ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
         ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
         ("test_postprocess_pipelines", test_postprocess_pipelines),

@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+- 引入智能光学参数推断（Intelligent Optical Parameter Inference，Header 元数据挖掘 + 亚像素月盘几何反推）：
+  - 自动从 FITS Header 挖掘 `XPIXSZ` / `PIXSIZE` 像元尺寸（如 $3.73\ \mu\text{m}$），解耦命令行硬编码；
+  - 联动亚像素 RANSAC 月轮圆拟合，由实测像素直径 $D_{px} = 2097\text{ px}$ 结合天体测量学月球视直径（$31.1'$，区间 $29.4'\sim 33.5'$），通过针孔成像几何精确反推有效焦距 $f \approx 865.5\text{ mm} \approx 866\text{ mm}$（物理区间 $803\sim 915\text{ mm}$）；
+  - 彻底纠正旧版硬编码默认值（$400\text{ mm}$）低估一倍的物理失真，使 Split Bregman Airy 反卷积 PSF 像元半径从 $0.90\text{ px}$ 恢复为物理真实的 $1.95\text{ px}$（焦比 $F/10.8$），完全释放光学反卷积效能；
+  - `--focal`、`--pixel-size`、`--aperture` 默认设为 `None`，未指定时自适应推断，用户显式指定时 100% 优先；切片模式自动安全旁路；
+  - `verify` 命令集成光学推断参数、焦比与 Airy 斑尺寸输出；
+  - 新增数学单元测试 `test_infer_optical_parameters_math`。
 - 引入全局色彩与直方图锁定机制（Anchor Master Profile Lock，`--lock-profile` / `--lock-from` / `--export-profile` / `--lock-wb` / `--lock-stretch`）：
   - 彻底根除多面板全景拼接时，切片间由于局部反照率差异（暗月海 vs 亮高地）独立拉伸导致的色块漂移与接缝明暗阶梯断层；
   - 实测将多面板公共重叠区明暗跳跃从未锁定的 409.2% 直接降至 0.0000%；

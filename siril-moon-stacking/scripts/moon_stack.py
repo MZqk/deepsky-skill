@@ -1036,6 +1036,155 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
     return xc, yc, R, res_std
 
 
+def _infer_optical_parameters(
+    hdr: fits.Header,
+    data: np.ndarray,
+    args: argparse.Namespace,
+    mosaic_mode: str = "disc",
+) -> dict:
+    """Intelligently infer telescope optical parameters (pixel size, focal length, aperture).
+
+    Combines FITS header metadata mining with subpixel lunar limb RANSAC circle
+    fitting and astronomical angular diameter geometry to accurately estimate
+    effective focal length (e.g. ~864mm from ~2095px lunar disc on 3.73um sensor).
+    """
+    # 1. Pixel size inference
+    user_px = getattr(args, "pixel_size", None)
+    if user_px is not None and user_px > 0:
+        px_size = float(user_px)
+        px_source = "user"
+    else:
+        hdr_px = None
+        for k in ["XPIXSZ", "YPIXSZ", "PIXSIZE", "PIXSIZE1", "PIXEL_SZ", "PIXELSIZE"]:
+            val = hdr.get(k)
+            if val is not None:
+                try:
+                    fval = float(val)
+                    if fval > 0:
+                        hdr_px = fval
+                        px_source = f"FITS Header ({k})"
+                        break
+                except (ValueError, TypeError):
+                    pass
+        if hdr_px is not None:
+            px_size = hdr_px
+        else:
+            px_size = 3.73
+            px_source = "default (3.73um)"
+
+    # 2. Aperture inference
+    user_dia = getattr(args, "aperture", None)
+    if user_dia is not None and user_dia > 0:
+        dia = float(user_dia)
+        dia_source = "user"
+    else:
+        hdr_dia = None
+        for k in ["APERTUR", "DIAMETER", "APERTURE"]:
+            val = hdr.get(k)
+            if val is not None:
+                try:
+                    fval = float(val)
+                    if fval > 0:
+                        hdr_dia = fval
+                        dia_source = f"FITS Header ({k})"
+                        break
+                except (ValueError, TypeError):
+                    pass
+        if hdr_dia is not None:
+            dia = hdr_dia
+        else:
+            dia = 80.0
+            dia_source = "default (80.0mm)"
+
+    # 3. Focal length inference
+    user_fl = getattr(args, "focal", None)
+    fl = None
+    fl_source = None
+    disc_info = None
+    f_range = None
+
+    if user_fl is not None and user_fl > 0:
+        fl = float(user_fl)
+        fl_source = "user"
+    elif mosaic_mode != "tile":
+        # Attempt geometric inversion from subpixel lunar disc fit
+        is_3d = (data.ndim == 3)
+        if is_3d:
+            lum_2d = 0.299 * data[0] + 0.587 * data[1] + 0.114 * data[2]
+        else:
+            lum_2d = data
+
+        fit_res = _fit_lunar_limb_circle(lum_2d)
+        if fit_res is not None:
+            xc, yc, R, res_std = fit_res
+            D_px = 2.0 * R
+            sensor_dia_mm = D_px * px_size * 1e-3  # mm on sensor plane
+
+            # Astronomical lunar angular diameter constants:
+            # Mean angular diameter: 31.07 arcmin = 0.517833 deg = 0.0090379 rad
+            # Perigee (max): 33.50 arcmin = 0.558333 deg = 0.0097448 rad
+            # Apogee (min): 29.40 arcmin = 0.490000 deg = 0.0085521 rad
+            theta_mean = 0.009037905
+            theta_max = 0.009744843
+            theta_min = 0.008552113
+
+            f_est = sensor_dia_mm / (2.0 * np.tan(theta_mean / 2.0))
+            f_min = sensor_dia_mm / (2.0 * np.tan(theta_max / 2.0))
+            f_max = sensor_dia_mm / (2.0 * np.tan(theta_min / 2.0))
+
+            if 100.0 <= f_est <= 15000.0:
+                fl = f_est
+                f_range = [f_min, f_max]
+                fl_source = f"geometric inversion (disc D={D_px:.1f}px, θ=31.1')"
+                disc_info = {
+                    "center": [round(xc, 1), round(yc, 1)],
+                    "radius_px": round(R, 1),
+                    "diameter_px": round(D_px, 1),
+                    "res_std": round(res_std, 2),
+                    "sensor_dia_mm": round(sensor_dia_mm, 3),
+                    "angular_diam_arcmin": 31.07,
+                    "focal_range": [round(f_min, 1), round(f_max, 1)],
+                }
+
+    # If geometric inversion was not applicable or failed, fallback to FITS header or default
+    if fl is None:
+        hdr_fl = None
+        for k in ["FOCALLEN", "FOCAL_LENGTH", "FOCAL"]:
+            val = hdr.get(k)
+            if val is not None:
+                try:
+                    fval = float(val)
+                    if fval > 0:
+                        hdr_fl = fval
+                        fl_source = f"FITS Header ({k})"
+                        break
+                except (ValueError, TypeError):
+                    pass
+        if hdr_fl is not None:
+            fl = hdr_fl
+        else:
+            fl = 400.0
+            fl_source = "default (400.0mm)"
+
+    f_ratio = fl / dia if dia > 0 else 0.0
+    # Theoretical Airy radius in pixels for green light (550nm = 0.55um):
+    # r_airy = 1.22 * lambda * f / (D * px_size)
+    r_airy_px = (1.22 * 0.55 * fl) / (dia * px_size) if (dia > 0 and px_size > 0) else 0.0
+
+    return {
+        "pixel_size": round(px_size, 3),
+        "pixel_size_source": px_source,
+        "focal_length": round(fl, 1),
+        "focal_source": fl_source,
+        "focal_range": [round(f_range[0], 1), round(f_range[1], 1)] if f_range else None,
+        "aperture": round(dia, 1),
+        "aperture_source": dia_source,
+        "f_ratio": round(f_ratio, 2),
+        "airy_radius_px": round(r_airy_px, 2),
+        "lunar_disc": disc_info,
+    }
+
+
 def _suppress_lunar_limb_glare(
     planes: np.ndarray,
     glare_mode: str = "auto",
@@ -1805,10 +1954,19 @@ def cmd_postprocess(args) -> None:
         hdr = hdul[0].header
         d = hdul[0].data
 
-    px_size = float(getattr(args, "pixel_size", 0) or hdr.get("XPIXSZ") or 3.73)
-    fl = float(getattr(args, "focal", 0) or hdr.get("FOCALLEN") or 400.0)
-    dia = float(getattr(args, "aperture", 0) or 80.0)
+    mosaic_mode = getattr(args, "mosaic_mode", "disc")
+    optics = _infer_optical_parameters(hdr, d, args, mosaic_mode=mosaic_mode)
+    px_size = optics["pixel_size"]
+    fl = optics["focal_length"]
+    dia = optics["aperture"]
     deconv_method = getattr(args, "deconv", "sb")
+
+    if optics.get("lunar_disc"):
+        disc = optics["lunar_disc"]
+        log(f"optical inference: fitted lunar disc D={disc['diameter_px']:.1f}px (R={disc['radius_px']:.1f}px, res={disc['res_std']:.2f}px)")
+        log(f"optical inference: sensor diameter={disc['sensor_dia_mm']:.2f}mm -> inferred focal={fl:.0f}mm (range {disc['focal_range'][0]:.0f}~{disc['focal_range'][1]:.0f}mm)")
+    log(f"optical setup: fl={fl:.1f}mm ({optics['focal_source']}), dia={dia:.1f}mm ({optics['aperture_source']}), px={px_size:.2f}um ({optics['pixel_size_source']})")
+    log(f"optical diffraction: F/{optics['f_ratio']:.1f}, Airy radius = {optics['airy_radius_px']:.2f}px")
 
     deconv_lines = []
     if deconv_method == "sb":
@@ -1816,13 +1974,13 @@ def cmd_postprocess(args) -> None:
             f"makepsf manual -airy -dia={dia:.1f} -fl={fl:.1f} -pixelsize={px_size:.2f} -ks=25 -savepsf=psf_airy.fit",
             "sb -loadpsf=psf_airy.fit -iters=2 -alpha=2000",
         ]
-        log(f"deconvolution: Split Bregman with physical Airy PSF (dia={dia}mm, fl={fl}mm, px={px_size}um)")
+        log(f"deconvolution: Split Bregman with physical Airy PSF (dia={dia:.1f}mm, fl={fl:.1f}mm, px={px_size:.2f}um)")
     elif deconv_method == "wiener":
         deconv_lines = [
             f"makepsf manual -airy -dia={dia:.1f} -fl={fl:.1f} -pixelsize={px_size:.2f} -ks=25 -savepsf=psf_airy.fit",
             "wiener -loadpsf=psf_airy.fit -alpha=0.01",
         ]
-        log(f"deconvolution: Wiener with physical Airy PSF (dia={dia}mm, fl={fl}mm, px={px_size}um)")
+        log(f"deconvolution: Wiener with physical Airy PSF (dia={dia:.1f}mm, fl={fl:.1f}mm, px={px_size:.2f}um)")
     elif deconv_method == "rl":
         deconv_lines = [
             "makepsf manual -gaussian -fwhm=2.0 -savepsf=psf.fit",
@@ -2220,6 +2378,7 @@ def cmd_postprocess(args) -> None:
             "ti_boost": ti_boost,
             "gamma": gamma,
         },
+        "optical_parameters": optics,
     }
 
     # Save lunar_profile.json
@@ -2244,6 +2403,7 @@ def cmd_postprocess(args) -> None:
         "pixel_size": px_size,
         "focal_length": fl,
         "aperture": dia,
+        "optical_inference": optics,
         "profile_locked": active_profile["locked"],
         "calibration_profile": active_profile,
         "products": {
@@ -2293,15 +2453,20 @@ def cmd_verify(args) -> None:
     }
 
     mosaic_mode = getattr(args, "mosaic_mode", None)
+    tile_json = work / "mosaic_tile_info.json"
+    if tile_json.exists():
+        try:
+            t_data = load_json(tile_json)
+            if not mosaic_mode:
+                mosaic_mode = t_data.get("mosaic_mode", "disc")
+            report["focal_length"] = t_data.get("focal_length")
+            report["aperture"] = t_data.get("aperture")
+            report["pixel_size"] = t_data.get("pixel_size")
+            report["optical_inference"] = t_data.get("optical_inference")
+        except Exception:
+            pass
     if not mosaic_mode:
-        tile_json = work / "mosaic_tile_info.json"
-        if tile_json.exists():
-            try:
-                mosaic_mode = load_json(tile_json).get("mosaic_mode", "disc")
-            except Exception:
-                mosaic_mode = "disc"
-        else:
-            mosaic_mode = "disc"
+        mosaic_mode = "disc"
     report["mosaic_mode"] = mosaic_mode
 
     prof_json = work / "lunar_profile.json"
@@ -2382,6 +2547,14 @@ def cmd_verify(args) -> None:
         log(f"  Calibration Profile: LOCKED (source={report.get('lock_source')}, hi_lum={report.get('profile_hi_lum')})")
     elif "profile_locked" in report:
         log(f"  Calibration Profile: ANCHOR MASTER (unlocked baseline, hi_lum={report.get('profile_hi_lum')})")
+    if report.get("focal_length"):
+        fl_v = float(report["focal_length"])
+        dia_v = float(report.get("aperture") or 80.0)
+        px_v = float(report.get("pixel_size") or 3.73)
+        f_rat = fl_v / dia_v if dia_v else 0.0
+        airy_r = (1.22 * 0.55 * fl_v) / (dia_v * px_v) if (dia_v and px_v) else 0.0
+        opt_src = report.get("optical_inference", {}).get("focal_source", "manual") if report.get("optical_inference") else "manual"
+        log(f"  Optical Setup: fl={fl_v:.1f}mm, dia={dia_v:.1f}mm (F/{f_rat:.1f}, Airy r={airy_r:.2f}px, source='{opt_src}')")
     log(f"  Master dimensions: {report['shape']} (BITPIX={report['bitpix']})")
     log(f"  Pixel range: [{report['min']:.4f}, {report['max']:.4f}] (mean={report['mean']:.4f})")
     log(f"  Background noise std: {report['background_noise_std']:.6f}")
@@ -2483,9 +2656,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Edge undershoot dark ringing suppression mode: 'auto' (adaptive damping, default), 'mild' (subtle), 'aggressive' (strong), 'off' (bypass)")
     a.add_argument("--damping-factor", type=float, default=None,
                    help="Manual anti-ringing damping factor (0.0 to 1.0, overrides preset if specified)")
-    a.add_argument("--aperture", type=float, default=80.0, help="Telescope aperture in mm (for Airy PSF)")
-    a.add_argument("--focal", type=float, default=400.0, help="Telescope focal length in mm (for Airy PSF)")
-    a.add_argument("--pixel-size", type=float, default=3.73, help="Sensor pixel size in microns (for Airy PSF)")
+    a.add_argument("--aperture", type=float, default=None, help="Telescope aperture in mm (for Airy PSF, default: auto inferred/80.0)")
+    a.add_argument("--focal", type=float, default=None, help="Telescope focal length in mm (for Airy PSF, default: auto inferred from lunar disc/header)")
+    a.add_argument("--pixel-size", type=float, default=None, help="Sensor pixel size in microns (for Airy PSF, default: auto from FITS header/3.73)")
     a.add_argument("--mineral-mode", default="lrgb", choices=["lrgb", "legacy"],
                    help="Mineral moon processing pipeline: 'lrgb' (Luminance/Chrominance separation, clean details, default) or 'legacy' (monolithic RGB wavelet)")
     a.add_argument("--white-balance", default="gray-world", choices=["gray-world", "legacy"],
@@ -2557,9 +2730,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Edge undershoot dark ringing suppression mode: 'auto' (adaptive damping, default), 'mild' (subtle), 'aggressive' (strong), 'off' (bypass)")
     a.add_argument("--damping-factor", type=float, default=None,
                    help="Manual anti-ringing damping factor (0.0 to 1.0, overrides preset if specified)")
-    a.add_argument("--aperture", type=float, default=80.0)
-    a.add_argument("--focal", type=float, default=400.0)
-    a.add_argument("--pixel-size", type=float, default=3.73)
+    a.add_argument("--aperture", type=float, default=None, help="Telescope aperture in mm (default: auto/80.0)")
+    a.add_argument("--focal", type=float, default=None, help="Telescope focal length in mm (default: auto inferred from limb/header)")
+    a.add_argument("--pixel-size", type=float, default=None, help="Sensor pixel size in microns (default: auto from FITS header/3.73)")
     a.add_argument("--mineral-mode", default="lrgb", choices=["lrgb", "legacy"],
                    help="Mineral moon processing pipeline: 'lrgb' (Luminance/Chrominance separation, default) or 'legacy' (monolithic RGB)")
     a.add_argument("--white-balance", default="gray-world", choices=["gray-world", "legacy"],

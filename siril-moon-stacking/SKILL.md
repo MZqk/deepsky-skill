@@ -91,12 +91,17 @@ python scripts/moon_stack.py stack --work /path/to/work --mosaic-mode disc --int
 * 若指定 `--mosaic-mode tile`，自动默认启用最大画幅（`framing=max` 并带 `-maximize` 标记），最大化保留与邻近切片的重叠对齐特征，杜绝误裁切。
 
 ### Step 4: ADC 大气色散对齐与插值联动小波重构
-自动执行通道亚像素对准、Airy 物理反卷积与插值自适应细节重构：
+自动执行光学参数智能推断、通道亚像素对准、Airy 物理反卷积与插值自适应细节重构：
 ```bash
-# 自动生成并执行 03_postprocess.ssf
-python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aperture 80 --focal 400
+# 自动生成并执行 03_postprocess.ssf (自动推断光学焦距与像元，亦支持显式 --focal/--aperture 覆盖)
+python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb
 ```
 * 自动执行：
+  * **智能光学参数推断 (Intelligent Optical Parameter Inference)**：
+    * **FITS Header 自动挖掘**：优先自动解析 `XPIXSZ` / `PIXSIZE` 像元尺寸（如 $3.73\ \mu\text{m}$），摆脱死板硬编码；
+    * **全月盘亚像素几何反推**：联动 RANSAC 鲁棒月轮拟合得到真实月盘像素直径 $D_{px}$（如实测 $2097\text{ px} \implies$ 像面尺寸 $7.82\text{ mm}$）。结合月球天体视直径（中值 $31.07'$，近地/远地物理区间 $29.4'\sim 33.5'$），通过光学针孔成像几何 $f = y / (2\tan(\theta/2))$，自动精确反推望远镜真实有效焦距（如 $865.5\text{ mm} \approx 866\text{ mm}$，区间 $803\sim 915\text{ mm}$），彻底解决默认值（$400\text{ mm}$）低估一倍的物理失真；
+    * **精准驱动 Airy 物理反卷积**：使 Split Bregman 生成的 Airy PSF 像元半径从缩水的 $0.90\text{ px}$ 恢复为物理真实的 **$1.95\text{ px}$**（焦比 $F/10.8$），完全释放光学反卷积对衍射弥散的真实还原能力；
+    * **切片模式安全旁路**：在 `--mosaic-mode tile` 下自动旁路全月轮拟合，回退至 Header `FOCALLEN` 或安全配置；支持 `--focal`、`--pixel-size`、`--aperture` 用户显式覆盖。
   * **ADC 亚像素通道对齐**：校准 R/B 相对 G 的空间偏移，消除边缘红蓝伪彩色彩边；
   * **物理 Airy PSF + Split Bregman 去卷积**：还原光学低通弥散，消灭亮缘黑环暗斑；
   * **高光保护自适应拉伸**：中值自适应保留高光动态余量，绝无死白溢出；
@@ -183,6 +188,7 @@ python scripts/moon_stack.py verify --work /path/to/work
 ```
 * **全面量化质检指标矩阵**：
   * **切片模式与 Profile 锁定状态**：显示 `Mosaic mode: tile/disc` 与 `Calibration Profile: LOCKED (source=..., hi_lum=...)` 或 `AUTO`；
+  * **光学参数推断状态 (Optical Setup)**：显示焦距 $f$、口径 $D$、焦比 $F$、像元 Airy 斑尺寸及推断来源（如几何反推 `geometric inversion` 或 Header）；
   * **暗环比率 (Dark Halo Ratio, DHR)**：度量阶跃明暗边缘阴影侧负下冲能量。$<0.015$ 为 `EXCELLENT (artifact-free)`，$<0.035$ 为 `GOOD (controlled)`，$\ge 0.035$ 触发暗环警报；
   * **高光白垩饱和度 (Chalky Saturation Index, CSI)**：检测过度拉伸导致的死白与微反差抹平。$<0.010$ 为 `EXCELLENT (highlight dynamic retained)`，$\ge 0.025$ 触发白垩化警报；
   * **梯度峰度脆裂度 (Gradient Kurtosis Metric, GKM)**：评估边缘梯度重尾分布以量化过度锐化与人工毛刺脆裂感。$<6.0$ 为 `ORGANIC (natural smooth)`，$6.0\sim 14.0$ 为 `CRISP (high detail)`，$\ge 14.0$ 触发脆裂警报；
