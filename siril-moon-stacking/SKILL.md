@@ -50,12 +50,17 @@ metadata:
 ### Step 1: 环境探测与数据导入
 运行诊断探测并导入原始序列：
 ```bash
+# 安装运行时依赖（numpy / astropy / opencv-python-headless / scikit-image）
+pip install -r requirements.txt
+
 # 检查 Siril CLI 与依赖
 python scripts/moon_stack.py probe
 
 # 扫描并导入数据（自动区分 RAW 与 FITS，并在工作目录生成 01_import.ssf）
 python scripts/moon_stack.py import --input /path/to/moon_raws --work /path/to/work
 ```
+> **前置条件**：需已安装 Siril 1.4.4+（macOS 默认路径 `/Applications/Siril.app/Contents/MacOS/siril-cli`，可用 `--siril` 覆盖）。
+> `probe` 输出的 `numpy` / `astropy` / `cv2` / `skimage` 四项必须均非 `null`，否则对应步骤会以 `ModuleNotFoundError` 中断。
 
 ### Step 2: 智能选帧与刚体亚像素配准
 自动识别月面反差特征，通过双锚点互相关解算亚像素视场旋转角 $\theta$ 与平移 $(dx, dy)$：

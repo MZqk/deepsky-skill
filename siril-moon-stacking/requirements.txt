@@ -1,0 +1,6 @@
+# siril-moon-stacking runtime dependencies
+# Siril 1.4.4 CLI is required separately (macOS: /Applications/Siril.app/Contents/MacOS/siril-cli)
+numpy>=1.26,<3
+astropy>=6,<9
+opencv-python-headless>=4.8
+scikit-image>=0.22

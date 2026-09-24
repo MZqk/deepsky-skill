@@ -6,6 +6,7 @@
 
 ```bash
 python3.12 -m venv siril-moon-stacking/.venv
+siril-moon-stacking/.venv/bin/python -m pip install -r siril-moon-stacking/requirements.txt
 siril-moon-stacking/.venv/bin/python -m pip install -r siril-moon-stacking/requirements-dev.txt
 siril-moon-stacking/.venv/bin/python scripts/validate_repository.py --skill siril-moon-stacking
 ```
