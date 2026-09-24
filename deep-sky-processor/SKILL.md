@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: deep-sky-processor
-  version: "0.1.0"
+  version: "0.1.1"
   displayName: Deep Sky Processor
   summary: 在真实性约束和分阶段审查下处理深空图像，交付自然版与增强版成片。
   tags: [astronomy, astrophotography, image-processing, fits]

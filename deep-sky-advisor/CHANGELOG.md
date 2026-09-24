@@ -2,6 +2,10 @@
 
 本文件记录 `deep-sky-advisor` 的独立版本变更。
 
+## [0.2.1] - 2026-09-23
+
+- 例行补丁升级与元数据规范维护
+
 ## [0.2.0] - 2026-09-10
 
 - 新增 `references/smart_telescope_devices.md`：DWARF 3 / DWARF mini / Draco 与 Seestar

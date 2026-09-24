@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: deep-sky-capture-advisor
-  version: "1.0.3"
+  version: "1.0.4"
   displayName: 深空摄影知识顾问
   summary: 中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。
   tags: [astronomy, astrophotography, deep-sky, siril, chinese]

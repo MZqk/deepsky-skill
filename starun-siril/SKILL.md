@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: starun-siril
-  version: "0.1.0"
+  version: "0.1.1"
   displayName: Starun-siril
   summary: 以独立、可审计的 Siril CLI 会话处理已堆栈深空 master，并由真实像素审查控制正式交付。
   tags: [astronomy, siril, deep-sky, image-processing]

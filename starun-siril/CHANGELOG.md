@@ -2,6 +2,10 @@
 
 本文件记录 `starun-siril` 的独立版本变更。
 
+## [0.1.1] - 2026-09-24
+
+- 例行补丁升级与元数据规范维护
+
 ## [0.1.0] - 2026-08-29
 
 - 建立 standalone contract v1：公开命令收敛为 `probe`、`init`、`run`、`finalize`。

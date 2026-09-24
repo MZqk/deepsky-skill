@@ -46,7 +46,7 @@
   },
   "runtime_files": {
     "NOTICE.md": "077ecbba09cac6b58e3410704154b472ee1de8f437ac915d58a0c7cfc7e9e661",
-    "SKILL.md": "485e86d1376ef3a4a3871b4185e7917279de98306376f083b19dc0bbfd90656f",
+    "SKILL.md": "58cf4d3e0db4b60f7f49eb0326df049837730274471c7392875bbe60727f4f17",
     "agents/openai.yaml": "c294924e92f47d4db4ce193abb6374a9c75c090c453a759adff1eace980b817b",
     "scripts/knowledge_common.py": "cf4e56156ed91bcf88344f7ce62f388af3632dd6a53f08999b2274afa394ac22",
     "scripts/query_knowledge.py": "679648bea9479fec2b905f079269e2dfc6bab3536a6df84a8e820a93662be5ee"

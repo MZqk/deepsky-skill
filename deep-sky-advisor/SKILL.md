@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: deep-sky-advisor
-  version: "0.2.0"
+  version: "0.2.1"
   displayName: Deep Sky Advisor
   summary: 对深空图像文件进行量化诊断，并提供保留真实性的后期处理建议。
   tags: [astronomy, astrophotography, diagnostics, fits]

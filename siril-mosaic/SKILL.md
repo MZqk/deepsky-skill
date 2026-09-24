@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: siril-mosaic
-  version: "1.0.1"
+  version: "1.0.2"
   displayName: Siril Mosaic
   summary: 使用 Siril 自动解算、配准并拼接已堆栈天文面板，交付可审计的线性 FITS 马赛克和显示预览。
   tags: [astronomy, siril, mosaic, fits]

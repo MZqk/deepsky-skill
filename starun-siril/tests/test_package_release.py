@@ -33,7 +33,7 @@ description: Deterministic release fixture.
 license: Proprietary
 metadata:
   slug: starun-siril
-  version: "0.1.0"
+  version: "0.1.1"
   displayName: Starun-siril
   summary: Fixture
   tags: [astronomy, siril]
@@ -90,7 +90,7 @@ metadata:
                 path = root / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("not public\n", encoding="utf-8")
-            output = base / "dist" / "starun-siril-0.1.0.zip"
+            output = base / "dist" / "starun-siril-0.1.1.zip"
 
             receipt = self._build(root, output)
 
@@ -158,8 +158,8 @@ metadata:
                 "duplicate-key",
             ),
             "duplicate metadata version": (
-                b'  version: "0.1.0"\n',
-                b'  version: "0.1.0"\n  version: "0.1.0"\n',
+                b'  version: "0.1.1"\n',
+                b'  version: "0.1.1"\n  version: "0.1.1"\n',
                 "duplicate-key",
             ),
             "quoted duplicate name": (
@@ -168,14 +168,14 @@ metadata:
                 "unsupported YAML",
             ),
             "quoted duplicate metadata version": (
-                b'  version: "0.1.0"\n',
-                b'  version: "0.1.0"\n  \'version\': "9.9.9"\n',
+                b'  version: "0.1.1"\n',
+                b'  version: "0.1.1"\n  \'version\': "9.9.9"\n',
                 "unsupported YAML",
             ),
             "name": (b"name: starun-siril\n", b"name: wrong-skill\n", "name must"),
             "license": (b"license: Proprietary\n", b"license: MIT\n", "license must"),
             "slug": (b"  slug: starun-siril\n", b"  slug: wrong-skill\n", "metadata.slug"),
-            "version": (b'  version: "0.1.0"\n', b'  version: "0.2.0"\n', "metadata.version"),
+            "version": (b'  version: "0.1.1"\n', b'  version: "0.2.0"\n', "metadata.version"),
         }
         for case, (old, new, message) in mutations.items():
             with self.subTest(case=case), tempfile.TemporaryDirectory() as raw_dir:
