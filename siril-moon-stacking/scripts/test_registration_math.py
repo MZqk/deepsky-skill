@@ -17,6 +17,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from moon_stack import (
     _calculate_channel_balance,
+    _estimate_adaptive_sharpening,
     _estimate_pedestal,
     _locate_high_contrast_roi,
     _select_frames_by_quality,
@@ -380,6 +381,53 @@ def test_gray_world_channel_balance() -> None:
     assert not failures, f"Failures in test_gray_world_channel_balance: {failures}"
 
 
+def test_adaptive_sharpening_math() -> None:
+    failures = []
+    # Synthesize a lunar image with crater contrast and flat mare
+    img = make_synthetic_moon(h=512, w=512, seed=99)
+
+    # 1. Test auto mode with active deconvolution (Airy deconv discount applied)
+    res_deconv = _estimate_adaptive_sharpening(img, has_deconv=True, interp_used="cu", sharp_mode="auto")
+    print(f"Adaptive deconv=True: wrecons={res_deconv['wrecons_cmd']}, clahe={res_deconv['clahe_clip']}, unsharp={res_deconv['unsharp_amount']}")
+
+    if res_deconv["deconv_discount"] != 0.55:
+        failures.append(f"Expected deconv discount 0.55, got {res_deconv['deconv_discount']}")
+    if res_deconv["unsharp_amount"] != 0.0 or res_deconv["unsharp_lines"]:
+        failures.append("USM unsharp mask should be automatically bypassed in auto mode")
+    if not (0.25 <= res_deconv["clahe_clip"] <= 0.70):
+        failures.append(f"CLAHE clip out of organic range: {res_deconv['clahe_clip']}")
+
+    # 2. Test auto mode without deconvolution (should have higher wavelet gain)
+    res_nodeconv = _estimate_adaptive_sharpening(img, has_deconv=False, interp_used="cu", sharp_mode="auto")
+    print(f"Adaptive deconv=False: wrecons={res_nodeconv['wrecons_cmd']}, clahe={res_nodeconv['clahe_clip']}")
+    if res_nodeconv["wavelet_coeffs"][2] <= res_deconv["wavelet_coeffs"][2]:
+        failures.append("Wavelet gain without deconvolution should be greater than with deconvolution")
+
+    # 3. Test interpolation awareness (bilinear interp should boost L1 compared to bicubic)
+    res_li = _estimate_adaptive_sharpening(img, has_deconv=True, interp_used="li", sharp_mode="auto")
+    if res_li["wavelet_coeffs"][0] < res_deconv["wavelet_coeffs"][0]:
+        failures.append("Bilinear interpolation should receive higher L1 compensation than bicubic")
+
+    # 4. Test explicit user overrides
+    res_override = _estimate_adaptive_sharpening(
+        img, has_deconv=True, sharp_mode="auto",
+        user_wavelet_l1=1.12, user_clahe_clip=0.45, user_unsharp=0.25
+    )
+    if res_override["wavelet_coeffs"][0] != 1.12:
+        failures.append(f"User wavelet_l1 override failed: {res_override['wavelet_coeffs'][0]}")
+    if res_override["clahe_clip"] != 0.45:
+        failures.append(f"User clahe_clip override failed: {res_override['clahe_clip']}")
+    if res_override["unsharp_amount"] != 0.25 or not res_override["unsharp_lines"]:
+        failures.append(f"User unsharp override failed: {res_override['unsharp_amount']}")
+
+    # 5. Test sharp_mode='none'
+    res_none = _estimate_adaptive_sharpening(img, sharp_mode="none")
+    if res_none["wavelet_coeffs"] != [1.0, 1.0, 1.0, 1.0, 1.0, 1.0] or res_none["clahe_clip"] != 0.0:
+        failures.append("Mode 'none' did not bypass wavelets and CLAHE")
+
+    assert not failures, f"Failures in test_adaptive_sharpening_math: {failures}"
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -389,6 +437,7 @@ def main() -> int:
         ("test_utility_frame_selection", test_utility_frame_selection),
         ("test_pedestal_estimation", test_pedestal_estimation),
         ("test_gray_world_channel_balance", test_gray_world_channel_balance),
+        ("test_adaptive_sharpening_math", test_adaptive_sharpening_math),
         ("test_postprocess_pipelines", test_postprocess_pipelines),
     ]
     failed = 0

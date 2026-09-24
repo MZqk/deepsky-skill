@@ -29,6 +29,8 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
 DEFAULT_SIRIL = "/Applications/Siril.app/Contents/MacOS/siril-cli"
 RAW_EXTS = {".orf", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raw", ".rw2", ".pef", ".srf"}
 FIT_EXTS = {".fit", ".fits", ".fit.gz", ".fits.gz"}
@@ -1056,6 +1058,107 @@ def _calculate_channel_balance(
     return res
 
 
+def _estimate_adaptive_sharpening(
+    lum_data: np.ndarray,
+    has_deconv: bool = True,
+    interp_used: str = "cu",
+    sharp_mode: str = "auto",
+    user_wavelet_l1: float | None = None,
+    user_clahe_clip: float | None = None,
+    user_unsharp: float | None = None,
+) -> dict:
+    """Calculate organic, physically-adaptive lunar wavelet and contrast parameters.
+
+    Prevents over-sharpening (chalky crater rims, crunchy texture, noisy flat maria)
+    by jointly analyzing:
+      1. Lunar dynamic contrast ratio (p90 - p10) / p10
+      2. Residual high-frequency noise floor (sigma_noise via Donoho MAD in flat maria)
+      3. Deconvolution status (applies MTF discount factor if Airy PSF deconvolution was run)
+      4. Interpolation filter properties (Bicubic vs Bilinear)
+      5. Anti-redundancy defense: automatically bypasses USM unsharp mask when
+         multi-scale wavelets or deconvolution are active, eliminating artificial halos.
+    """
+    lum_2d = lum_data.astype(np.float32)
+    p999 = float(np.percentile(lum_2d, 99.95))
+    moon_mask = (lum_2d > 0.05 * p999) & (lum_2d < 0.95 * p999)
+    valid_pixels = lum_2d[moon_mask]
+
+    if valid_pixels.size < 500:
+        contrast_ratio = 3.5
+        sigma_noise = 0.0005
+    else:
+        p10 = float(np.percentile(valid_pixels, 10))
+        p90 = float(np.percentile(valid_pixels, 90))
+        contrast_ratio = float((p90 - p10) / max(p10, 1e-4))
+
+        diff_h = np.abs(np.diff(lum_2d, axis=1)[:-1, :])
+        diff_v = np.abs(np.diff(lum_2d, axis=0)[:, :-1])
+        std_local = diff_h + diff_v
+        sub_mask = moon_mask[:-1, :-1]
+        if np.count_nonzero(sub_mask) > 500:
+            flat_thresh = np.percentile(std_local[sub_mask], 20)
+            flat_mask = sub_mask & (std_local <= flat_thresh)
+            sigma_noise = float(np.median(std_local[flat_mask]) / 1.4826)
+        else:
+            sigma_noise = float(np.std(lum_2d[~moon_mask])) if np.count_nonzero(~moon_mask) > 100 else 0.001
+
+    if sharp_mode == "none":
+        w_coeffs = [1.00, 1.00, 1.00, 1.00, 1.00, 1.00]
+        clahe_clip = 0.0
+        unsharp_amt = 0.0
+        deconv_discount = 1.0
+        noise_penalty = 1.0
+    elif sharp_mode == "mild":
+        w_coeffs = [1.02, 1.08, 1.10, 1.05, 1.00, 1.00]
+        clahe_clip = 0.35
+        unsharp_amt = 0.0
+        deconv_discount = 1.0
+        noise_penalty = 1.0
+    elif sharp_mode == "crisp":
+        w_coeffs = [1.05, 1.16, 1.20, 1.12, 1.00, 1.00]
+        clahe_clip = 0.60
+        unsharp_amt = 0.0
+        deconv_discount = 1.0
+        noise_penalty = 1.0
+    else:  # "auto"
+        deconv_discount = 0.55 if has_deconv else 1.0
+        noise_penalty = float(np.clip(1.0 - (sigma_noise / max(p999 * 0.005, 1e-6)), 0.4, 1.0))
+        l1_base = 0.04 if interp_used == "cu" else 0.08
+        w1 = 1.0 + l1_base * deconv_discount * noise_penalty
+        w2 = 1.0 + 0.16 * deconv_discount * noise_penalty
+        w3 = 1.0 + 0.20 * deconv_discount * noise_penalty
+        w4 = 1.0 + 0.12 * deconv_discount * noise_penalty
+        w_coeffs = [round(w1, 2), round(w2, 2), round(w3, 2), round(w4, 2), 1.00, 1.00]
+        clahe_clip = round(float(np.clip(1.5 / max(contrast_ratio, 1.0), 0.25, 0.70)), 2)
+        unsharp_amt = 0.0
+
+    # User manual overrides
+    if user_wavelet_l1 is not None:
+        w_coeffs[0] = round(float(user_wavelet_l1), 2)
+    if user_clahe_clip is not None:
+        clahe_clip = round(float(user_clahe_clip), 2)
+    if user_unsharp is not None:
+        unsharp_amt = round(float(user_unsharp), 2)
+
+    wrecons_cmd = f"wrecons {w_coeffs[0]:.2f} {w_coeffs[1]:.2f} {w_coeffs[2]:.2f} {w_coeffs[3]:.2f} {w_coeffs[4]:.2f} {w_coeffs[5]:.2f}"
+    clahe_lines = [f"clahe {clahe_clip:.2f} 32"] if clahe_clip > 0 else []
+    unsharp_lines = [f"unsharp 1.0 {unsharp_amt:.2f}"] if unsharp_amt > 0 else []
+
+    return {
+        "sharp_mode": sharp_mode,
+        "wrecons_cmd": wrecons_cmd,
+        "wavelet_coeffs": w_coeffs,
+        "clahe_lines": clahe_lines,
+        "clahe_clip": clahe_clip,
+        "unsharp_lines": unsharp_lines,
+        "unsharp_amount": unsharp_amt,
+        "contrast_ratio": contrast_ratio,
+        "sigma_noise": sigma_noise,
+        "noise_penalty": noise_penalty if sharp_mode == "auto" else 1.0,
+        "deconv_discount": deconv_discount if sharp_mode == "auto" else 1.0,
+    }
+
+
 def cmd_postprocess(args) -> None:
     from astropy.io import fits
     import numpy as np
@@ -1118,23 +1221,6 @@ def cmd_postprocess(args) -> None:
         except Exception:
             pass
 
-    wavelet_l1 = getattr(args, "wavelet_l1", None)
-    if wavelet_l1 is None:
-        if interp_used == "li":
-            wavelet_l1 = 1.10
-            wrecons_cmd = "wrecons 1.10 1.22 1.25 1.15 1.00 1.00"
-            log(f"interp-aware wavelet tuning: using {wrecons_cmd} (bilinear MTF compensation mode)")
-        else:
-            wavelet_l1 = 1.05
-            wrecons_cmd = "wrecons 1.05 1.20 1.25 1.15 1.00 1.00"
-            log(f"interp-aware wavelet tuning: using {wrecons_cmd} (bicubic overshoot-suppression mode)")
-    else:
-        wrecons_cmd = f"wrecons {wavelet_l1:.2f} 1.20 1.25 1.15 1.00 1.00"
-        log(f"custom wavelet tuning: using {wrecons_cmd}")
-
-    clahe_clip = float(getattr(args, "clahe_clip", 1.0))
-    clahe_lines = [f"clahe {clahe_clip:.1f} 32"] if clahe_clip > 0 else []
-
     mineral_mode = getattr(args, "mineral_mode", "lrgb")
     wb_mode = getattr(args, "white_balance", "gray-world")
     is_rgb = (d.ndim == 3 and d.shape[0] >= 3)
@@ -1164,7 +1250,43 @@ def cmd_postprocess(args) -> None:
         if wb["moon_pixels"] >= 200 and wb_mode == "gray-world":
             log(f"neutral Gray-World balance applied: R/G={wb['ratio_r']:.3f}, B/G={wb['ratio_b']:.3f} ({wb['moon_pixels']} lunar surface pixels sampled)")
         log(f"calibrated channels (bg=[{wb['bg_r']:.5f}, {wb['bg_g']:.5f}, {wb['bg_b']:.5f}], hi=[{wb['hi_r']:.5f}, {wb['hi_g']:.5f}, {wb['hi_b']:.5f}], midtone={mid_val})")
+        lum_for_sharp = wb["lum_data"]
+    else:
+        plane = d if d.ndim == 2 else d[0]
+        lum_for_sharp = plane
 
+    # Dynamic Organic Sharpening Parameter Generation
+    has_deconv = (deconv_method in ("sb", "wiener", "rl"))
+    sharp_mode = getattr(args, "sharp_mode", "auto")
+    user_wavelet_l1 = getattr(args, "wavelet_l1", None)
+    user_clahe_clip = getattr(args, "clahe_clip", None)
+    user_unsharp = getattr(args, "unsharp", None)
+
+    sharp_info = _estimate_adaptive_sharpening(
+        lum_for_sharp,
+        has_deconv=has_deconv,
+        interp_used=interp_used,
+        sharp_mode=sharp_mode,
+        user_wavelet_l1=user_wavelet_l1,
+        user_clahe_clip=user_clahe_clip,
+        user_unsharp=user_unsharp,
+    )
+    wrecons_cmd = sharp_info["wrecons_cmd"]
+    clahe_lines = sharp_info["clahe_lines"]
+    unsharp_lines = sharp_info["unsharp_lines"]
+
+    log(f"adaptive organic sharpening: mode='{sharp_mode}', contrast_ratio={sharp_info['contrast_ratio']:.2f}, mare_noise={sharp_info['sigma_noise']:.6f}")
+    log(f"  - wavelet: {wrecons_cmd} (deconv discount={sharp_info['deconv_discount']:.2f}x, noise penalty={sharp_info['noise_penalty']:.2f})")
+    if clahe_lines:
+        log(f"  - CLAHE: {sharp_info['clahe_clip']:.2f} clip (dynamic contrast-aware)")
+    else:
+        log("  - CLAHE: bypassed")
+    if unsharp_lines:
+        log(f"  - USM unsharp: amount={sharp_info['unsharp_amount']:.2f}")
+    else:
+        log("  - USM unsharp: bypassed (anti-redundancy protection)")
+
+    if is_rgb:
         if mineral_mode == "lrgb":
             log("executing professional L/RGB separation pipeline (Luminance detail deconv/wavelets + Chrominance saturation)...")
             lum_path = work / "moon_lum.fit"
@@ -1186,7 +1308,7 @@ def cmd_postprocess(args) -> None:
                 "wavelet 5 2",
                 wrecons_cmd,
                 *clahe_lines,
-                "unsharp 1.0 0.3",
+                *unsharp_lines,
                 "save moon_lum_sharp",
                 # --- Stage 2: Chrominance Balancing & Saturation ---
                 f"load {color_target}",
@@ -1229,14 +1351,13 @@ def cmd_postprocess(args) -> None:
                 "wavelet 5 2",
                 wrecons_cmd,
                 *clahe_lines,
-                "unsharp 1.0 0.3",
+                *unsharp_lines,
                 "savetif moon_natural -astro",
                 "savejpg moon_natural 95",
                 *sat_lines,
                 "savejpg moon_mineral 95",
                 "exit",
             ]
-
 
     else:
         # Monochrome pipeline
@@ -1254,7 +1375,7 @@ def cmd_postprocess(args) -> None:
             "wavelet 5 2",
             wrecons_cmd,
             *clahe_lines,
-            "unsharp 1.0 0.3",
+            *unsharp_lines,
             "savetif moon_natural -astro",
             "savejpg moon_natural 95",
             "exit",
@@ -1398,8 +1519,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--deconv", default="sb", choices=["sb", "wiener", "rl", "none"], help="Deconvolution method (sb=Split Bregman, wiener, rl, none)")
     a.add_argument("--no-adc", action="store_true", help="Disable Atmospheric Dispersion Correction (RGB channel alignment)")
     a.add_argument("--midtone", type=float, default=0.13, help="MTF midtone stretch value with highlight protection (default: 0.13)")
-    a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: adaptive 1.05 for bicubic, 1.10 for bilinear)")
-    a.add_argument("--clahe-clip", type=float, default=1.0, help="CLAHE clip limit (default: 1.0, set <=0 to bypass CLAHE)")
+    a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
+    a.add_argument("--clahe-clip", type=float, default=None, help="CLAHE clip limit (default: auto dynamic, set <=0 to bypass CLAHE)")
+    a.add_argument("--sharp-mode", default="auto", choices=["auto", "mild", "crisp", "none"],
+                   help="Sharpening mode: 'auto' (physics-adaptive contrast/noise-aware, default), 'mild' (soft natural), 'crisp' (classic), 'none' (bypass)")
+    a.add_argument("--unsharp", type=float, default=None, help="USM unsharp mask amount (default: auto bypassed when wavelets/deconv active)")
     a.add_argument("--aperture", type=float, default=80.0, help="Telescope aperture in mm (for Airy PSF)")
     a.add_argument("--focal", type=float, default=400.0, help="Telescope focal length in mm (for Airy PSF)")
     a.add_argument("--pixel-size", type=float, default=3.73, help="Sensor pixel size in microns (for Airy PSF)")
@@ -1442,8 +1566,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--deconv", default="sb", choices=["sb", "wiener", "rl", "none"])
     a.add_argument("--no-adc", action="store_true")
     a.add_argument("--midtone", type=float, default=0.13)
-    a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: adaptive 1.05 for cu, 1.10 for li)")
-    a.add_argument("--clahe-clip", type=float, default=1.0, help="CLAHE clip limit (default: 1.0, set <=0 to bypass CLAHE)")
+    a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
+    a.add_argument("--clahe-clip", type=float, default=None, help="CLAHE clip limit (default: auto dynamic, set <=0 to bypass CLAHE)")
+    a.add_argument("--sharp-mode", default="auto", choices=["auto", "mild", "crisp", "none"],
+                   help="Sharpening mode: 'auto' (physics-adaptive contrast/noise-aware, default), 'mild' (soft natural), 'crisp' (classic), 'none' (bypass)")
+    a.add_argument("--unsharp", type=float, default=None, help="USM unsharp mask amount (default: auto bypassed when wavelets/deconv active)")
     a.add_argument("--aperture", type=float, default=80.0)
     a.add_argument("--focal", type=float, default=400.0)
     a.add_argument("--pixel-size", type=float, default=3.73)

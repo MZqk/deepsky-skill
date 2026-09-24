@@ -94,11 +94,12 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
   * **ADC 亚像素通道对齐**：校准 R/B 相对 G 的空间偏移，消除边缘红蓝伪彩色彩边；
   * **物理 Airy PSF + Split Bregman 去卷积**：还原光学低通弥散，消灭亮缘黑环暗斑；
   * **高光保护自适应拉伸**：中值自适应保留高光动态余量，绝无死白溢出；
-  * **插值感知联动小波重构 (Interp-Aware Wavelet Tuning)**：
-    * **时序先于 CLAHE**：坚决在拉伸后直接执行小波分解，杜绝 CLAHE 预先放大平坦月海背景噪声并污染小波高频细节层；
-    * 若前置使用 `--interp li`（双线性）：小波第 1 层自动放宽至 `1.10`（`wrecons 1.10 1.22 1.25 ...`），补偿双线性高频滚降，兼具极高清晰度与零振铃；
-    * 若前置使用 `--interp cu`（双三次）：小波第 1 层自动锁定抑制在 `1.05`（`wrecons 1.05 1.20 1.25 ...`），过滤 Bicubic 负旁瓣引起的微过冲；
-    * 支持通过 `--wavelet-l1 <val>` 显式微调第 1 层系数；
+  * **物理感知自适应温润锐化 (Adaptive Organic Sharpening, 默认 `--sharp-mode auto`)**：
+    * **平坦月海残噪感知**：利用 Donoho MAD 估计平坦玄武岩熔岩平原的高频噪声基底 $\sigma_{noise}$，信噪比较低时自动抑制高频放大，彻底消除平原沙砾噪点；
+    * **反卷积反向联动折让**：检测到 Airy 物理反卷积已激活时，小波重构各层增益自动实施 $0.55\times$ 折扣，杜绝四重级联锐化造成的“浮雕发脆/刻痕描边”；
+    * **月相反差动态感知 CLAHE**：基于月盘有效直方图动态范围比（$(P_{90} - P_{10}) / P_{10}$）自适应缩放 `clahe_clip`（$0.25\sim 0.70$），保护亮坑壁不泛白过冲；
+    * **算法互斥防御（USM 自动旁路）**：在小波与反卷积激活时，传统的单尺度反锐化掩模自动归零（`unsharp = 0`），从源头切断阶跃边缘下冲（Undershoot）与人工白边；
+    * 支持 `--sharp-mode mild`（温润柔和）、`--sharp-mode crisp`（高反差经典）、`--sharp-mode none`（旁路锐化）或手动参数覆盖；
   * **安全黑点噪声抑制 (Safe Noise Ceiling Pedestal)**：
     * 采用四角安全噪声上限（$\text{median} + 2.0\sigma$），防止深空暗背景被非线性拉伸曲线与 CLAHE 局部直方图抬升，保证外围真空深空呈现纯净深邃的零噪黑底；
   * **月面专用线性灰世界平衡 (Linear Gray-World Balance, 默认 `--white-balance gray-world`)**：
