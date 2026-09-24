@@ -85,13 +85,19 @@ wrecons c1 c2 c3 ...
 * `wrecons 1.5 1.4 1.3 1.1 1.0 1.0`：根据尺度赋予各层权重，大幅提升第 1~3 层（微小月坑、环形山边缘锐度），并适度保护底层平滑；
 * 可结合 `unsharp 1.5 0.5` 进一步增强微对比度。
 
-### 色彩增强与矿物月 (`satu` / `rmgreen`)
+### 色彩增强与矿物月 (`satu` / `rmgreen` / `rgbcomp`)
 ```bash
-rmgreen 1 0.7
-satu 0.8 1.2
+rmgreen 0
+satu 0.7 1.2
+satu 0.4 1.0
+
+# LRGB 明度/色度分离合成 (Siril 1.4.4 原生)
+rgbcomp -lum=moon_lum_sharp moon_color_clean -out=moon_natural_master
+rgbcomp -lum=moon_lum_sharp moon_color_sat -out=moon_mineral_master
 ```
-* `rmgreen`：抑制由于 Bayer 阵列传感器感光特性产生的绿色偏色；
-* `satu amount background_factor`：针对月海地质成分（富钛玄武岩的蓝灰区与贫钛富铁高地的橙黄区）进行饱和度渐进式提升，背景噪点自动阈值保护。
+* `rmgreen 0`：使用平均中性保护（type=0，默认保留明度）抑制由于 Bayer 阵列传感器感光特性产生的绿色偏色；
+* `satu amount background_factor`：针对月海地质成分（富钛玄武岩的蓝灰区与贫钛富铁高地的橙黄区）进行饱和度渐进式提升，背景噪点自动阈值保护；
+* `rgbcomp -lum=lum_img color_img -out=result`：将纯净高频明度层与平滑色度层合成，输出零色噪的高清成片。
 
 ### 成果导出 (`savejpg` / `savetif`)
 ```bash

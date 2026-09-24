@@ -28,7 +28,7 @@ metadata:
   * 自适应行星通道中值传递函数（`mtf`）与双曲拉伸（`asinh` / `ght`）校正白平衡与底噪偏置；
   * 局部对比度自适应增强（`clahe`）；
   * 'à trous' B-Spline 多尺度小波细节重构（`wavelet` + `wrecons`）与微反差锐化（`unsharp`）；
-  * 色散校正与矿物月饱和度渐进式提升（`rmgreen 1 0.8` + `satu`）；
+  * 色散校正与矿物月饱和度渐进式提升（`rmgreen 0` + `satu`）；
   * 32 位 FITS 母版、16 位 TIFF 母版及高质量 JPG 导出。
 * **Python 的职责（插件）**：
   * 智能月相感知与高反差特征地貌定位（终结者明暗线/环形山密集区，抗月相干扰）；
@@ -99,10 +99,30 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
     * 若前置使用 `--interp li`（双线性）：小波第 1 层自动放宽至 `1.10`（`wrecons 1.10 1.22 1.25 ...`），补偿双线性高频滚降，兼具极高清晰度与零振铃；
     * 若前置使用 `--interp cu`（双三次）：小波第 1 层自动锁定抑制在 `1.05`（`wrecons 1.05 1.20 1.25 ...`），过滤 Bicubic 负旁瓣引起的微过冲；
     * 支持通过 `--wavelet-l1 <val>` 显式微调第 1 层系数；
-  * **轻量化局部自适应对比度 (Post-Wavelet CLAHE)**：
-    * 移至小波重构之后执行，针对已确立的干净断崖地貌做宏观反差烘托；默认采用保守的 `--clahe-clip 1.0`（从激进的 1.5 调低，杜绝月海沙砾浮噪），支持传入 `<=0` 完全旁路禁用。
+  * **安全黑点噪声抑制 (Safe Noise Ceiling Pedestal)**：
+    * 采用四角安全噪声上限（$\text{median} + 2.0\sigma$），防止深空暗背景被非线性拉伸曲线与 CLAHE 局部直方图抬升，保证外围真空深空呈现纯净深邃的零噪黑底；
+  * **月面专用线性灰世界平衡 (Linear Gray-World Balance, 默认 `--white-balance gray-world`)**：
+    * **物理线性空间平衡**：坚决在非线性拉伸之前于 32 位浮点线性空间完成通道增益校准（$R_{lin} = R_{net} \cdot k_R, B_{lin} = B_{net} \cdot k_B$），避免独立逐通道非线性 MTF 拉伸在暗部产生斜率差异导致的色偏；
+    * **统一等度拉伸 (Unified Isometric MTF)**：校准后各通道共享相同拉伸参数（$bg=0, hi=hi_{lum}, mid=0.13$），彻底消除暗部阴影与微光区的色调漂移；
+    * 支持 `--white-balance legacy` 回退至旧版模式。
+  * **月轮弧边色差与紫边抑制 (Limb Edge Defringing & CA Suppression)**：
+    * 针对望远镜/长焦镜头在大反差明暗交界处产生的次级光谱与瑞利散射蓝紫边缘，在物理色度层对月轮过渡边缘（$L < 0.10 \times p_{99.95}$）实施色散平滑，限制过量蓝光散溢；
+    * **保护真实地质色彩**：月面主体保留高达 +15% 的真实矿物蓝余量，完美还原静海（Mare Tranquillitatis）富钛玄武岩的真实地质矿物色，同时彻底消除月盘外缘弧边刺眼的紫边（Purple Fringing）；
+  * **L/RGB 明度与色度分离重构 (L/RGB Separation Pipeline, 默认 `--mineral-mode lrgb`)**：
+    * **物理明度提取**：自动计算物理加权明度 $L = 0.299R + 0.587G + 0.114B$ 生成 32 位 `moon_lum.fit`；
+    * **高频细节全归 L**：Airy PSF 物理反卷积、插值联动小波重构、Post-Wavelet CLAHE 与微反差 Unsharp 全部且仅作用于单通道明度 $L$，从物理源头彻底杜绝彩色高频噪点与边缘伪彩镶边；
+    * **低频色彩全归 RGB**：RGB 通道执行独立自适应底噪中性化、`rmgreen 0` 去绿并受控提饱和；
+    * **Siril 原生合成**：调用 `rgbcomp -lum=moon_lum_sharp` 分别合成干净自然的 `moon_natural`（自然色调+极致细节）与鲜活地质真实的 `moon_mineral`（矿物月）；
+    * 支持 `--mineral-mode legacy` 回退至旧版全通道单体小波流程。
+  * **地质定向受控提饱和 (Targeted Geological Saturation, 默认参数优化)**：
+    * 摒弃全色相盲目拉伸，采用 Siril 原生 `hue_range_index` 进阶色相索引；
+    * 阶段 1：`satu {sat_base} 1.2 6` 全色相温和基底增益（默认 0.3）；
+    * 阶段 2：`satu {sat_fe} 1.2 1` 定向强化橙黄色相（默认 0.8，针对澄海/雨海及高地富铁风化层）；
+    * 阶段 3：`satu {sat_ti} 1.2 3` 与 `satu {sat_ti} 1.2 4` 定向强化青蓝色相（默认 0.8，针对静海核心富钛玄武岩）；
+    * 支持 `--sat-fe`、`--sat-ti`、`--sat-base`、`--sat-bg-factor` 细致微调。
 * 自动生成产物：
   * `moon_master.fit`：32 位未锐化母版；
+  * `moon_lum.fit`：32 位物理明度母版（仅 LRGB 模式）；
   * `moon_natural.tif`：16 位小波细节母版；
   * `moon_natural.jpg`：高清晰度自然影调成果图；
   * `moon_mineral.jpg`：多彩矿物月地质成果图。

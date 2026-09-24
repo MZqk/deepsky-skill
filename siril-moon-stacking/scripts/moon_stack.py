@@ -875,6 +875,187 @@ def cmd_stack(args) -> None:
 
 # -------------------------------------------------------------- 4. postprocess
 
+def _estimate_pedestal(plane: np.ndarray) -> float:
+    """Robustly estimate sky background or sensor black pedestal.
+
+    Avoids framing zero-padding, off-center lunar disk overlap in corners,
+    and dark crater detail clipping on full-frame close-up lunar shots.
+    Computes a safe noise ceiling (median + 2.0*std) on valid sky corners
+    so that background noise cleanly clips to 0 and avoids colored fringing.
+    """
+    import numpy as np
+
+    valid = plane[np.isfinite(plane) & (plane > 0)]
+    if valid.size == 0:
+        return 0.0
+
+    h, w = plane.shape
+    cs = max(16, min(100, h // 8, w // 8))
+    margin = max(4, cs // 5)
+    corners = [
+        plane[margin:margin + cs, margin:margin + cs],
+        plane[margin:margin + cs, max(0, w - margin - cs):w - margin],
+        plane[max(0, h - margin - cs):h - margin, margin:margin + cs],
+        plane[max(0, h - margin - cs):h - margin, max(0, w - margin - cs):w - margin],
+    ]
+    corner_medians = []
+    corner_stds = []
+    for c in corners:
+        c_valid = c[np.isfinite(c) & (c > 0)]
+        if c_valid.size > 0:
+            corner_medians.append(float(np.median(c_valid)))
+            corner_stds.append(float(np.std(c_valid)))
+
+    p_low = float(np.percentile(valid, 0.1))
+    p_high = float(np.percentile(valid, 99.95))
+    dyn_range = p_high - p_low
+
+    if corner_medians:
+        min_idx = int(np.argmin(corner_medians))
+        min_corner = corner_medians[min_idx]
+        min_std = corner_stds[min_idx]
+
+        # Check if the darkest corner represents true space background:
+        # In wide lunar shots, space background has very low variance and brightness is in lower 70% of frame.
+        is_sky = False
+        if dyn_range > 1e-4:
+            if min_corner <= float(np.percentile(valid, 70)) and (min_std < 0.10 * dyn_range):
+                is_sky = True
+        else:
+            is_sky = True
+
+        if is_sky:
+            safe_ceiling = min_corner + 2.0 * min_std
+            return float(min(safe_ceiling, p_high * 0.50))
+
+    # Close-up / full-frame moon without dark sky corners: return low percentile
+    return max(0.0, p_low)
+
+
+def _calculate_channel_balance(
+    d: np.ndarray,
+    bg_r: float,
+    bg_g: float,
+    bg_b: float,
+    mid_val: float = 0.13,
+    wb_mode: str = "gray-world",
+) -> dict:
+    """Calculate channel white point stretch parameters with neutral Gray-World balance.
+
+    In astronomical imaging, white balance must be performed linearly before non-linear MTF stretch.
+    Applying independent non-linear MTF stretches with different white/black points causes non-linear
+    color divergence, destroying color fidelity in shadows and generating purple fringing along
+    high-contrast boundaries (the lunar limb).
+
+    This function:
+    1. Subtracts per-channel pedestals linearly (R_net, G_net, B_net);
+    2. Identifies valid lunar surface pixels and computes relative Gray-World linear gains (k_R, k_B);
+    3. Normalizes color channels so that average lunar albedo renders as true neutral gray;
+    4. Suppresses optical chromatic aberration / Rayleigh blue flare (Defringe) along the limb;
+    5. Derives a physical 32-bit Luminance channel and unified isometric stretch parameters.
+    """
+    import numpy as np
+
+    p999_r = float(np.percentile(d[0], 99.95))
+    p999_g = float(np.percentile(d[1], 99.95))
+    p999_b = float(np.percentile(d[2], 99.95))
+
+    hi_r_raw = max(p999_r * 1.10, bg_r + 0.01)
+    hi_g_raw = max(p999_g * 1.10, bg_g + 0.01)
+    hi_b_raw = max(p999_b * 1.10, bg_b + 0.01)
+
+    lum_legacy = (0.299 * d[0] + 0.587 * d[1] + 0.114 * d[2]).astype(np.float32)
+    bg_lum_legacy = _estimate_pedestal(lum_legacy)
+    p999_lum_legacy = float(np.percentile(lum_legacy, 99.95))
+    hi_lum_legacy = max(p999_lum_legacy * 1.10, bg_lum_legacy + 0.01)
+
+    res = {
+        "bg_r": bg_r, "hi_r": hi_r_raw,
+        "bg_g": bg_g, "hi_g": hi_g_raw,
+        "bg_b": bg_b, "hi_b": hi_b_raw,
+        "bg_lum": bg_lum_legacy, "hi_lum": hi_lum_legacy,
+        "lum_data": lum_legacy,
+        "color_data": d,
+        "mode": wb_mode,
+        "ratio_r": 1.0,
+        "ratio_b": 1.0,
+        "k_r": 1.0,
+        "k_b": 1.0,
+        "moon_pixels": 0,
+    }
+
+    if wb_mode != "gray-world":
+        return res
+
+    # 1. Linear pedestal subtraction
+    r_net = np.maximum(0.0, d[0] - bg_r)
+    g_net = np.maximum(0.0, d[1] - bg_g)
+    b_net = np.maximum(0.0, d[2] - bg_b)
+
+    lum_approx = 0.299 * r_net + 0.587 * g_net + 0.114 * b_net
+    p999_lum_raw = float(np.percentile(lum_approx, 99.95))
+    if p999_lum_raw <= 1e-4:
+        return res
+
+    # Mask valid lunar surface: exclude dark background/shadows and overexposed peaks
+    mask = (lum_approx > (0.05 * p999_lum_raw)) & (lum_approx < (0.95 * p999_lum_raw))
+    valid_count = int(np.count_nonzero(mask))
+    res["moon_pixels"] = valid_count
+
+    if valid_count < 200:
+        return res
+
+    net_r = float(np.median(r_net[mask]))
+    net_g = float(np.median(g_net[mask]))
+    net_b = float(np.median(b_net[mask]))
+
+    if net_g <= 1e-5 or net_r <= 1e-5 or net_b <= 1e-5:
+        return res
+
+    ratio_r = net_r / net_g
+    ratio_b = net_b / net_g
+    k_r = 1.0 / ratio_r
+    k_b = 1.0 / ratio_b
+
+    # 2. Linear channel balancing
+    r_lin = r_net * k_r
+    g_lin = g_net
+    b_lin = b_net * k_b
+
+    # 3. Edge Defringe (Optical Chromatic Aberration & Purple Fringe Suppression)
+    # The physical lunar surface consists of basalt and anorthosite: titanium maria reach at most +15% blue excess.
+    # High-contrast optical dispersion causes unphysical blue/violet flare (+100%~+380%) along the limb and crater shadows.
+    # On lunar body: allow up to 1.15x for legitimate titanium maria.
+    # In edge transition (lum_approx < 0.10 * p999): strictly cap Blue to max(Green, Red)
+    # because highlands/limbs are non-titanium and edge optical dispersion flares Blue.
+    max_b_body = np.maximum(g_lin, r_lin) * 1.15
+    max_b_edge = np.maximum(g_lin, r_lin) * 1.00
+    edge_zone = lum_approx < (0.10 * p999_lum_raw)
+    max_allowed_b = np.where(edge_zone, max_b_edge, max_b_body)
+    b_clean = np.minimum(b_lin, max_allowed_b)
+
+    # 4. Calibrated Luminance and Color planes
+    lum_clean = (0.299 * r_lin + 0.587 * g_lin + 0.114 * b_clean).astype(np.float32)
+    color_clean = np.stack([r_lin, g_lin, b_clean], axis=0).astype(np.float32)
+
+    p999_clean = float(np.percentile(lum_clean, 99.95))
+    hi_unified = max(p999_clean * 1.10, 0.01)
+
+    res.update({
+        "bg_r": 0.0, "hi_r": hi_unified,
+        "bg_g": 0.0, "hi_g": hi_unified,
+        "bg_b": 0.0, "hi_b": hi_unified,
+        "bg_lum": 0.0, "hi_lum": hi_unified,
+        "lum_data": lum_clean,
+        "color_data": color_clean,
+        "ratio_r": ratio_r,
+        "ratio_b": ratio_b,
+        "k_r": k_r,
+        "k_b": k_b,
+    })
+    return res
+
+
 def cmd_postprocess(args) -> None:
     from astropy.io import fits
     import numpy as np
@@ -927,38 +1108,6 @@ def cmd_postprocess(args) -> None:
     else:
         log("deconvolution: bypassed (none)")
 
-    if d.ndim == 3 and d.shape[0] >= 3:
-        # Measure camera pedestal / black point from corner patches
-        bg_r = float(np.median(d[0, :100, :100]))
-        bg_g = float(np.median(d[1, :100, :100]))
-        bg_b = float(np.median(d[2, :100, :100]))
-        # Measure lunar highlight peaks per channel (99.95th percentile with 10% dynamic headroom)
-        p999_r = float(np.percentile(d[0], 99.95))
-        p999_g = float(np.percentile(d[1], 99.95))
-        p999_b = float(np.percentile(d[2], 99.95))
-
-        hi_r = max(p999_r * 1.10, bg_r + 0.01)
-        hi_g = max(p999_g * 1.10, bg_g + 0.01)
-        hi_b = max(p999_b * 1.10, bg_b + 0.01)
-
-        mid_val = getattr(args, "midtone", 0.13)
-        log(f"calibrating planetary white balance with highlight protection (bg=[{bg_r:.5f}, {bg_g:.5f}, {bg_b:.5f}], hi=[{hi_r:.5f}, {hi_g:.5f}, {hi_b:.5f}], midtone={mid_val})")
-        mtf_lines = [
-            f"mtf {bg_r:.6f} {mid_val:.2f} {hi_r:.6f} R",
-            f"mtf {bg_g:.6f} {mid_val:.2f} {hi_g:.6f} G",
-            f"mtf {bg_b:.6f} {mid_val:.2f} {hi_b:.6f} B",
-            "rmgreen 1 0.8",
-        ]
-    else:
-        plane = d if d.ndim == 2 else d[0]
-        bg_val = float(np.median(plane[:100, :100]))
-        p999_val = float(np.percentile(plane, 99.95))
-        hi_val = max(p999_val * 1.10, bg_val + 0.01)
-        mid_val = getattr(args, "midtone", 0.13)
-        mtf_lines = [
-            f"mtf {bg_val:.6f} {mid_val:.2f} {hi_val:.6f}",
-        ]
-
     # Detect interpolation method from stack receipt for interp-aware wavelet tuning
     interp_used = "cu"
     stack_receipt_file = work / "stack_receipt.json"
@@ -983,41 +1132,134 @@ def cmd_postprocess(args) -> None:
         wrecons_cmd = f"wrecons {wavelet_l1:.2f} 1.20 1.25 1.15 1.00 1.00"
         log(f"custom wavelet tuning: using {wrecons_cmd}")
 
-    # Full professional lunar post-processing chain:
-    # 1. Airy / Gaussian Deconvolution (Split Bregman / Wiener / RL)
-    # 2. Planetary channel MTF white balance & stretch with highlight protection
-    # 3. Multiscale 'à trous' B-Spline wavelet detail reconstruction (executed BEFORE CLAHE to avoid noise amplification)
-    # 4. Lightweight CLAHE (post-wavelet macro contrast, default clip=1.0)
-    # 5. Fine unsharp mask for micro-contrast
-    # 6. Progressive mineral saturation boost (preserving neutral black space)
     clahe_clip = float(getattr(args, "clahe_clip", 1.0))
     clahe_lines = [f"clahe {clahe_clip:.1f} 32"] if clahe_clip > 0 else []
 
-    lines = [
-        "requires 1.4.4",
-        f"load {master.name}",
-        *deconv_lines,
-        # 2. Planetary MTF white balance & background offset neutralization
-        *mtf_lines,
-        # 3. 5-layer B-spline wavelet transform (frequency-inverted noise attenuation)
-        "wavelet 5 2",
-        wrecons_cmd,
-        # 4. Lightweight CLAHE local contrast (operates on clean reconstructed details)
-        *clahe_lines,
-        # 5. Micro-contrast unsharp mask (tight radius to prevent dark rings)
-        "unsharp 1.0 0.3",
-        # Export natural version
-        "savetif moon_natural -astro",
-        "savejpg moon_natural 95",
-        # 6. Progressive mineral saturation boost
-        "satu 0.7 1.2",
-        "satu 0.4 1.0",
-        # Export mineral version
-        "savejpg moon_mineral 95",
-        "exit",
-    ]
+    mineral_mode = getattr(args, "mineral_mode", "lrgb")
+    wb_mode = getattr(args, "white_balance", "gray-world")
+    is_rgb = (d.ndim == 3 and d.shape[0] >= 3)
+    mid_val = getattr(args, "midtone", 0.13)
 
-    log("executing Siril multiscale wavelets & mineral color enhancement...")
+    sat_base = float(getattr(args, "sat_base", 0.3))
+    sat_fe = float(getattr(args, "sat_fe", 0.8))
+    sat_ti = float(getattr(args, "sat_ti", 0.8))
+    sat_bg = float(getattr(args, "sat_bg_factor", 1.2))
+
+    sat_lines = []
+    if sat_base > 0:
+        sat_lines.append(f"satu {sat_base:.2f} {sat_bg:.1f} 6")  # base foundation across all hues
+    if sat_fe > 0:
+        sat_lines.append(f"satu {sat_fe:.2f} {sat_bg:.1f} 1")    # targeted orange-yellow (Fe-rich basalt/highlands)
+    if sat_ti > 0:
+        sat_lines.append(f"satu {sat_ti:.2f} {sat_bg:.1f} 3")    # targeted cyan (Ti-rich boundary)
+        sat_lines.append(f"satu {sat_ti:.2f} {sat_bg:.1f} 4")    # targeted cyan-magenta (Mare Tranquillitatis core Ti)
+    if not sat_lines:
+        sat_lines = [f"satu 0.70 {sat_bg:.1f} 6", f"satu 0.40 1.0 6"]
+
+    if is_rgb:
+        bg_r = _estimate_pedestal(d[0])
+        bg_g = _estimate_pedestal(d[1])
+        bg_b = _estimate_pedestal(d[2])
+        wb = _calculate_channel_balance(d, bg_r, bg_g, bg_b, mid_val=mid_val, wb_mode=wb_mode)
+        if wb["moon_pixels"] >= 200 and wb_mode == "gray-world":
+            log(f"neutral Gray-World balance applied: R/G={wb['ratio_r']:.3f}, B/G={wb['ratio_b']:.3f} ({wb['moon_pixels']} lunar surface pixels sampled)")
+        log(f"calibrated channels (bg=[{wb['bg_r']:.5f}, {wb['bg_g']:.5f}, {wb['bg_b']:.5f}], hi=[{wb['hi_r']:.5f}, {wb['hi_g']:.5f}, {wb['hi_b']:.5f}], midtone={mid_val})")
+
+        if mineral_mode == "lrgb":
+            log("executing professional L/RGB separation pipeline (Luminance detail deconv/wavelets + Chrominance saturation)...")
+            lum_path = work / "moon_lum.fit"
+            fits.writeto(lum_path, wb["lum_data"], header=hdr, overwrite=True)
+            log(f"calibrated Luminance (bg_lum={wb['bg_lum']:.5f}, hi_lum={wb['hi_lum']:.5f})")
+
+            color_target = master.stem
+            if wb_mode == "gray-world" and "color_data" in wb:
+                color_path = work / "moon_color_balanced.fit"
+                fits.writeto(color_path, wb["color_data"], header=hdr, overwrite=True)
+                color_target = "moon_color_balanced"
+
+            lines = [
+                "requires 1.4.4",
+                # --- Stage 1: Luminance High-Frequency Processing ---
+                "load moon_lum",
+                *deconv_lines,
+                f"mtf {wb['bg_lum']:.6f} {mid_val:.2f} {wb['hi_lum']:.6f}",
+                "wavelet 5 2",
+                wrecons_cmd,
+                *clahe_lines,
+                "unsharp 1.0 0.3",
+                "save moon_lum_sharp",
+                # --- Stage 2: Chrominance Balancing & Saturation ---
+                f"load {color_target}",
+                f"mtf {wb['bg_r']:.6f} {mid_val:.2f} {wb['hi_r']:.6f} R",
+                f"mtf {wb['bg_g']:.6f} {mid_val:.2f} {wb['hi_g']:.6f} G",
+                f"mtf {wb['bg_b']:.6f} {mid_val:.2f} {wb['hi_b']:.6f} B",
+                "rmgreen 0",
+                "save moon_color_clean",
+                *sat_lines,
+                "save moon_color_sat",
+                # --- Stage 3: LRGB Composite ---
+                # 1. Natural LRGB Version (sharp lum + neutral balanced color)
+                "rgbcomp -lum=moon_lum_sharp moon_color_clean -out=moon_natural_master",
+                "load moon_natural_master",
+                "savetif moon_natural -astro",
+                "savejpg moon_natural 95",
+                # 2. Mineral LRGB Version (sharp lum + boosted mineral color)
+                "rgbcomp -lum=moon_lum_sharp moon_color_sat -out=moon_mineral_master",
+                "load moon_mineral_master",
+                "savejpg moon_mineral 95",
+                "exit",
+            ]
+        else:
+            # Legacy monolithic RGB pipeline
+            log("executing legacy monolithic RGB wavelet pipeline...")
+            color_target = master.stem
+            if wb_mode == "gray-world" and "color_data" in wb:
+                color_path = work / "moon_color_balanced.fit"
+                fits.writeto(color_path, wb["color_data"], header=hdr, overwrite=True)
+                color_target = "moon_color_balanced"
+
+            lines = [
+                "requires 1.4.4",
+                f"load {color_target}",
+                *deconv_lines,
+                f"mtf {wb['bg_r']:.6f} {mid_val:.2f} {wb['hi_r']:.6f} R",
+                f"mtf {wb['bg_g']:.6f} {mid_val:.2f} {wb['hi_g']:.6f} G",
+                f"mtf {wb['bg_b']:.6f} {mid_val:.2f} {wb['hi_b']:.6f} B",
+                "rmgreen 0",
+                "wavelet 5 2",
+                wrecons_cmd,
+                *clahe_lines,
+                "unsharp 1.0 0.3",
+                "savetif moon_natural -astro",
+                "savejpg moon_natural 95",
+                *sat_lines,
+                "savejpg moon_mineral 95",
+                "exit",
+            ]
+
+
+    else:
+        # Monochrome pipeline
+        log("executing monochrome lunar detail pipeline...")
+        plane = d if d.ndim == 2 else d[0]
+        bg_val = _estimate_pedestal(plane)
+        p999_val = float(np.percentile(plane, 99.95))
+        hi_val = max(p999_val * 1.10, bg_val + 0.01)
+
+        lines = [
+            "requires 1.4.4",
+            f"load {master.name}",
+            *deconv_lines,
+            f"mtf {bg_val:.6f} {mid_val:.2f} {hi_val:.6f}",
+            "wavelet 5 2",
+            wrecons_cmd,
+            *clahe_lines,
+            "unsharp 1.0 0.3",
+            "savetif moon_natural -astro",
+            "savejpg moon_natural 95",
+            "exit",
+        ]
+
     receipt = run_siril_script(args.siril, lines, work, logs_dir / "03_postprocess.log", args.timeout)
     if receipt["exit_code"] != 0:
         die(f"postprocessing failed (exit {receipt['exit_code']}); see {receipt['log']}")
@@ -1026,7 +1268,8 @@ def cmd_postprocess(args) -> None:
     log(f"postprocessing complete! Products in {work}:")
     log(f"  - Natural master TIFF: {work / 'moon_natural.tif'}")
     log(f"  - Natural JPG:         {work / 'moon_natural.jpg'}")
-    log(f"  - Mineral Moon JPG:    {work / 'moon_mineral.jpg'}")
+    if (work / "moon_mineral.jpg").exists():
+        log(f"  - Mineral Moon JPG:    {work / 'moon_mineral.jpg'}")
 
 
 # ------------------------------------------------------------------- 5. verify
@@ -1160,6 +1403,14 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--aperture", type=float, default=80.0, help="Telescope aperture in mm (for Airy PSF)")
     a.add_argument("--focal", type=float, default=400.0, help="Telescope focal length in mm (for Airy PSF)")
     a.add_argument("--pixel-size", type=float, default=3.73, help="Sensor pixel size in microns (for Airy PSF)")
+    a.add_argument("--mineral-mode", default="lrgb", choices=["lrgb", "legacy"],
+                   help="Mineral moon processing pipeline: 'lrgb' (Luminance/Chrominance separation, clean details, default) or 'legacy' (monolithic RGB wavelet)")
+    a.add_argument("--white-balance", default="gray-world", choices=["gray-world", "legacy"],
+                   help="Color balance mode: 'gray-world' (neutral lunar albedo baseline, default) or 'legacy' (per-channel percentile stretch)")
+    a.add_argument("--sat-fe", type=float, default=0.8, help="Mineral saturation boost for Fe-rich terrain (orange-yellow hue 1, default: 0.8)")
+    a.add_argument("--sat-ti", type=float, default=0.8, help="Mineral saturation boost for Ti-rich basalt (cyan-blue hues 3 & 4, default: 0.8)")
+    a.add_argument("--sat-base", type=float, default=0.3, help="Foundation base saturation boost across all hues (default: 0.3)")
+    a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
     a.set_defaults(func=cmd_postprocess)
 
     a = sub.add_parser("verify")
@@ -1196,6 +1447,14 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--aperture", type=float, default=80.0)
     a.add_argument("--focal", type=float, default=400.0)
     a.add_argument("--pixel-size", type=float, default=3.73)
+    a.add_argument("--mineral-mode", default="lrgb", choices=["lrgb", "legacy"],
+                   help="Mineral moon processing pipeline: 'lrgb' (Luminance/Chrominance separation, default) or 'legacy' (monolithic RGB)")
+    a.add_argument("--white-balance", default="gray-world", choices=["gray-world", "legacy"],
+                   help="Color balance mode: 'gray-world' (neutral lunar albedo baseline, default) or 'legacy' (per-channel percentile stretch)")
+    a.add_argument("--sat-fe", type=float, default=0.8, help="Mineral saturation boost for Fe-rich terrain (orange-yellow hue 1, default: 0.8)")
+    a.add_argument("--sat-ti", type=float, default=0.8, help="Mineral saturation boost for Ti-rich basalt (cyan-blue hues 3 & 4, default: 0.8)")
+    a.add_argument("--sat-base", type=float, default=0.3, help="Foundation base saturation boost across all hues (default: 0.3)")
+    a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
     a.set_defaults(func=cmd_all)
 
     return p

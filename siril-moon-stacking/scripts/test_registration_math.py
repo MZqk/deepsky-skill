@@ -15,7 +15,14 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from moon_stack import _locate_high_contrast_roi, _select_frames_by_quality, _subpixel_phase_correlation
+from moon_stack import (
+    _calculate_channel_balance,
+    _estimate_pedestal,
+    _locate_high_contrast_roi,
+    _select_frames_by_quality,
+    _subpixel_phase_correlation,
+    cmd_postprocess,
+)
 
 
 def translate(src: np.ndarray, tx: float, ty: float) -> np.ndarray:
@@ -61,7 +68,7 @@ def make_synthetic_moon(h: int = 512, w: int = 512, seed: int = 42) -> np.ndarra
     return img
 
 
-def test_subpixel_shifts() -> list[str]:
+def test_subpixel_shifts() -> None:
     failures = []
     ref = make_synthetic_moon()
     test_cases = [
@@ -83,24 +90,23 @@ def test_subpixel_shifts() -> list[str]:
         if resp < 0.15:
             failures.append(f"Response too low for valid synthetic image: {resp:.3f}")
 
-    return failures
+    assert not failures, f"Failures in test_subpixel_shifts: {failures}"
 
 
-def test_roi_localization() -> list[str]:
+
+def test_roi_localization() -> None:
     failures = []
     img = make_synthetic_moon(h=1024, w=1024)
     x0, y0, x1, y1 = _locate_high_contrast_roi(img, roi_size=256)
     print(f"ROI localization on 1024x1024 moon: [{x0}:{x1}, {y0}:{y1}]")
 
-    # Center of 1024x1024 is (512, 512). The moon is within radius 409.
-    # Check that the ROI is well inside the moon disk and does not hit the border space
     if x0 < 100 or x1 > 924 or y0 < 100 or y1 > 924:
         failures.append(f"ROI fell outside the moon disc: [{x0}:{x1}, {y0}:{y1}]")
 
-    return failures
+    assert not failures, f"Failures in test_roi_localization: {failures}"
 
 
-def test_siril_r0_format() -> list[str]:
+def test_siril_r0_format() -> None:
     failures = []
     dx, dy = 15.3421, -8.7654
     line = f"R0 1.0 1.0 1.0 0 0.0 1 H 1 0 {-dx:.4f} 0 1 {-dy:.4f} 0 0 1"
@@ -111,10 +117,11 @@ def test_siril_r0_format() -> list[str]:
         failures.append("Matrix flag must be H")
     if len(parts) != 17:
         failures.append(f"Expected 17 tokens in R0 homography line, got {len(parts)}")
-    return failures
+    assert not failures, f"Failures in test_siril_r0_format: {failures}"
 
 
-def test_otsu_frame_selection() -> list[str]:
+
+def test_otsu_frame_selection() -> None:
     failures = []
     # Synthetic bimodal distribution: 10 sharp frames (~2500), 10 blurry frames (~1200)
     rng = np.random.default_rng(123)
@@ -138,10 +145,11 @@ def test_otsu_frame_selection() -> list[str]:
     if len(kept_pct) != 6:
         failures.append(f"keep_percent=30 override failed: expected 6 frames, got {len(kept_pct)}")
 
-    return failures
+    assert not failures, f"Failures in test_otsu_frame_selection: {failures}"
 
 
-def test_utility_frame_selection() -> list[str]:
+
+def test_utility_frame_selection() -> None:
     failures = []
     # Gradually decaying distribution: 20 frames from 2500 down to 1000
     frames = [{"index": i, "sharpness": 2500.0 - (i - 1) * 75.0} for i in range(1, 21)]
@@ -156,26 +164,244 @@ def test_utility_frame_selection() -> list[str]:
     if kept_alias != kept:
         failures.append(f"'mtf-snr' alias did not match 'utility' mode output")
 
-    return failures
+    assert not failures, f"Failures in test_utility_frame_selection: {failures}"
+
+
+
+def test_pedestal_estimation() -> None:
+    failures = []
+
+    # 1. Standard centered moon with black space
+    img_normal = make_synthetic_moon(512, 512, seed=1)
+    # Background noise was generated with normal(50, 2)
+    bg_normal = _estimate_pedestal(img_normal)
+    print(f"Pedestal estimation (centered moon): estimated={bg_normal:.2f}, expected~50.0")
+    if not (45.0 <= bg_normal <= 55.0):
+        failures.append(f"Normal moon pedestal out of range: got {bg_normal:.2f}, expected ~50.0")
+
+    # 2. Off-center moon covering top-left corner
+    img_offcenter = np.zeros((512, 512), dtype=np.float32)
+    rng = np.random.default_rng(2)
+    img_offcenter += rng.normal(50, 2, (512, 512)).astype(np.float32)
+    # Place bright lunar surface covering top-left [0:150, 0:150]
+    img_offcenter[:150, :150] = 1200.0
+    bg_offcenter = _estimate_pedestal(img_offcenter)
+    print(f"Pedestal estimation (off-center moon covering top-left): estimated={bg_offcenter:.2f}, expected~50.0")
+    if not (45.0 <= bg_offcenter <= 55.0):
+        failures.append(f"Off-center moon hit bright corner: got {bg_offcenter:.2f}, expected ~50.0")
+
+    # 3. Full-frame close-up moon without sky background
+    img_closeup = np.full((512, 512), 1000.0, dtype=np.float32)
+    img_closeup[100:200, 100:200] = 200.0  # deep shadow
+    img_closeup[300:400, 300:400] = 1600.0  # bright crater
+    bg_closeup = _estimate_pedestal(img_closeup)
+    print(f"Pedestal estimation (close-up surface, no sky): estimated={bg_closeup:.2f}")
+    if bg_closeup > 1000.0:
+        failures.append(f"Close-up moon pedestal exceeded surface base: {bg_closeup:.2f}")
+
+    # 4. Image with framing border zeros
+    img_padded = img_normal.copy()
+    img_padded[:8, :] = 0.0
+    img_padded[:, :8] = 0.0
+    bg_padded = _estimate_pedestal(img_padded)
+    print(f"Pedestal estimation (with zero framing padding): estimated={bg_padded:.2f}, expected~50.0")
+    if not (45.0 <= bg_padded <= 55.0):
+        failures.append(f"Padded moon was corrupted by zero border: got {bg_padded:.2f}")
+
+    assert not failures, f"Failures in test_pedestal_estimation: {failures}"
+
+
+def test_postprocess_pipelines() -> None:
+    import argparse
+    import tempfile
+    from astropy.io import fits
+
+    failures = []
+    siril_bin = "/Applications/Siril.app/Contents/MacOS/siril-cli"
+    if not Path(siril_bin).exists():
+        print("Siril CLI not found on host, skipping full integration test")
+        return
+
+    # 1. Test L/RGB separation pipeline
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        # Create synthetic master RGB (256x256)
+        master = np.zeros((3, 256, 256), dtype=np.float32)
+        master[0] = 0.6  # R
+        master[1] = 0.5  # G
+        master[2] = 0.4  # B
+        master[:, 64:192, 64:192] += 0.2
+        fits.writeto(work / "moon_master.fit", master, overwrite=True)
+
+        args = argparse.Namespace(
+            work=str(work),
+            master="moon_master.fit",
+            siril=siril_bin,
+            timeout=120,
+            deconv="none",
+            no_adc=True,
+            midtone=0.13,
+            clahe_clip=1.0,
+            wavelet_l1=1.05,
+            mineral_mode="lrgb",
+            sat_fe=0.85,
+            sat_ti=0.90,
+            sat_base=0.35,
+            sat_bg_factor=1.2,
+        )
+
+        cmd_postprocess(args)
+
+        # Check lum file was written and accurate
+        lum_file = work / "moon_lum.fit"
+        if not lum_file.exists():
+            failures.append("moon_lum.fit was not generated in LRGB mode")
+        else:
+            with fits.open(lum_file) as h:
+                actual_val = float(h[0].data[0, 0])
+                if actual_val <= 0 or not np.isfinite(actual_val):
+                    failures.append(f"Invalid luminance value: {actual_val}")
+                if h[0].data.shape != (256, 256):
+                    failures.append(f"Luminance shape mismatch: {h[0].data.shape}")
+
+        # Check that 03_postprocess.ssf contains targeted saturation commands
+        ssf_path = work / "logs" / "03_postprocess.ssf"
+        if ssf_path.exists():
+            ssf_text = ssf_path.read_text()
+            if "satu 0.85 1.2 1" not in ssf_text or "satu 0.90 1.2 3" not in ssf_text or "satu 0.35 1.2 6" not in ssf_text:
+                failures.append(f"03_postprocess.ssf missing targeted saturation commands: {ssf_text}")
+        else:
+            failures.append("03_postprocess.ssf was not generated")
+
+        # Check output products
+        for prod in ["moon_natural.tif", "moon_natural.jpg", "moon_mineral.jpg"]:
+            f = work / prod
+            if not f.exists() or f.stat().st_size == 0:
+                failures.append(f"LRGB product {prod} was not generated or empty")
+
+        print("L/RGB pipeline integration test passed (natural tif/jpg, mineral jpg, and targeted satu verified)")
+
+    # 2. Test monochrome pipeline
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        mono = np.zeros((256, 256), dtype=np.float32)
+        mono[64:192, 64:192] = 0.5
+        fits.writeto(work / "moon_master.fit", mono, overwrite=True)
+
+        args = argparse.Namespace(
+            work=str(work),
+            master="moon_master.fit",
+            siril=siril_bin,
+            timeout=120,
+            deconv="none",
+            no_adc=True,
+            midtone=0.13,
+            clahe_clip=1.0,
+            wavelet_l1=1.05,
+            mineral_mode="lrgb",
+        )
+
+        cmd_postprocess(args)
+
+        for prod in ["moon_natural.tif", "moon_natural.jpg"]:
+            f = work / prod
+            if not f.exists() or f.stat().st_size == 0:
+                failures.append(f"Mono product {prod} was not generated or empty")
+        if (work / "moon_mineral.jpg").exists():
+            failures.append("Mono pipeline should not generate mineral moon")
+
+        print("Monochrome pipeline integration test passed")
+
+    assert not failures, f"Failures in test_postprocess_pipelines: {failures}"
+
+
+def test_gray_world_channel_balance() -> None:
+    failures = []
+
+    # 1. Synthesize moon with significant camera Bayer green/color cast
+    h, w = 256, 256
+    rng = np.random.default_rng(123)
+    moon_neutral = rng.uniform(0.1, 0.7, (h, w)).astype(np.float32)
+    yy, xx = np.mgrid[0:h, 0:w]
+    mask = np.sqrt((xx - 128) ** 2 + (yy - 128) ** 2) <= 100
+    moon_neutral[~mask] = 0.002  # background dark sky
+
+    # Distort with realistic sensor color cast:
+    # R response: 0.85x, G response: 1.25x (strong green cast), B response: 0.70x
+    r = moon_neutral * 0.85 + 0.001
+    g = moon_neutral * 1.25 + 0.0015
+    b = moon_neutral * 0.70 + 0.0008
+    d = np.stack([r, g, b], axis=0)
+
+    bg_r = _estimate_pedestal(d[0])
+    bg_g = _estimate_pedestal(d[1])
+    bg_b = _estimate_pedestal(d[2])
+
+    wb_gw = _calculate_channel_balance(d, bg_r, bg_g, bg_b, mid_val=0.13, wb_mode="gray-world")
+    print(f"Gray-World test: moon_pixels={wb_gw['moon_pixels']}, R/G ratio={wb_gw['ratio_r']:.4f}, B/G ratio={wb_gw['ratio_b']:.4f}")
+
+    if wb_gw["moon_pixels"] < 5000:
+        failures.append(f"Gray-World detected too few moon pixels: {wb_gw['moon_pixels']}")
+
+    # Check linear balanced values of the median lunar surface
+    lunar_mask = (wb_gw["lum_data"] > (wb_gw["bg_lum"] + 0.05 * (wb_gw["hi_lum"] - wb_gw["bg_lum"]))) & (wb_gw["lum_data"] < (0.95 * wb_gw["hi_lum"]))
+    c_data = wb_gw["color_data"]
+    med_r_lin = float(np.median(c_data[0][lunar_mask]))
+    med_g_lin = float(np.median(c_data[1][lunar_mask]))
+    med_b_lin = float(np.median(c_data[2][lunar_mask]))
+
+    ratio_rg = med_r_lin / med_g_lin
+    ratio_bg = med_b_lin / med_g_lin
+    print(f"Balanced linear lunar albedo: R={med_r_lin:.4f}, G={med_g_lin:.4f}, B={med_b_lin:.4f} -> R/G={ratio_rg:.4f}, B/G={ratio_bg:.4f} (target=1.0000)")
+
+    if abs(ratio_rg - 1.0) > 0.02 or abs(ratio_bg - 1.0) > 0.02:
+        failures.append(f"Gray-World balance failed to neutralize lunar color: R/G={ratio_rg:.4f}, B/G={ratio_bg:.4f}")
+
+    # 2. Check Defringe capability on synthetic purple limb flare
+    d_fringe = d.copy()
+    # Add strong chromatic aberration / purple flare along outer rim
+    rim_mask = (np.sqrt((xx - 128) ** 2 + (yy - 128) ** 2) >= 95) & (np.sqrt((xx - 128) ** 2 + (yy - 128) ** 2) <= 105)
+    d_fringe[2, rim_mask] = d_fringe[1, rim_mask] * 3.5  # 350% excess blue flare
+    wb_defringe = _calculate_channel_balance(d_fringe, bg_r, bg_g, bg_b, mid_val=0.13, wb_mode="gray-world")
+    c_defringed = wb_defringe["color_data"]
+    denom = np.maximum(c_defringed[1, rim_mask], c_defringed[0, rim_mask])
+    valid_denom = denom > 1e-4
+    rim_b_excess = c_defringed[2, rim_mask][valid_denom] / denom[valid_denom]
+    max_rim_excess = float(np.max(rim_b_excess)) if rim_b_excess.size > 0 else 1.0
+    print(f"Limb defringe test: maximum Blue/Green ratio on rim after defringe = {max_rim_excess:.2f} (raw was 3.50)")
+    if max_rim_excess > 1.16:
+        failures.append(f"Limb defringe failed to clamp purple flare: got {max_rim_excess:.2f}, expected <= 1.15")
+
+    # 3. Check legacy mode (does not balance relative ratios)
+    wb_leg = _calculate_channel_balance(d, bg_r, bg_g, bg_b, mid_val=0.13, wb_mode="legacy")
+    if wb_leg["ratio_r"] != 1.0 or wb_leg["ratio_b"] != 1.0:
+        failures.append("Legacy mode should not calculate relative ratios")
+
+    assert not failures, f"Failures in test_gray_world_channel_balance: {failures}"
 
 
 def main() -> int:
-    failures = []
-    print("--- Running test_subpixel_shifts ---")
-    failures.extend(test_subpixel_shifts())
-    print("\n--- Running test_roi_localization ---")
-    failures.extend(test_roi_localization())
-    print("\n--- Running test_siril_r0_format ---")
-    failures.extend(test_siril_r0_format())
-    print("\n--- Running test_otsu_frame_selection ---")
-    failures.extend(test_otsu_frame_selection())
-    print("\n--- Running test_utility_frame_selection ---")
-    failures.extend(test_utility_frame_selection())
+    tests = [
+        ("test_subpixel_shifts", test_subpixel_shifts),
+        ("test_roi_localization", test_roi_localization),
+        ("test_siril_r0_format", test_siril_r0_format),
+        ("test_otsu_frame_selection", test_otsu_frame_selection),
+        ("test_utility_frame_selection", test_utility_frame_selection),
+        ("test_pedestal_estimation", test_pedestal_estimation),
+        ("test_gray_world_channel_balance", test_gray_world_channel_balance),
+        ("test_postprocess_pipelines", test_postprocess_pipelines),
+    ]
+    failed = 0
+    for name, t in tests:
+        print(f"\n--- Running {name} ---")
+        try:
+            t()
+        except AssertionError as e:
+            print(f"FAILED: {e}")
+            failed += 1
 
-    if failures:
-        print("\nTESTS FAILED:")
-        for f in failures:
-            print("  -", f)
+    if failed:
+        print(f"\n{failed} TESTS FAILED!")
         return 1
 
     print("\nALL MATHEMATICAL & FORMAT TESTS PASSED!")
