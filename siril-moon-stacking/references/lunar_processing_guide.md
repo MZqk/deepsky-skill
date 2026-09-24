@@ -80,3 +80,43 @@ Siril 原生的 'à trous'（带孔）B-Spline 小波算法将图像分解为不
   - 负向增量（暗侧凹陷）施加非对称弹性阻尼衰减：
     $$\Delta L_{final} = \Delta L \cdot (1.0 - \kappa_{damp} \cdot M_{damp}), \quad (\Delta L < 0)$$
   彻底平复负下冲深谷，切断人工暗环，同时零感知损失山脊硬度与微陨石坑反差。
+
+---
+
+## 5. 防脆裂与高光白垩化量化质检 (Anti-Brittleness & Chalky Saturation)
+
+在后期追求极致反差与细节的过程中，极易误入“越锐越好”的误区，导致画面出现石膏死白（Chalkiness）与人工塑料脆裂感（Brittleness）：
+
+### 1. 高光白垩饱和度 (Chalky Saturation Index, CSI)
+* **物理病理**：
+  非线性拉伸或 CLAHE 微反差截断过激时，辐射纹（Tycho Rays）与环形山亮缘像素大面积堆积在 $0.88\sim 1.0$ 的亮度极值区，导致微反差一阶梯度消失（$\|\nabla L\| < 0.008$），呈现平板、没有岩石质感的粉末白垩石膏感。
+* **数学量化**：
+  $$\text{CSI} = \frac{\sum_{(x,y) \in \text{Moon}} \mathbb{I}(L(x,y) \ge 0.88 \cdot p_{99.95} \land \|\nabla L(x,y)\| < 0.008)}{N_{\text{valid}}}$$
+* **审查阈值**：
+  - $\text{CSI} < 0.010$：`EXCELLENT`（高光岩石微结构完全保留）；
+  - $0.010 \le \text{CSI} \le 0.025$：`GOOD`（受控的高反差高光）；
+  - $\text{CSI} > 0.025$：`WARNING`（严重白垩死白，需增加拉伸高光余量或降低 CLAHE）。
+
+### 2. 梯度峰度脆裂度 (Gradient Kurtosis Metric, GKM)
+* **物理病理**：
+  过度叠加多尺度小波高频增益与单尺度 USM 反锐化掩模，会导致真实自然月面纹理的连续梯度分布被破坏，出现大量尖锐刺眼的人工孤立高频毛刺，使梯度幅值分布呈现极其重尾的厚尾异常。
+* **数学量化（皮尔逊四阶峰度）**：
+  在腐蚀排除天体外边缘自然月肢阶跃后，统计月面内部梯度样本 $g$ 的标准化四阶中心矩：
+  $$\text{GKM} = \frac{1}{N} \sum_{i=1}^N \left(\frac{g_i - \bar{g}}{\sigma_g}\right)^4$$
+* **审查阈值**：
+  - $\text{GKM} < 6.0$：`ORGANIC`（自然温润目视感）；
+  - $6.0 \le \text{GKM} \le 14.0$：`CRISP`（高锐度高解析雕塑感）；
+  - $\text{GKM} > 14.0$：`WARNING`（脆裂硬化、塑料毛刺伪影，需启用反卷积折让与 USM 旁路）。
+
+---
+
+## 6. 月面全景马赛克拼接切片模式 (Mosaic Tiling Mode)
+
+针对大焦距摄谱仪拍摄的高倍局部月面切片（如 4~12 面板全景拼图）：
+
+1. **解耦全月盘月轮拟合**：
+   单张切片可能完全不包含外太空黑背景，或者仅包含一段随机弧度的局部月肢。在此场景下严禁执行全圆 RANSAC 拟合，强行拟合会导致算法将邻近切片的有效月面当作外太空而在边缘清零（误杀重叠区）。
+2. **最大画幅交叠保留 (Framing Max)**：
+   在序列亚像素对齐后，切片必须采用 `--framing max`（配合 `-maximize`），使重叠特征边缘完整无损保留，杜绝任何画幅裁切。
+3. **元数据清单元对接 (JSON Manifest Interoperability)**：
+   处理完成后自动导出包含实际几何尺寸、像元大小、物理焦距与产品路径的 `mosaic_tile_info.json` 清单，与下游 `siril-mosaic` 拼接技能零摩擦对齐。

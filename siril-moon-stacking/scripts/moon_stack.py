@@ -844,7 +844,10 @@ def cmd_stack(args) -> None:
         stack_cmd = f"stack r_{seq_name} rej w {args.sigma[0]} {args.sigma[1]} -norm={args.norm} -filter-included -out={master.stem}"
         log("detected 16-bit+ source data: applying Winsorized rejection mean stacking (rej w)")
 
-    framing = getattr(args, "framing", "min")
+    mosaic_mode = getattr(args, "mosaic_mode", "disc")
+    framing = getattr(args, "framing", None)
+    if not framing:
+        framing = "max" if mosaic_mode == "tile" else "min"
     maximize_flag = " -maximize" if framing == "max" else ""
 
     interp_raw = getattr(args, "interp", "cu")
@@ -864,15 +867,16 @@ def cmd_stack(args) -> None:
         "exit",
     ]
 
-    log(f"executing Siril seqapplyreg (framing={framing}, interp={interp}, clamped) & stack pipeline...")
+    log(f"executing Siril seqapplyreg (framing={framing}, interp={interp}, mosaic_mode={mosaic_mode}, clamped) & stack pipeline...")
     receipt = run_siril_script(args.siril, lines, work, logs_dir / "02_align_stack.log", args.timeout)
     if receipt["exit_code"] != 0 or not master.exists():
         die(f"stacking failed (exit {receipt['exit_code']}); see {receipt['log']}")
 
     receipt["interp"] = interp
     receipt["framing"] = framing
+    receipt["mosaic_mode"] = mosaic_mode
     dump_json(work / "stack_receipt.json", receipt)
-    log(f"master stack generated successfully: {master} (interp={interp})")
+    log(f"master stack generated successfully: {master} (interp={interp}, framing={framing})")
 
 
 # -------------------------------------------------------------- 4. postprocess
@@ -1288,28 +1292,37 @@ def _render_deep_cine_mineral(
     db = cr_b_f - 1.0
 
     # Celestial circle geometry
-    if circle_meta and circle_meta.get("active"):
-        cx = float(circle_meta["center_x"])
-        cy = float(circle_meta["center_y"])
-        R = float(circle_meta["radius"])
-    else:
-        fit = _fit_lunar_limb_circle(lum_sharp)
-        if fit:
-            cx, cy, R, _ = fit
+    is_tile = bool(circle_meta and circle_meta.get("is_tile"))
+    if not is_tile:
+        if circle_meta and circle_meta.get("active"):
+            cx = float(circle_meta["center_x"])
+            cy = float(circle_meta["center_y"])
+            R = float(circle_meta["radius"])
         else:
-            cx, cy, R = W / 2.0, H / 2.0, min(H, W) * 0.45
+            fit = _fit_lunar_limb_circle(lum_sharp)
+            if fit:
+                cx, cy, R, _ = fit
+            else:
+                cx, cy, R = W / 2.0, H / 2.0, min(H, W) * 0.45
 
-    yy, xx = np.mgrid[0:H, 0:W]
-    r_grid = np.sqrt((xx - cx)**2 + (yy - cy)**2)
-    limb_dist = R - r_grid
-    limb_mask = np.clip(limb_dist / 14.0, 0.0, 1.0)
+        yy, xx = np.mgrid[0:H, 0:W]
+        r_grid = np.sqrt((xx - cx)**2 + (yy - cy)**2)
+        limb_dist = R - r_grid
+        limb_mask = np.clip(limb_dist / 14.0, 0.0, 1.0)
+    else:
+        limb_mask = 1.0
+        r_grid = np.zeros((H, W), dtype=np.float32)
+        R = 999999.0
 
     # 1. Terminator phase-reddening defense
-    lit_mask = np.zeros((H, W), dtype=np.uint8)
-    lit_mask[(r_grid <= R) & (lum_sharp >= 0.05)] = 1
-    if np.count_nonzero(lit_mask) > 100:
-        dist_term = cv2.distanceTransform(lit_mask, cv2.DIST_L2, 5)
-        term_mask = np.clip((dist_term - 25.0) / 80.0, 0.0, 1.0)**1.5
+    if not is_tile:
+        lit_mask = np.zeros((H, W), dtype=np.uint8)
+        lit_mask[(r_grid <= R) & (lum_sharp >= 0.05)] = 1
+        if np.count_nonzero(lit_mask) > 100:
+            dist_term = cv2.distanceTransform(lit_mask, cv2.DIST_L2, 5)
+            term_mask = np.clip((dist_term - 25.0) / 80.0, 0.0, 1.0)**1.5
+        else:
+            term_mask = 1.0
     else:
         term_mask = 1.0
 
@@ -1358,10 +1371,11 @@ def _render_deep_cine_mineral(
     final_g = np.nan_to_num(np.clip(lum_cine * cr_g_new, 0.0, 1.0), nan=0.0)
     final_b = np.nan_to_num(np.clip(lum_cine * cr_b_new, 0.0, 1.0), nan=0.0)
 
-    # Outer space clean zeroing
-    final_r[r_grid > R + 4.5] = 0
-    final_g[r_grid > R + 4.5] = 0
-    final_b[r_grid > R + 4.5] = 0
+    # Outer space clean zeroing (only for full celestial disc, bypassed on mosaic tiles)
+    if not is_tile and circle_meta and circle_meta.get("active"):
+        final_r[r_grid > R + 4.5] = 0
+        final_g[r_grid > R + 4.5] = 0
+        final_b[r_grid > R + 4.5] = 0
 
     # Flip vertically to match image row 0 at top convention
     rgb_fits = np.stack([final_r, final_g, final_b], axis=-1)
@@ -1479,6 +1493,92 @@ def _measure_dark_halo_ratio(
     undershoot = np.maximum(0.0, base[active] - sharp[active])
     base_energy = np.sum(base[active]) + 1e-6
     return float(np.sum(undershoot) / base_energy)
+
+
+def _measure_chalky_saturation_index(lum_data: np.ndarray) -> float:
+    """Measure the Chalky Saturation Index (CSI) for lunar highlights.
+
+    Detects over-stretched, washed-out highlights (crater peaks, ray systems)
+    where pixels reach near-peak brightness but have lost micro-gradient texture,
+    creating an unnatural 'plaster / chalky' flat clumping appearance.
+    Returns the ratio of chalky saturated pixels to valid lunar terrain.
+    """
+    import cv2
+    import numpy as np
+
+    lum = lum_data.astype(np.float32)
+    p999 = float(np.percentile(lum, 99.95))
+    if p999 <= 1e-5:
+        return 0.0
+
+    norm = np.clip(lum / p999, 0.0, 1.0)
+    valid_lunar = norm > 0.05
+    valid_count = int(np.count_nonzero(valid_lunar))
+    if valid_count < 100:
+        return 0.0
+
+    # Gradient magnitude via Sobel
+    gx = cv2.Sobel(norm, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(norm, cv2.CV_32F, 0, 1, ksize=3)
+    grad = np.sqrt(gx * gx + gy * gy)
+
+    # Highlight region: brightness near peak (norm >= 0.88)
+    highlight_mask = valid_lunar & (norm >= 0.88)
+    highlight_count = int(np.count_nonzero(highlight_mask))
+    if highlight_count < 20:
+        return 0.0
+
+    # Chalky pixels: highlights where local gradient is near zero (grad < 0.008)
+    chalky_mask = highlight_mask & (grad < 0.008)
+    chalky_count = int(np.count_nonzero(chalky_mask))
+
+    return float(chalky_count / float(valid_count))
+
+
+def _measure_gradient_kurtosis(lum_data: np.ndarray) -> float:
+    """Measure the Gradient Kurtosis Metric (GKM) to quantify brittle / crunchy texture.
+
+    Over-sharpened images with excessive multi-scale wavelets or CLAHE amplification
+    exhibit heavy-tailed, unnaturally spiky gradient distributions with high kurtosis.
+    Organic, well-balanced lunar textures have kurtosis in [2.5, 12.0].
+    Values > 18.0 indicate brittle, over-sharpened textures.
+    """
+    import cv2
+    import numpy as np
+
+    lum = lum_data.astype(np.float32)
+    p999 = float(np.percentile(lum, 99.95))
+    if p999 <= 1e-5:
+        return 0.0
+
+    norm = np.clip(lum / p999, 0.0, 1.0)
+    valid_mask = (norm > 0.08) & (norm < 0.95)
+    if np.count_nonzero(valid_mask) < 200:
+        return 0.0
+
+    # Erode valid_mask by 3px to eliminate the celestial limb edge step
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    interior_mask = cv2.erode(valid_mask.astype(np.uint8), kernel).astype(bool)
+    if np.count_nonzero(interior_mask) < 100:
+        interior_mask = valid_mask
+
+    gx = cv2.Sobel(norm, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(norm, cv2.CV_32F, 0, 1, ksize=3)
+    grad = np.sqrt(gx * gx + gy * gy)
+    g_samples = grad[interior_mask]
+
+    # Trim top 0.2% extreme outliers to prevent hot-pixel / cosmic ray skew
+    p998 = float(np.percentile(g_samples, 99.8))
+    trimmed = g_samples[g_samples <= p998]
+
+    mean_g = float(np.mean(trimmed))
+    std_g = float(np.std(trimmed))
+    if std_g < 1e-7:
+        return 0.0
+
+    z = (trimmed - mean_g) / std_g
+    kurt = float(np.mean(z ** 4))
+    return kurt
 
 
 def _estimate_adaptive_sharpening(
@@ -1696,7 +1796,11 @@ def cmd_postprocess(args) -> None:
     if not sat_lines:
         sat_lines = [f"satu 0.70 {sat_bg:.1f} 6", f"satu 0.40 1.0 6"]
 
+    mosaic_mode = getattr(args, "mosaic_mode", "disc")
     glare_mode = getattr(args, "glare_suppress", "auto")
+    if mosaic_mode == "tile":
+        glare_mode = "off"
+        log("mosaic tile mode active: bypassing lunar limb detection and glare suppression")
 
     if is_rgb:
         bg_r = _estimate_pedestal(d[0])
@@ -1941,6 +2045,10 @@ def cmd_postprocess(args) -> None:
                 c_data = hdul_c[0].data
 
             c_meta = wb.get("glare_meta")
+            if mosaic_mode == "tile":
+                c_meta = dict(c_meta) if c_meta else {}
+                c_meta["is_tile"] = True
+                c_meta["active"] = False
             fe_boost = float(getattr(args, "mineral_fe_boost", 6.8))
             ti_boost = float(getattr(args, "mineral_ti_boost", 10.2))
             gamma = float(getattr(args, "mineral_gamma", 1.09))
@@ -1966,7 +2074,26 @@ def cmd_postprocess(args) -> None:
             cv2.imwrite(str(work / "moon_mineral.jpg"), deep_mineral_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             log(f"deep-cine mineral moon rendered: Fe terracotta red (x{fe_boost:.1f}) + Ti cobalt blue (x{ti_boost:.1f}), bilateral chroma smoothing, shadow/ray rolloff")
 
+    receipt["mosaic_mode"] = mosaic_mode
     dump_json(work / "postprocess_receipt.json", receipt)
+
+    # Export mosaic tile info for downstream siril-mosaic skill
+    tile_info = {
+        "mosaic_mode": mosaic_mode,
+        "master": str(master),
+        "shape": list(d.shape),
+        "bitpix": int(hdr.get("BITPIX", 16)),
+        "pixel_size": px_size,
+        "focal_length": fl,
+        "aperture": dia,
+        "products": {
+            "natural_tif": str(work / "moon_natural.tif"),
+            "natural_jpg": str(work / "moon_natural.jpg"),
+            "mineral_jpg": str(work / "moon_mineral.jpg") if (work / "moon_mineral.jpg").exists() else None,
+        },
+    }
+    dump_json(work / "mosaic_tile_info.json", tile_info)
+    log(f"mosaic tile metadata exported to {work / 'mosaic_tile_info.json'}")
     log(f"postprocessing complete! Products in {work}:")
     log(f"  - Natural master TIFF: {work / 'moon_natural.tif'}")
     log(f"  - Natural JPG:         {work / 'moon_natural.jpg'}")
@@ -2005,6 +2132,18 @@ def cmd_verify(args) -> None:
         "mean": float(master_data.mean()),
     }
 
+    mosaic_mode = getattr(args, "mosaic_mode", None)
+    if not mosaic_mode:
+        tile_json = work / "mosaic_tile_info.json"
+        if tile_json.exists():
+            try:
+                mosaic_mode = load_json(tile_json).get("mosaic_mode", "disc")
+            except Exception:
+                mosaic_mode = "disc"
+        else:
+            mosaic_mode = "disc"
+    report["mosaic_mode"] = mosaic_mode
+
     # Background noise in corner
     bg_patch = master_data[:, :150, :150] if master_data.ndim == 3 else master_data[:150, :150]
     report["background_noise_std"] = float(bg_patch.std())
@@ -2039,16 +2178,43 @@ def cmd_verify(args) -> None:
             else:
                 status = "WARNING (edge ringing detected)"
             report["dark_halo_status"] = status
+
+            # Measure Chalky Saturation Index (CSI)
+            csi_val = _measure_chalky_saturation_index(s_dat)
+            report["chalky_saturation_index"] = csi_val
+            if csi_val < 0.010:
+                csi_status = "EXCELLENT (highlight dynamic retained)"
+            elif csi_val < 0.025:
+                csi_status = "GOOD (controlled highlights)"
+            else:
+                csi_status = "WARNING (highlight chalkiness / over-saturation)"
+            report["chalky_status"] = csi_status
+
+            # Measure Gradient Kurtosis Metric (GKM)
+            gkm_val = _measure_gradient_kurtosis(s_dat)
+            report["gradient_kurtosis"] = gkm_val
+            if gkm_val < 6.0:
+                gkm_status = "ORGANIC (natural smooth texture)"
+            elif gkm_val < 14.0:
+                gkm_status = "CRISP (high detail)"
+            else:
+                gkm_status = "WARNING (brittle / crunchy texture detected)"
+            report["brittleness_status"] = gkm_status
         except Exception as exc:
-            report["dark_halo_ratio_error"] = str(exc)
+            report["quality_metric_error"] = str(exc)
 
     dump_json(work / "verify_report.json", report)
     log("verification summary:")
+    log(f"  Mosaic mode: {report['mosaic_mode']}")
     log(f"  Master dimensions: {report['shape']} (BITPIX={report['bitpix']})")
     log(f"  Pixel range: [{report['min']:.4f}, {report['max']:.4f}] (mean={report['mean']:.4f})")
     log(f"  Background noise std: {report['background_noise_std']:.6f}")
     if "dark_halo_ratio" in report:
         log(f"  Dark Halo Ratio (DHR): {report['dark_halo_ratio']:.4f} -> [{report.get('dark_halo_status', 'N/A')}]")
+    if "chalky_saturation_index" in report:
+        log(f"  Chalky Saturation (CSI): {report['chalky_saturation_index']:.4f} -> [{report.get('chalky_status', 'N/A')}]")
+    if "gradient_kurtosis" in report:
+        log(f"  Gradient Kurtosis (GKM): {report['gradient_kurtosis']:.2f} -> [{report.get('brittleness_status', 'N/A')}]")
     if (work / "moon_natural.jpg").exists():
         log(f"  [OK] moon_natural.jpg ({round((work / 'moon_natural.jpg').stat().st_size / 1024)} KB)")
     if (work / "moon_mineral.jpg").exists():
@@ -2117,7 +2283,9 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--work", required=True)
     a.add_argument("--seq", default="moon_")
     a.add_argument("--out", default="moon_master.fit")
-    a.add_argument("--framing", default="min", choices=["min", "max", "cog"], help="Framing mode for resampling")
+    a.add_argument("--framing", default=None, choices=["min", "max", "cog"], help="Framing mode for resampling (default: 'min' for disc, 'max' for tile)")
+    a.add_argument("--mosaic-mode", default="disc", choices=["disc", "tile"],
+                   help="Mosaic mode: 'disc' (full lunar disc, default) or 'tile' (mosaic panel, auto-enables framing=max)")
     a.add_argument("--interp", default="cu", choices=["cu", "li", "la", "none", "cubic", "linear", "lanczos", "bilinear"],
                    help="Resampling interpolation: 'li'/'linear' (bilinear, conservative, zero overshoot), 'cu'/'cubic' (bicubic, high MTF, default), 'la'/'lanczos' (lanczos4)")
     a.add_argument("--sigma", nargs=2, default=["3", "3"])
@@ -2157,11 +2325,15 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--mineral-fe-boost", type=float, default=6.8, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 6.8)")
     a.add_argument("--mineral-ti-boost", type=float, default=10.2, help="Deep-cine saturation boost for Ti-rich basalt (azure denim blue, default: 10.2)")
     a.add_argument("--mineral-gamma", type=float, default=1.09, help="Deep-cine filmic luminance sculpting gamma (default: 1.09)")
+    a.add_argument("--mosaic-mode", default="disc", choices=["disc", "tile"],
+                   help="Mosaic mode: 'disc' (full celestial disk with limb handling, default) or 'tile' (lunar mosaic panel, bypasses limb glare suppression, exports tile metadata)")
     a.set_defaults(func=cmd_postprocess)
 
     a = sub.add_parser("verify")
     a.add_argument("--work", required=True)
     a.add_argument("--master", default="moon_master.fit")
+    a.add_argument("--mosaic-mode", default=None, choices=["disc", "tile"],
+                   help="Mosaic mode override ('disc' or 'tile', auto-detected from mosaic_tile_info.json if omitted)")
     a.set_defaults(func=cmd_verify)
 
     a = sub.add_parser("all")
@@ -2178,7 +2350,9 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--utility-beta", type=float, default=1.0, help="SNR weight exponent for 'utility' mode (default: 1.0)")
     a.add_argument("--keep-percent", type=float, default=None, help="Frame selection ratio in percent (switches to 'percent' mode if specified)")
     a.add_argument("--min-confidence", type=float, default=0.15)
-    a.add_argument("--framing", default="min", choices=["min", "max", "cog"])
+    a.add_argument("--framing", default=None, choices=["min", "max", "cog"], help="Framing mode for resampling (default: 'min' for disc, 'max' for tile)")
+    a.add_argument("--mosaic-mode", default="disc", choices=["disc", "tile"],
+                   help="Mosaic mode: 'disc' (full celestial disk, default) or 'tile' (lunar mosaic panel, framing=max, bypasses limb glare suppression, exports tile metadata)")
     a.add_argument("--interp", default="cu", choices=["cu", "li", "la", "none", "cubic", "linear", "lanczos", "bilinear"],
                    help="Resampling interpolation: 'li'/'linear' (bilinear, zero overshoot), 'cu'/'cubic' (bicubic, default)")
     a.add_argument("--out", default="moon_master.fit")

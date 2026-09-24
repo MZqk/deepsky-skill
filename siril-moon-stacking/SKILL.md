@@ -82,12 +82,13 @@ python scripts/moon_stack.py register --work /path/to/work --select-mode utility
 由 Siril CLI 原生执行多线程重采样与高动态堆叠（严格保持 Clamping，绝不加 `-noclamp` 避免数值越界）：
 ```bash
 # 自动生成并执行 02_align_stack.ssf
-# 模式 A（默认高锐度）：--interp cu（双三次插值，追求光学极限 MTF，配合后续小波 L1 抑制）
-# 模式 B（稳健防过冲）：--interp li（双线性插值，凸组合绝不过冲，彻底根除环形山边缘振铃暗环）
-python scripts/moon_stack.py stack --work /path/to/work --framing min --interp cu
+# 模式 A（默认全月盘）：--mosaic-mode disc（默认 framing=min，统一裁切画幅）
+# 模式 B（全景马赛克面板）：--mosaic-mode tile（自动缺省 framing=max，保留完整交叠区域）
+python scripts/moon_stack.py stack --work /path/to/work --mosaic-mode disc --interp cu
 ```
-* Siril 调用 `seqapplyreg -framing=min -interp={cu|li} -filter-incl` 完成亚像素重采样并统一裁切；
-* Siril 调用 `stack rej w 3 3 -norm=addscale -filter-included` 生成 32 位 `moon_master.fit`。
+* Siril 调用 `seqapplyreg -framing={min|max} -interp={cu|li} -filter-incl` 完成亚像素重采样；
+* Siril 调用 `stack rej w 3 3 -norm=addscale -filter-included` 生成 32 位 `moon_master.fit`；
+* 若指定 `--mosaic-mode tile`，自动默认启用最大画幅（`framing=max` 并带 `-maximize` 标记），最大化保留与邻近切片的重叠对齐特征，杜绝误裁切。
 
 ### Step 4: ADC 大气色散对齐与插值联动小波重构
 自动执行通道亚像素对准、Airy 物理反卷积与插值自适应细节重构：
@@ -152,18 +153,23 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
   * `moon_natural.tif`：16 位小波细节母版；
   * `moon_natural.jpg`：高清晰度自然写实影调成果图（冷硬微反差与温润质感）；
   * `moon_mineral.jpg`：电影级深影调地质彩月成果图（Deep-Cine 哑光玄武岩油润深影调）；
-  * `moon_mineral_natural.jpg`：经典自然轻盈矿物月备份成果图。
+  * `moon_mineral_natural.jpg`：经典自然轻盈矿物月备份成果图；
+  * `mosaic_tile_info.json`：切片元数据清单（记录尺寸、位深、物理比例与产品路径，供 `siril-mosaic` 马赛克拼接技能直接消费）。
 
 ### Step 5: 质检报告与审查
 ```bash
 python scripts/moon_stack.py verify --work /path/to/work
 ```
-* 打印信噪比改善倍数、锐度提升倍数、边缘下冲暗环指数 (Dark Halo Ratio, DHR) 以及图像统计信息。
+* **全面量化质检指标矩阵**：
+  * **暗环比率 (Dark Halo Ratio, DHR)**：度量阶跃明暗边缘阴影侧负下冲能量。$<0.015$ 为 `EXCELLENT (artifact-free)`，$<0.035$ 为 `GOOD (controlled)`，$\ge 0.035$ 触发暗环警报；
+  * **高光白垩饱和度 (Chalky Saturation Index, CSI)**：检测过度拉伸导致的死白与微反差抹平。$<0.010$ 为 `EXCELLENT (highlight dynamic retained)`，$\ge 0.025$ 触发白垩化警报；
+  * **梯度峰度脆裂度 (Gradient Kurtosis Metric, GKM)**：评估边缘梯度重尾分布以量化过度锐化与人工毛刺脆裂感。$<6.0$ 为 `ORGANIC (natural smooth)`，$6.0\sim 14.0$ 为 `CRISP (high detail)`，$\ge 14.0$ 触发脆裂警报；
+  * **底噪标准差与动态范围**：精确检查四角深空底噪 $\sigma_{bg}$ 与主直方图像素极值。
 
 > **一键执行模式**：
 > 也可以直接使用 `all` 命令一步完成全套流水线：
 > ```bash
-> python scripts/moon_stack.py all --input /path/to/moon_raws --work /path/to/work --deconv sb
+> python scripts/moon_stack.py all --input /path/to/moon_raws --work /path/to/work --deconv sb --mosaic-mode disc
 > ```
 
 ---
@@ -200,3 +206,12 @@ python scripts/moon_stack.py verify --work /path/to/work
      * 极端高反差或追求绝对零伪影时，建议使用 `--interp li`（双线性稳健模式），并联动自动放宽小波第 1 层至 `1.10`；
      * 追求极限 MTF 分辨力时使用 `--interp cu`（双三次模式），并严格锁定小波第 1 层在 `1.05` 抑制过冲；
      * 无论何种模式，Siril `seqapplyreg` 均严格保持默认 Clamping，绝不使用 `-noclamp`。
+7. **高光白垩死白与微反差缺失 (Chalky Bleached Highlights)**：
+   * 原因：非线性拉伸高光截断点过紧，或 CLAHE clip 过大导致辐射纹和环形山亮峰像素全部挤压在 1.0 附近，微结构梯度归零（CSI 指标超标 $>0.025$），形成石膏般平板死白。
+   * 规范：调大高光保护余量（默认 `midtone 0.13` 配合 $p_{99.95} \times 1.10$ 线性高位），适当降低 `--clahe-clip` 或选用 `--sharp-mode auto / mellow`。
+8. **质感脆裂硬化与人工毛刺 (Brittle / Crunchy Over-Sharpening)**：
+   * 原因：多尺度小波重构增益偏激，叠加了单尺度 USM 锐化，导致全图梯度分布出现厚尾极端毛刺（GKM 指标超标 $>14.0$）。
+   * 规范：保持 `--sharp-mode auto`（反卷积能量折让与 USM 自动旁路），避免手动叠加过激小波系数。
+9. **马赛克面板边缘被切除或外太空清零抹杀 (Mosaic Tile Edge Truncation)**：
+   * 原因：在多面板月面全景拼接时，默认的 `disc` 模式使用 `framing min` 统一截幅，并使用 RANSAC 月轮拟合对 $r > R + 4.5$ 处清零，导致切片邻近区域的月面地形被误杀。
+   * 规范：拼接切片必须显式指定 `--mosaic-mode tile`，系统将自动使用 `--framing max` 保留最大画幅交叠，并旁路所有月盘半径清零逻辑，导出 `mosaic_tile_info.json` 与 `siril-mosaic` 联动。

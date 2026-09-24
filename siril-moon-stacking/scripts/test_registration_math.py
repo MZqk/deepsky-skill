@@ -22,7 +22,9 @@ from moon_stack import (
     _estimate_adaptive_sharpening,
     _estimate_pedestal,
     _locate_high_contrast_roi,
+    _measure_chalky_saturation_index,
     _measure_dark_halo_ratio,
+    _measure_gradient_kurtosis,
     _render_deep_cine_mineral,
     _select_frames_by_quality,
     _subpixel_phase_correlation,
@@ -652,6 +654,135 @@ def test_dark_halo_ratio_metric() -> None:
     assert not failures, f"Failures in test_dark_halo_ratio_metric: {failures}"
 
 
+def test_anti_brittle_metrics_math() -> None:
+    failures = []
+    # 1. Clean synthetic moon
+    clean_moon = make_synthetic_moon(h=256, w=256)
+    clean_norm = (clean_moon - np.min(clean_moon)) / (np.max(clean_moon) - np.min(clean_moon))
+
+    csi_clean = _measure_chalky_saturation_index(clean_norm)
+    gkm_clean = _measure_gradient_kurtosis(clean_norm)
+    print(f"Clean moon metrics: CSI={csi_clean:.4f}, GKM={gkm_clean:.2f}")
+    if csi_clean >= 0.010:
+        failures.append(f"Clean textured moon flagged as chalky: CSI={csi_clean}")
+    if not (2.0 <= gkm_clean <= 12.0):
+        failures.append(f"Clean textured moon GKM out of organic range [2.0, 12.0]: GKM={gkm_clean}")
+
+    # 2. Chalky saturated moon: artificially blow out and flatten crater peaks into a plateau
+    chalky_moon = clean_norm.copy()
+    chalky_moon[100:150, 100:150] = 1.0  # zero micro-gradients in high-luminance plateau
+    csi_chalky = _measure_chalky_saturation_index(chalky_moon)
+    print(f"Chalky moon CSI: {csi_chalky:.4f} (clean was {csi_clean:.4f})")
+    if csi_chalky <= 0.020:
+        failures.append(f"CSI failed to detect flat bleached highlights: got {csi_chalky}")
+
+    # 3. Brittle / crunchy texture: simulate extreme high-pass unsharp mask over-sharpening
+    import cv2
+    blurred = cv2.GaussianBlur(clean_norm, (3, 3), 0.8)
+    high_freq = clean_norm - blurred
+    brittle_moon = np.clip(clean_norm + 6.0 * high_freq, 0.0, 1.0)
+    gkm_brittle = _measure_gradient_kurtosis(brittle_moon)
+    print(f"Brittle moon GKM: {gkm_brittle:.2f} (clean was {gkm_clean:.2f})")
+    if gkm_brittle <= 14.0:
+        failures.append(f"GKM failed to detect brittle spiky gradient distribution: got {gkm_brittle}")
+
+    print("Anti-brittle metrics mathematical unit test passed")
+    assert not failures, f"Failures in test_anti_brittle_metrics_math: {failures}"
+
+
+def test_mosaic_tile_mode_pipeline() -> None:
+    failures = []
+    from astropy.io import fits
+    from moon_stack import build_parser, dump_json
+    import tempfile
+    import shutil
+
+    # 1. Test CLI parser default framing inference
+    parser = build_parser()
+
+    # Mode disc: default framing should resolve to 'min'
+    ns_disc = parser.parse_args(["stack", "--work", "/tmp", "--mosaic-mode", "disc"])
+    resolved_framing_disc = ns_disc.framing if ns_disc.framing else ("max" if ns_disc.mosaic_mode == "tile" else "min")
+    if resolved_framing_disc != "min":
+        failures.append(f"Expected default framing 'min' for disc mode, got {resolved_framing_disc}")
+
+    # Mode tile: default framing should resolve to 'max'
+    ns_tile = parser.parse_args(["stack", "--work", "/tmp", "--mosaic-mode", "tile"])
+    resolved_framing_tile = ns_tile.framing if ns_tile.framing else ("max" if ns_tile.mosaic_mode == "tile" else "min")
+    if resolved_framing_tile != "max":
+        failures.append(f"Expected default framing 'max' for tile mode, got {resolved_framing_tile}")
+
+    # Explicit override: user asks for min in tile mode
+    ns_override = parser.parse_args(["stack", "--work", "/tmp", "--mosaic-mode", "tile", "--framing", "min"])
+    resolved_override = ns_override.framing if ns_override.framing else ("max" if ns_override.mosaic_mode == "tile" else "min")
+    if resolved_override != "min":
+        failures.append(f"Expected explicit framing 'min' to be respected in tile mode, got {resolved_override}")
+
+    # 2. Test Deep-Cine Mineral zeroing bypass in tile mode
+    H, W = 256, 256
+    lum_sharp = np.full((H, W), 0.35, dtype=np.float32)
+    # Put bright texture across entire frame including corners
+    color_cube = np.stack([lum_sharp * 1.05, lum_sharp * 0.98, lum_sharp * 0.95], axis=0)
+
+    # Full disc with circle metadata: corners should be strictly zeroed
+    meta_disc = {"active": True, "is_tile": False, "center_x": 128, "center_y": 128, "radius": 80, "delta": 4.5}
+    bgr_disc = _render_deep_cine_mineral(lum_sharp, color_cube, circle_meta=meta_disc)
+    corner_val_disc = np.max(bgr_disc[0:15, 0:15])
+    print(f"Disc mode corner max: {corner_val_disc} (target 0)")
+    if corner_val_disc > 0:
+        failures.append(f"Disc mode failed to zero outer space corner pixels: {corner_val_disc}")
+
+    # Mosaic tile mode: corners must NOT be zeroed
+    meta_tile = {"active": False, "is_tile": True, "center_x": 128, "center_y": 128, "radius": 80, "delta": 4.5}
+    bgr_tile = _render_deep_cine_mineral(lum_sharp, color_cube, circle_meta=meta_tile)
+    corner_val_tile = np.max(bgr_tile[0:15, 0:15])
+    print(f"Tile mode corner max: {corner_val_tile} (target > 0)")
+    if corner_val_tile == 0:
+        failures.append("Tile mode inadvertently zeroed corner pixels (destroyed overlap data)!")
+
+    # 3. Test mosaic_tile_info.json schema compliance
+    tmp_dir = Path(tempfile.mkdtemp(prefix="moon_tile_test_"))
+    try:
+        master_fit = tmp_dir / "moon_master.fit"
+        data = np.ones((3, 64, 64), dtype=np.float32) * 500.0
+        fits.writeto(master_fit, data, overwrite=True)
+
+        tile_info = {
+            "mosaic_mode": "tile",
+            "master": str(master_fit),
+            "shape": list(data.shape),
+            "bitpix": -32,
+            "pixel_size": 3.76,
+            "focal_length": 500.0,
+            "aperture": 100.0,
+            "products": {
+                "natural_tif": str(tmp_dir / "moon_natural.tif"),
+                "natural_jpg": str(tmp_dir / "moon_natural.jpg"),
+                "mineral_jpg": None,
+            },
+        }
+        dump_json(tmp_dir / "mosaic_tile_info.json", tile_info)
+
+        tile_json = tmp_dir / "mosaic_tile_info.json"
+        if not tile_json.exists():
+            failures.append("mosaic_tile_info.json was not created")
+        else:
+            import json
+            with open(tile_json, "r") as f:
+                loaded = json.load(f)
+            if loaded.get("mosaic_mode") != "tile":
+                failures.append(f"Wrong mosaic_mode in exported info: {loaded.get('mosaic_mode')}")
+            if loaded.get("shape") != [3, 64, 64]:
+                failures.append(f"Wrong shape in exported info: {loaded.get('shape')}")
+            if loaded.get("pixel_size") != 3.76:
+                failures.append(f"Wrong pixel_size in exported info: {loaded.get('pixel_size')}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    print("Mosaic tile mode pipeline unit test passed")
+    assert not failures, f"Failures in test_mosaic_tile_mode_pipeline: {failures}"
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -664,6 +795,8 @@ def main() -> int:
         ("test_adaptive_sharpening_math", test_adaptive_sharpening_math),
         ("test_anti_ringing_damping_math", test_anti_ringing_damping_math),
         ("test_dark_halo_ratio_metric", test_dark_halo_ratio_metric),
+        ("test_anti_brittle_metrics_math", test_anti_brittle_metrics_math),
+        ("test_mosaic_tile_mode_pipeline", test_mosaic_tile_mode_pipeline),
         ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
         ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
         ("test_postprocess_pipelines", test_postprocess_pipelines),
