@@ -934,6 +934,167 @@ def _estimate_pedestal(plane: np.ndarray) -> float:
     return max(0.0, p_low)
 
 
+def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, float] | None:
+    """Fit a high-precision lunar physical circle using radial gradient inflection points.
+
+    Instead of relying on thresholding (which captures diffuse atmospheric glare),
+    this algorithm casts radial rays from the approximate center and finds the point
+    of maximum negative radial gradient (the true physical limb edge), then applies
+    RANSAC circle fitting with sub-pixel precision.
+    """
+    H, W = lum_2d.shape
+    p999 = float(np.percentile(lum_2d, 99.95))
+    if p999 <= 1e-5:
+        return None
+
+    import cv2
+
+    core_mask = (lum_2d > 0.35 * p999).astype(np.uint8)
+    M = cv2.moments(core_mask)
+    if M["m00"] == 0:
+        return None
+    cx_init = float(M["m10"] / M["m00"])
+    cy_init = float(M["m01"] / M["m00"])
+
+    dense_angles = np.linspace(-np.radians(65), np.radians(65), 100)
+    r_samples = np.arange(min(H, W) * 0.15, max(H, W) * 0.85, 1.0, dtype=np.float32)
+
+    limb_points = []
+    for theta in dense_angles:
+        xs = cx_init + r_samples * np.cos(theta)
+        ys = cy_init + r_samples * np.sin(theta)
+        valid = (xs >= 0) & (xs < W - 1) & (ys >= 0) & (ys < H - 1)
+        if np.count_nonzero(valid) < 50:
+            continue
+        xs_val = xs[valid].astype(np.float32).reshape(-1, 1)
+        ys_val = ys[valid].astype(np.float32).reshape(-1, 1)
+        r_curr = r_samples[valid]
+
+        vals = cv2.remap(lum_2d, xs_val, ys_val, cv2.INTER_LINEAR).flatten()
+        grad = np.diff(vals)
+        if grad.size == 0:
+            continue
+        min_idx = int(np.argmin(grad))
+        if vals[min_idx] > 0.08 * p999 and grad[min_idx] < -0.0001:
+            edge_x = cx_init + float(r_curr[min_idx]) * np.cos(theta)
+            edge_y = cy_init + float(r_curr[min_idx]) * np.sin(theta)
+            limb_points.append([edge_x, edge_y])
+
+    if len(limb_points) < 15:
+        return None
+
+    pts = np.array(limb_points, dtype=np.float64)
+    N = len(pts)
+
+    best_inliers = []
+    rng = np.random.default_rng(42)
+    for _ in range(100):
+        sample_idx = rng.choice(N, 3, replace=False)
+        p = pts[sample_idx]
+        A = np.column_stack([2.0 * p[:, 0], 2.0 * p[:, 1], np.ones(3)])
+        b = p[:, 0]**2 + p[:, 1]**2
+        try:
+            c = np.linalg.solve(A, b)
+            xc_cand, yc_cand = c[0], c[1]
+            R_sq = c[2] + xc_cand**2 + yc_cand**2
+            if R_sq <= 0:
+                continue
+            R_cand = np.sqrt(R_sq)
+            dists = np.abs(np.sqrt((pts[:, 0] - xc_cand)**2 + (pts[:, 1] - yc_cand)**2) - R_cand)
+            inliers = np.where(dists < 2.0)[0]
+            if len(inliers) > len(best_inliers):
+                best_inliers = inliers
+        except np.linalg.LinAlgError:
+            continue
+
+    if len(best_inliers) < 15:
+        inlier_pts = pts
+    else:
+        inlier_pts = pts[best_inliers]
+
+    x = inlier_pts[:, 0]
+    y = inlier_pts[:, 1]
+    A = np.column_stack([2.0 * x, 2.0 * y, np.ones_like(x)])
+    b = x**2 + y**2
+    c, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+    xc, yc = float(c[0]), float(c[1])
+    R_sq = float(c[2] + xc**2 + yc**2)
+    if R_sq <= 0:
+        return None
+    R = float(np.sqrt(R_sq))
+
+    dists = np.sqrt((x - xc)**2 + (y - yc)**2)
+    res_std = float(np.std(dists - R))
+
+    if not (0.15 * min(H, W) < R < 2.5 * max(H, W)) or res_std > 5.0:
+        return None
+
+    return xc, yc, R, res_std
+
+
+def _suppress_lunar_limb_glare(
+    planes: np.ndarray,
+    glare_mode: str = "auto",
+) -> tuple[np.ndarray, dict]:
+    """Suppress atmospheric and optical forward scattering glare outside lunar physical limb.
+
+    Operates strictly in 32-bit linear space before non-linear MTF stretch.
+    Leaves lunar surface (r <= R + 1px) 100% unaltered.
+    Smoothly transitions over a narrow delta (2.5px to 8.0px) into deep space zero.
+    """
+    if glare_mode == "off":
+        return planes, {"active": False}
+
+    is_3d = (planes.ndim == 3)
+    if is_3d:
+        lum_2d = 0.299 * planes[0] + 0.587 * planes[1] + 0.114 * planes[2]
+    else:
+        lum_2d = planes
+    H, W = lum_2d.shape
+
+    fit_res = _fit_lunar_limb_circle(lum_2d)
+    if fit_res is None:
+        return planes, {"active": False, "reason": "circle_fit_failed"}
+
+    xc, yc, R, res_std = fit_res
+
+    if glare_mode == "aggressive":
+        delta = 2.5
+    elif glare_mode == "mild":
+        delta = 8.0
+    else:  # "auto"
+        delta = 4.5
+
+    yy, xx = np.mgrid[0:H, 0:W]
+    r_grid = np.sqrt((xx - xc)**2 + (yy - yc)**2)
+
+    r0 = R + 1.0
+    t = np.clip((r_grid - r0) / delta, 0.0, 1.0)
+    w_smooth = 1.0 - (3.0 * t**2 - 2.0 * t**3)
+
+    weight = np.ones((H, W), dtype=np.float32)
+    apply_mask = r_grid > r0
+    weight[apply_mask] = w_smooth[apply_mask]
+    outer_space_mask = r_grid > (r0 + delta)
+    weight[outer_space_mask] = 0.0
+
+    if is_3d:
+        out_planes = planes * weight[np.newaxis, :, :]
+    else:
+        out_planes = planes * weight
+
+    meta = {
+        "active": True,
+        "glare_mode": glare_mode,
+        "center_x": xc,
+        "center_y": yc,
+        "radius": R,
+        "residual_std": res_std,
+        "delta": delta,
+    }
+    return out_planes.astype(np.float32), meta
+
+
 def _calculate_channel_balance(
     d: np.ndarray,
     bg_r: float,
@@ -941,6 +1102,7 @@ def _calculate_channel_balance(
     bg_b: float,
     mid_val: float = 0.13,
     wb_mode: str = "gray-world",
+    glare_mode: str = "auto",
 ) -> dict:
     """Calculate channel white point stretch parameters with neutral Gray-World balance.
 
@@ -951,10 +1113,11 @@ def _calculate_channel_balance(
 
     This function:
     1. Subtracts per-channel pedestals linearly (R_net, G_net, B_net);
-    2. Identifies valid lunar surface pixels and computes relative Gray-World linear gains (k_R, k_B);
-    3. Normalizes color channels so that average lunar albedo renders as true neutral gray;
-    4. Suppresses optical chromatic aberration / Rayleigh blue flare (Defringe) along the limb;
-    5. Derives a physical 32-bit Luminance channel and unified isometric stretch parameters.
+    2. Suppresses diffuse optical and atmospheric lunar limb glare (Limb Glare Suppression);
+    3. Identifies valid lunar surface pixels and computes relative Gray-World linear gains (k_R, k_B);
+    4. Normalizes color channels so that average lunar albedo renders as true neutral gray;
+    5. Suppresses optical chromatic aberration / Rayleigh blue flare (Defringe) along the limb;
+    6. Derives a physical 32-bit Luminance channel and unified isometric stretch parameters.
     """
     import numpy as np
 
@@ -993,6 +1156,13 @@ def _calculate_channel_balance(
     r_net = np.maximum(0.0, d[0] - bg_r)
     g_net = np.maximum(0.0, d[1] - bg_g)
     b_net = np.maximum(0.0, d[2] - bg_b)
+
+    # 2. Lunar Limb Glare Suppression (physics-based radial falloff outside celestial limb)
+    if glare_mode != "off":
+        net_planes = np.stack([r_net, g_net, b_net], axis=0)
+        net_planes, glare_meta = _suppress_lunar_limb_glare(net_planes, glare_mode=glare_mode)
+        r_net, g_net, b_net = net_planes[0], net_planes[1], net_planes[2]
+        res["glare_meta"] = glare_meta
 
     lum_approx = 0.299 * r_net + 0.587 * g_net + 0.114 * b_net
     p999_lum_raw = float(np.percentile(lum_approx, 99.95))
@@ -1242,11 +1412,16 @@ def cmd_postprocess(args) -> None:
     if not sat_lines:
         sat_lines = [f"satu 0.70 {sat_bg:.1f} 6", f"satu 0.40 1.0 6"]
 
+    glare_mode = getattr(args, "glare_suppress", "auto")
+
     if is_rgb:
         bg_r = _estimate_pedestal(d[0])
         bg_g = _estimate_pedestal(d[1])
         bg_b = _estimate_pedestal(d[2])
-        wb = _calculate_channel_balance(d, bg_r, bg_g, bg_b, mid_val=mid_val, wb_mode=wb_mode)
+        wb = _calculate_channel_balance(d, bg_r, bg_g, bg_b, mid_val=mid_val, wb_mode=wb_mode, glare_mode=glare_mode)
+        if "glare_meta" in wb and wb["glare_meta"].get("active"):
+            gm = wb["glare_meta"]
+            log(f"lunar limb glare suppression active: center=({gm['center_x']:.1f}, {gm['center_y']:.1f}), R={gm['radius']:.1f}px (res_std={gm['residual_std']:.2f}px, falloff={gm['delta']:.1f}px)")
         if wb["moon_pixels"] >= 200 and wb_mode == "gray-world":
             log(f"neutral Gray-World balance applied: R/G={wb['ratio_r']:.3f}, B/G={wb['ratio_b']:.3f} ({wb['moon_pixels']} lunar surface pixels sampled)")
         log(f"calibrated channels (bg=[{wb['bg_r']:.5f}, {wb['bg_g']:.5f}, {wb['bg_b']:.5f}], hi=[{wb['hi_r']:.5f}, {wb['hi_g']:.5f}, {wb['hi_b']:.5f}], midtone={mid_val})")
@@ -1535,6 +1710,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sat-ti", type=float, default=0.8, help="Mineral saturation boost for Ti-rich basalt (cyan-blue hues 3 & 4, default: 0.8)")
     a.add_argument("--sat-base", type=float, default=0.3, help="Foundation base saturation boost across all hues (default: 0.3)")
     a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
+    a.add_argument("--glare-suppress", default="auto", choices=["auto", "mild", "aggressive", "off"],
+                   help="Lunar limb forward scattering glare suppression mode: 'auto' (4.5px falloff, default), 'mild' (8.0px), 'aggressive' (2.5px), 'off' (bypass)")
     a.set_defaults(func=cmd_postprocess)
 
     a = sub.add_parser("verify")
@@ -1582,6 +1759,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sat-ti", type=float, default=0.8, help="Mineral saturation boost for Ti-rich basalt (cyan-blue hues 3 & 4, default: 0.8)")
     a.add_argument("--sat-base", type=float, default=0.3, help="Foundation base saturation boost across all hues (default: 0.3)")
     a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
+    a.add_argument("--glare-suppress", default="auto", choices=["auto", "mild", "aggressive", "off"],
+                   help="Lunar limb forward scattering glare suppression mode: 'auto' (4.5px falloff, default), 'mild' (8.0px), 'aggressive' (2.5px), 'off' (bypass)")
     a.set_defaults(func=cmd_all)
 
     return p

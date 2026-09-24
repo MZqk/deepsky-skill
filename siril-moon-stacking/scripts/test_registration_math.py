@@ -22,6 +22,7 @@ from moon_stack import (
     _locate_high_contrast_roi,
     _select_frames_by_quality,
     _subpixel_phase_correlation,
+    _suppress_lunar_limb_glare,
     cmd_postprocess,
 )
 
@@ -428,6 +429,43 @@ def test_adaptive_sharpening_math() -> None:
     assert not failures, f"Failures in test_adaptive_sharpening_math: {failures}"
 
 
+def test_lunar_limb_glare_suppression() -> None:
+    failures = []
+    h, w = 512, 512
+    yy, xx = np.mgrid[0:h, 0:w]
+    r = np.sqrt((xx - 256)**2 + (yy - 256)**2)
+    img = np.zeros((h, w), dtype=np.float32)
+    img[r <= 150] = 0.5 + 0.1 * np.cos(r[r <= 150] / 10.0)
+    glare_zone = (r > 150) & (r <= 200) & (xx > 256)
+    img[glare_zone] = 0.25 * np.exp(-(r[glare_zone] - 150) / 15.0)
+
+    # 1. Apply glare suppression in auto mode
+    cleaned, meta = _suppress_lunar_limb_glare(img, glare_mode="auto")
+    print(f"Glare suppression auto: active={meta.get('active')}, center=({meta.get('center_x', 0):.1f}, {meta.get('center_y', 0):.1f}), R={meta.get('radius', 0):.1f}")
+
+    if not meta.get("active"):
+        failures.append("Limb glare suppression failed to detect and fit synthetic lunar limb")
+    else:
+        # Check that lunar disc inside r <= 145 is 100% unaltered
+        inner_mask = r <= 145
+        diff_inner = float(np.max(np.abs(cleaned[inner_mask] - img[inner_mask])))
+        if diff_inner > 1e-5:
+            failures.append(f"Lunar disc pixels were modified by glare suppression: max diff={diff_inner}")
+
+        # Check that glare outside r >= R + delta + 2px is suppressed to zero
+        outer_mask = (r >= 150 + meta["delta"] + 2.0) & (xx > 256)
+        max_outer = float(np.max(cleaned[outer_mask]))
+        if max_outer > 1e-4:
+            failures.append(f"Outer space glare was not suppressed to zero: max remaining={max_outer}")
+
+    # 2. Test off mode
+    clean_off, meta_off = _suppress_lunar_limb_glare(img, glare_mode="off")
+    if meta_off.get("active"):
+        failures.append("Mode 'off' should not be active")
+
+    assert not failures, f"Failures in test_lunar_limb_glare_suppression: {failures}"
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -438,6 +476,7 @@ def main() -> int:
         ("test_pedestal_estimation", test_pedestal_estimation),
         ("test_gray_world_channel_balance", test_gray_world_channel_balance),
         ("test_adaptive_sharpening_math", test_adaptive_sharpening_math),
+        ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
         ("test_postprocess_pipelines", test_postprocess_pipelines),
     ]
     failed = 0

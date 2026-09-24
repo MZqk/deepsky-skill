@@ -109,6 +109,11 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
   * **月轮弧边色差与紫边抑制 (Limb Edge Defringing & CA Suppression)**：
     * 针对望远镜/长焦镜头在大反差明暗交界处产生的次级光谱与瑞利散射蓝紫边缘，在物理色度层对月轮过渡边缘（$L < 0.10 \times p_{99.95}$）实施色散平滑，限制过量蓝光散溢；
     * **保护真实地质色彩**：月面主体保留高达 +15% 的真实矿物蓝余量，完美还原静海（Mare Tranquillitatis）富钛玄武岩的真实地质矿物色，同时彻底消除月盘外缘弧边刺眼的紫边（Purple Fringing）；
+  * **月轮亮弧前向散射眩光抑制 (Lunar Limb Glare Suppression, 默认 `--glare-suppress auto`)**：
+    * **物理成因诊断**：月球明亮边缘在镜头前组镜片/保护镜以及地球高空大气气溶胶作用下，产生微弱的前向米氏/瑞利散射（Forward Scattering Glare），在非线性 MTF 与局部 CLAHE 强拉伸后外太空弥漫灰度高达 80~130 的发光亮雾；
+    * **亚像素几何拟合**：采用径向最大负梯度拐点扫描配合 RANSAC 鲁棒圆拟合，精确解算月面真实物理天体圆盘（拟合残差 $\sigma_{res} < 1.0\text{px}$）；
+    * **线性平滑衰减场**：在 32 位浮点线性空间非线性拉伸前，保持月盘实体（$r \le R + 1.0\text{px}$）100% 原始信号无损，在 $r \in [R+1, R+1+\delta]$ 实施 Hermite 三次 Smoothstep 平滑过渡（默认 $\delta = 4.5\text{px}$，保留望远镜 Airy 斑真实光学衍射轮廓，绝不产生剪纸边缘），在 $r > R + 1 + \delta$ 彻底清零漫射外太空背景，使深空恢复纯净零噪深邃黑；
+    * 支持 `--glare-suppress auto`（默认 4.5px 过渡）、`--glare-suppress mild`（8.0px 柔和）、`--glare-suppress aggressive`（2.5px 紧致）与 `--glare-suppress off`（旁路）；
   * **L/RGB 明度与色度分离重构 (L/RGB Separation Pipeline, 默认 `--mineral-mode lrgb`)**：
     * **物理明度提取**：自动计算物理加权明度 $L = 0.299R + 0.587G + 0.114B$ 生成 32 位 `moon_lum.fit`；
     * **高频细节全归 L**：Airy PSF 物理反卷积、插值联动小波重构、Post-Wavelet CLAHE 与微反差 Unsharp 全部且仅作用于单通道明度 $L$，从物理源头彻底杜绝彩色高频噪点与边缘伪彩镶边；
