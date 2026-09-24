@@ -94,12 +94,15 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
   * **ADC 亚像素通道对齐**：校准 R/B 相对 G 的空间偏移，消除边缘红蓝伪彩色彩边；
   * **物理 Airy PSF + Split Bregman 去卷积**：还原光学低通弥散，消灭亮缘黑环暗斑；
   * **高光保护自适应拉伸**：中值自适应保留高光动态余量，绝无死白溢出；
-  * **物理感知自适应温润锐化 (Adaptive Organic Sharpening, 默认 `--sharp-mode auto`)**：
+  * **物理感知自适应温润锐化 (Adaptive Organic Sharpening, 默认 `--sharp-mode auto` / 平衡温润模型 B 方案)**：
     * **平坦月海残噪感知**：利用 Donoho MAD 估计平坦玄武岩熔岩平原的高频噪声基底 $\sigma_{noise}$，信噪比较低时自动抑制高频放大，彻底消除平原沙砾噪点；
-    * **反卷积反向联动折让**：检测到 Airy 物理反卷积已激活时，小波重构各层增益自动实施 $0.55\times$ 折扣，杜绝四重级联锐化造成的“浮雕发脆/刻痕描边”；
-    * **月相反差动态感知 CLAHE**：基于月盘有效直方图动态范围比（$(P_{90} - P_{10}) / P_{10}$）自适应缩放 `clahe_clip`（$0.25\sim 0.70$），保护亮坑壁不泛白过冲；
+    * **反卷积与小波能量守恒折让**：检测到 Airy 物理反卷积已激活时，小波重构各层增益严格收敛至温润微调区间（增益收缩至 $2\%\sim 5\%$，实测 `1.02, 1.04, 1.05, 1.02`），彻底消灭环形山边缘甜甜圈白圈与人工浮雕描边；
+    * **反卷积解耦温和 CLAHE**：消除旧版 $\ge 0.25$ 的死板强硬下限，反卷积激活时 CLAHE 自适应打折 60%（`clip = 0.06 ~ 0.18`，实测降至温润的 `0.13`），从根本杜绝局部微反差过拉造成的石膏白垩感；
     * **算法互斥防御（USM 自动旁路）**：在小波与反卷积激活时，传统的单尺度反锐化掩模自动归零（`unsharp = 0`），从源头切断阶跃边缘下冲（Undershoot）与人工白边；
-    * 支持 `--sharp-mode mild`（温润柔和）、`--sharp-mode crisp`（高反差经典）、`--sharp-mode none`（旁路锐化）或手动参数覆盖；
+    * **语义化预设分级**：
+      * `--sharp-mode auto`（现代平衡温润基准，默认推荐）：Airy 反卷积 + 2~5% 小波轻调 + 0.13 微反差均衡，兼顾极限分辨率与温润无伪影；
+      * `--sharp-mode mellow`（目视纯镜感）：Airy 反卷积 + 1~3% 极弱小波 + 彻底关闭 CLAHE，呈现高级大口径目视镜感；
+      * `--sharp-mode mild`（温和轻调）、`--sharp-mode crisp`（高反差雕塑感）、`--sharp-mode none`（旁路锐化纯物理母版）或手动参数覆盖；
   * **安全黑点噪声抑制 (Safe Noise Ceiling Pedestal)**：
     * 采用四角安全噪声上限（$\text{median} + 2.0\sigma$），防止深空暗背景被非线性拉伸曲线与 CLAHE 局部直方图抬升，保证外围真空深空呈现纯净深邃的零噪黑底；
   * **月面专用线性灰世界平衡 (Linear Gray-World Balance, 默认 `--white-balance gray-world`)**：

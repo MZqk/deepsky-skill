@@ -396,8 +396,8 @@ def test_adaptive_sharpening_math() -> None:
         failures.append(f"Expected deconv discount 0.55, got {res_deconv['deconv_discount']}")
     if res_deconv["unsharp_amount"] != 0.0 or res_deconv["unsharp_lines"]:
         failures.append("USM unsharp mask should be automatically bypassed in auto mode")
-    if not (0.25 <= res_deconv["clahe_clip"] <= 0.70):
-        failures.append(f"CLAHE clip out of organic range: {res_deconv['clahe_clip']}")
+    if not (0.05 <= res_deconv["clahe_clip"] <= 0.25):
+        failures.append(f"CLAHE clip out of balanced organic range: {res_deconv['clahe_clip']}")
 
     # 2. Test auto mode without deconvolution (should have higher wavelet gain)
     res_nodeconv = _estimate_adaptive_sharpening(img, has_deconv=False, interp_used="cu", sharp_mode="auto")
@@ -422,7 +422,14 @@ def test_adaptive_sharpening_math() -> None:
     if res_override["unsharp_amount"] != 0.25 or not res_override["unsharp_lines"]:
         failures.append(f"User unsharp override failed: {res_override['unsharp_amount']}")
 
-    # 5. Test sharp_mode='none'
+    # 5. Test sharp_mode='mellow'
+    res_mellow = _estimate_adaptive_sharpening(img, sharp_mode="mellow")
+    if res_mellow["clahe_clip"] != 0.0 or res_mellow["clahe_lines"]:
+        failures.append("Mode 'mellow' should completely bypass CLAHE")
+    if res_mellow["wavelet_coeffs"][0] != 1.01 or res_mellow["wavelet_coeffs"][2] != 1.03:
+        failures.append(f"Mode 'mellow' wavelet mismatch: {res_mellow['wavelet_coeffs']}")
+
+    # 6. Test sharp_mode='none'
     res_none = _estimate_adaptive_sharpening(img, sharp_mode="none")
     if res_none["wavelet_coeffs"] != [1.0, 1.0, 1.0, 1.0, 1.0, 1.0] or res_none["clahe_clip"] != 0.0:
         failures.append("Mode 'none' did not bypass wavelets and CLAHE")

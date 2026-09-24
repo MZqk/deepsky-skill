@@ -1420,28 +1420,37 @@ def _estimate_adaptive_sharpening(
         unsharp_amt = 0.0
         deconv_discount = 1.0
         noise_penalty = 1.0
+    elif sharp_mode == "mellow":
+        w_coeffs = [1.01, 1.02, 1.03, 1.01, 1.00, 1.00]
+        clahe_clip = 0.0
+        unsharp_amt = 0.0
+        deconv_discount = 1.0
+        noise_penalty = 1.0
     elif sharp_mode == "mild":
-        w_coeffs = [1.02, 1.08, 1.10, 1.05, 1.00, 1.00]
-        clahe_clip = 0.35
+        w_coeffs = [1.01, 1.03, 1.04, 1.02, 1.00, 1.00]
+        clahe_clip = 0.08
         unsharp_amt = 0.0
         deconv_discount = 1.0
         noise_penalty = 1.0
     elif sharp_mode == "crisp":
-        w_coeffs = [1.05, 1.16, 1.20, 1.12, 1.00, 1.00]
-        clahe_clip = 0.60
+        w_coeffs = [1.04, 1.10, 1.12, 1.08, 1.00, 1.00]
+        clahe_clip = 0.30
         unsharp_amt = 0.0
         deconv_discount = 1.0
         noise_penalty = 1.0
-    else:  # "auto"
+    else:  # "auto" -> Scheme B: Balanced Natural Baseline
         deconv_discount = 0.55 if has_deconv else 1.0
         noise_penalty = float(np.clip(1.0 - (sigma_noise / max(p999 * 0.005, 1e-6)), 0.4, 1.0))
         l1_base = 0.04 if interp_used == "cu" else 0.08
         w1 = 1.0 + l1_base * deconv_discount * noise_penalty
-        w2 = 1.0 + 0.16 * deconv_discount * noise_penalty
-        w3 = 1.0 + 0.20 * deconv_discount * noise_penalty
-        w4 = 1.0 + 0.12 * deconv_discount * noise_penalty
+        w2 = 1.0 + 0.10 * deconv_discount * noise_penalty
+        w3 = 1.0 + 0.12 * deconv_discount * noise_penalty
+        w4 = 1.0 + 0.06 * deconv_discount * noise_penalty
         w_coeffs = [round(w1, 2), round(w2, 2), round(w3, 2), round(w4, 2), 1.00, 1.00]
-        clahe_clip = round(float(np.clip(1.5 / max(contrast_ratio, 1.0), 0.25, 0.70)), 2)
+        if has_deconv:
+            clahe_clip = round(float(np.clip(0.60 / max(contrast_ratio, 1.0), 0.06, 0.18)), 2)
+        else:
+            clahe_clip = round(float(np.clip(1.20 / max(contrast_ratio, 1.0), 0.15, 0.40)), 2)
         unsharp_amt = 0.0
 
     # User manual overrides
@@ -1876,8 +1885,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--midtone", type=float, default=0.13, help="MTF midtone stretch value with highlight protection (default: 0.13)")
     a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
     a.add_argument("--clahe-clip", type=float, default=None, help="CLAHE clip limit (default: auto dynamic, set <=0 to bypass CLAHE)")
-    a.add_argument("--sharp-mode", default="auto", choices=["auto", "mild", "crisp", "none"],
-                   help="Sharpening mode: 'auto' (physics-adaptive contrast/noise-aware, default), 'mild' (soft natural), 'crisp' (classic), 'none' (bypass)")
+    a.add_argument("--sharp-mode", default="auto", choices=["auto", "mellow", "mild", "crisp", "none"],
+                   help="Sharpening mode: 'auto' (balanced natural organic baseline, default), 'mellow' (ultra-soft optical view, no CLAHE), 'mild' (subtle natural), 'crisp' (classic), 'none' (bypass)")
     a.add_argument("--unsharp", type=float, default=None, help="USM unsharp mask amount (default: auto bypassed when wavelets/deconv active)")
     a.add_argument("--aperture", type=float, default=80.0, help="Telescope aperture in mm (for Airy PSF)")
     a.add_argument("--focal", type=float, default=400.0, help="Telescope focal length in mm (for Airy PSF)")
@@ -1930,8 +1939,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--midtone", type=float, default=0.13)
     a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
     a.add_argument("--clahe-clip", type=float, default=None, help="CLAHE clip limit (default: auto dynamic, set <=0 to bypass CLAHE)")
-    a.add_argument("--sharp-mode", default="auto", choices=["auto", "mild", "crisp", "none"],
-                   help="Sharpening mode: 'auto' (physics-adaptive contrast/noise-aware, default), 'mild' (soft natural), 'crisp' (classic), 'none' (bypass)")
+    a.add_argument("--sharp-mode", default="auto", choices=["auto", "mellow", "mild", "crisp", "none"],
+                   help="Sharpening mode: 'auto' (balanced natural organic baseline, default), 'mellow' (ultra-soft optical view, no CLAHE), 'mild' (subtle natural), 'crisp' (classic), 'none' (bypass)")
     a.add_argument("--unsharp", type=float, default=None, help="USM unsharp mask amount (default: auto bypassed when wavelets/deconv active)")
     a.add_argument("--aperture", type=float, default=80.0)
     a.add_argument("--focal", type=float, default=400.0)
