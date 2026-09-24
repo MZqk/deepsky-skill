@@ -31,7 +31,11 @@ from moon_stack import (
     _subpixel_phase_correlation,
     _suppress_lunar_limb_glare,
     _infer_optical_parameters,
+    DEFAULT_SIRIL,
+    cmd_import,
     cmd_postprocess,
+    parse_ser_header,
+    unpack_ser_to_fits,
 )
 
 
@@ -951,6 +955,191 @@ def test_infer_optical_parameters_math() -> None:
     assert not failures, f"Failures in test_infer_optical_parameters_math: {failures}"
 
 
+def _make_synthetic_ser(
+    path: Path,
+    width: int = 64,
+    height: int = 64,
+    num_frames: int = 4,
+    color_id: int = 0,
+    pixel_depth: int = 16,
+    little_endian: int = 1,
+    observer: str = "TestObserver",
+    instrument: str = "ZWO ASI585MC",
+    telescope: str = "Seestar S50",
+    date_time_utc: int = 638628000000000000,
+) -> Path:
+    """Generate a valid binary SER video container for testing."""
+    import struct
+    fmt = "<14s7i40s40s40s2q"
+    hdr = struct.pack(
+        fmt,
+        b"LUCAM-RECORDER",
+        0,  # LuID
+        color_id,
+        little_endian,
+        width,
+        height,
+        pixel_depth,
+        num_frames,
+        observer.encode("utf-8").ljust(40, b"\x00"),
+        instrument.encode("utf-8").ljust(40, b"\x00"),
+        telescope.encode("utf-8").ljust(40, b"\x00"),
+        0,
+        date_time_utc,
+    )
+    bytes_per_sample = 1 if pixel_depth <= 8 else 2
+    plane_count = 3 if color_id in (100, 101) else 1
+
+    frames = []
+    rng = np.random.default_rng(12345)
+    for i in range(num_frames):
+        if pixel_depth <= 8:
+            arr = rng.integers(10, 240, size=(height, width, plane_count) if plane_count > 1 else (height, width), dtype=np.uint8)
+        else:
+            arr = rng.integers(1000, 60000, size=(height, width, plane_count) if plane_count > 1 else (height, width), dtype=np.uint16)
+        frames.append(arr.tobytes())
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(hdr + b"".join(frames))
+    return path
+
+
+def test_ser_header_parser():
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "sample.ser"
+        _make_synthetic_ser(p, width=128, height=96, num_frames=5, color_id=8, pixel_depth=16, instrument="ASI678MC")
+        info = parse_ser_header(p)
+        assert info["file_id"] == "LUCAM-RECORDER"
+        assert info["width"] == 128
+        assert info["height"] == 96
+        assert info["frame_count"] == 5
+        assert info["color_id"] == 8
+        assert info["is_bayer"] is True
+        assert info["bayer_pattern"] == "RGGB"
+        assert info["instrument"] == "ASI678MC"
+        assert info["date_obs"] is not None
+        assert "2024" in info["date_obs"]
+
+        # Check invalid header
+        bad_p = Path(td) / "bad.ser"
+        bad_p.write_bytes(b"INVALID_HEADER_DATA" * 10)
+        try:
+            parse_ser_header(bad_p)
+            assert False, "Should raise ValueError on invalid FileID"
+        except ValueError:
+            pass
+    print("SER header parser unit test passed")
+
+
+def test_ser_unpack_mono():
+    from astropy.io import fits
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        ser_file = Path(td) / "test_mono.ser"
+        _make_synthetic_ser(ser_file, width=64, height=48, num_frames=3, color_id=0, pixel_depth=16, instrument="ASI174MM")
+        out_dir = Path(td) / "unpacked"
+        res = unpack_ser_to_fits(ser_file, out_dir, seq_name="test_moon_", limit=2)
+
+        assert res["extracted_frames"] == 2
+        assert res["channels"] == 1
+        f1 = out_dir / "test_moon_00001.fit"
+        f2 = out_dir / "test_moon_00002.fit"
+        assert f1.exists() and f2.exists()
+        assert not (out_dir / "test_moon_00003.fit").exists()
+
+        with fits.open(f1) as hdul:
+            hdr = hdul[0].header
+            data = hdul[0].data
+            assert data.shape == (48, 64)
+            assert hdr["NAXIS"] == 2
+            assert hdr["INSTRUME"] == "ASI174MM"
+    print("SER monochrome unpack unit test passed")
+
+
+def test_ser_unpack_bayer():
+    from astropy.io import fits
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        ser_file = Path(td) / "test_bayer.ser"
+        _make_synthetic_ser(ser_file, width=64, height=48, num_frames=3, color_id=8, pixel_depth=16)
+        out_dir = Path(td) / "unpacked_bayer"
+        res = unpack_ser_to_fits(ser_file, out_dir, seq_name="test_bayer_", debayer=True)
+
+        assert res["extracted_frames"] == 3
+        assert res["channels"] == 3
+        f1 = out_dir / "test_bayer_00001.fit"
+        assert f1.exists()
+
+        with fits.open(f1) as hdul:
+            hdr = hdul[0].header
+            data = hdul[0].data
+            assert data.shape == (3, 48, 64)
+            assert hdr["NAXIS"] == 3
+    print("SER Bayer demosaicing unpack unit test passed")
+
+
+def test_ser_cmd_import_single_file_and_dir():
+    import argparse
+    import json
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td)
+        # Test 1: single file input (Mono)
+        ser1 = p / "captures" / "lunar_mono.ser"
+        _make_synthetic_ser(ser1, width=64, height=48, num_frames=4, color_id=0, pixel_depth=16)
+        work1 = p / "work_mono"
+
+        args1 = argparse.Namespace(
+            input=str(ser1),
+            work=str(work1),
+            format="auto",
+            limit=0,
+            ser_debayer=True,
+            siril=DEFAULT_SIRIL,
+            timeout=30,
+        )
+        cmd_import(args1)
+
+        seq_file1 = work1 / "moon_.seq"
+        receipt1 = work1 / "import_receipt.json"
+        assert seq_file1.exists()
+        assert receipt1.exists()
+        seq_text = seq_file1.read_text()
+        assert "L 1" in seq_text
+        r_data1 = json.loads(receipt1.read_text())
+        assert r_data1["is_ser"] is True
+        assert r_data1["channels"] == 1
+        assert r_data1["frame_count"] == 4
+
+        # Test 2: directory input (Bayer RGGB)
+        cap_dir = p / "dir_bayer"
+        ser2 = cap_dir / "lunar_color.ser"
+        _make_synthetic_ser(ser2, width=64, height=48, num_frames=3, color_id=8, pixel_depth=16)
+        work2 = p / "work_color"
+
+        args2 = argparse.Namespace(
+            input=str(cap_dir),
+            work=str(work2),
+            format="ser",
+            limit=2,
+            ser_debayer=True,
+            siril=DEFAULT_SIRIL,
+            timeout=30,
+        )
+        cmd_import(args2)
+
+        seq_file2 = work2 / "moon_.seq"
+        receipt2 = work2 / "import_receipt.json"
+        assert seq_file2.exists()
+        assert "L 3" in seq_file2.read_text()
+        r_data2 = json.loads(receipt2.read_text())
+        assert r_data2["is_ser"] is True
+        assert r_data2["channels"] == 3
+        assert r_data2["frame_count"] == 2
+    print("SER cmd_import single file and directory integration unit test passed")
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -967,6 +1156,10 @@ def main() -> int:
         ("test_mosaic_tile_mode_pipeline", test_mosaic_tile_mode_pipeline),
         ("test_histogram_color_lock_pipeline", test_histogram_color_lock_pipeline),
         ("test_infer_optical_parameters_math", test_infer_optical_parameters_math),
+        ("test_ser_header_parser", test_ser_header_parser),
+        ("test_ser_unpack_mono", test_ser_unpack_mono),
+        ("test_ser_unpack_bayer", test_ser_unpack_bayer),
+        ("test_ser_cmd_import_single_file_and_dir", test_ser_cmd_import_single_file_and_dir),
         ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
         ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
         ("test_postprocess_pipelines", test_postprocess_pipelines),

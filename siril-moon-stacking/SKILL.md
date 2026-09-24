@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: siril-moon-stacking
-  version: "1.0.2"
+  version: "1.0.3"
   displayName: Siril Moon Stacking
   summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
   tags: [astronomy, lunar, siril, lucky-imaging]
@@ -31,6 +31,8 @@ metadata:
   * 色散校正与矿物月饱和度渐进式提升（`rmgreen 0` + `satu`）；
   * 32 位 FITS 母版、16 位 TIFF 母版及高质量 JPG 导出。
 * **Python 的职责（插件）**：
+  * **专业 SER 视频流原生直读与极速解压**：直接解析 178 字节规范头，零拷贝 `np.memmap` 提取帧数据，OpenCV 硬件级 demosaicing（1080p 单帧 <5ms），元数据（UTC 时间戳/相机/望远镜）无损注入 FITS；
+  * **单色（Mono）与彩色（RGB）全链路自适应**：智能生成 `L 1` 与 `L 3` 序列，单色输入自动规避彩色专属滤镜；
   * 智能月相感知与高反差特征地貌定位（终结者明暗线/环形山密集区，抗月相干扰）；
   * 基于 Hann 加窗的 FFT 亚像素频域相位相关位移计算；
   * 视宁度与云雾置信度评分，帧数感知动态挑选（小样本自动扩充比例，保证高信噪比）；
@@ -56,8 +58,11 @@ pip install -r requirements.txt
 # 检查 Siril CLI 与依赖
 python scripts/moon_stack.py probe
 
-# 扫描并导入数据（自动区分 RAW 与 FITS，并在工作目录生成 01_import.ssf）
+# 方式 A：扫描并导入单帧 RAW 或 FITS 目录
 python scripts/moon_stack.py import --input /path/to/moon_raws --work /path/to/work
+
+# 方式 B（新增）：直接传入单个 SER 视频文件（或包含 .ser 的录像目录），支持限制导入帧数
+python scripts/moon_stack.py import --input /path/to/moon_capture.ser --work /path/to/work --limit 500
 ```
 > **前置条件**：需已安装 Siril 1.4.4+（macOS 默认路径 `/Applications/Siril.app/Contents/MacOS/siril-cli`，可用 `--siril` 覆盖）。
 > `probe` 输出的 `numpy` / `astropy` / `cv2` / `skimage` 四项必须均非 `null`，否则对应步骤会以 `ModuleNotFoundError` 中断。

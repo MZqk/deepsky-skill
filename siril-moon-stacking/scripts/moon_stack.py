@@ -34,6 +34,22 @@ import numpy as np
 DEFAULT_SIRIL = "/Applications/Siril.app/Contents/MacOS/siril-cli"
 RAW_EXTS = {".orf", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raw", ".rw2", ".pef", ".srf"}
 FIT_EXTS = {".fit", ".fits", ".fit.gz", ".fits.gz"}
+SER_EXTS = {".ser"}
+
+SER_COLOR_MONO = 0
+SER_COLOR_BAYER_RGGB = 8
+SER_COLOR_BAYER_GRBG = 9
+SER_COLOR_BAYER_GBRG = 10
+SER_COLOR_BAYER_BGGR = 11
+SER_COLOR_RGB = 100
+SER_COLOR_BGR = 101
+
+SER_BAYER_NAMES = {
+    8: "RGGB",
+    9: "GRBG",
+    10: "GBRG",
+    11: "BGGR",
+}
 
 
 # --------------------------------------------------------------------------- io
@@ -103,64 +119,264 @@ def fits_header_info(path: Path) -> dict:
         }
 
 
+
+def parse_ser_header(path: Path) -> dict:
+    """Parse 178-byte header of a standard SER video container.
+
+    Reference: Lucam Recorder SER format specification.
+    """
+    import datetime
+    import struct
+
+    if not path.is_file():
+        raise FileNotFoundError(f"SER file not found: {path}")
+
+    header_bytes = path.read_bytes()[:178] if path.stat().st_size >= 178 else b""
+    if len(header_bytes) < 178:
+        raise ValueError(f"File {path.name} is too small to be a valid SER file (size={len(header_bytes)} < 178 bytes)")
+
+    fmt = "<14s7i40s40s40s2q"
+    (
+        file_id,
+        lu_id,
+        color_id,
+        little_endian,
+        width,
+        height,
+        pixel_depth,
+        frame_count,
+        raw_observer,
+        raw_instrument,
+        raw_telescope,
+        date_time,
+        date_time_utc,
+    ) = struct.unpack(fmt, header_bytes)
+
+    if file_id != b"LUCAM-RECORDER":
+        raise ValueError(f"Invalid SER header: FileID='{file_id.decode('ascii', errors='replace')}', expected 'LUCAM-RECORDER'")
+
+    observer = raw_observer.decode("utf-8", errors="ignore").rstrip("\x00").strip()
+    instrument = raw_instrument.decode("utf-8", errors="ignore").rstrip("\x00").strip()
+    telescope = raw_telescope.decode("utf-8", errors="ignore").rstrip("\x00").strip()
+
+    # Convert DateTime_UTC (100ns intervals since 0001-01-01 00:00:00 UTC)
+    date_obs = None
+    epoch_100ns = 621355968000000000  # 0001-01-01 to 1970-01-01 in 100ns
+    ts_val = date_time_utc if date_time_utc > epoch_100ns else (date_time if date_time > epoch_100ns else 0)
+    if ts_val > epoch_100ns:
+        try:
+            unix_sec = (ts_val - epoch_100ns) / 10000000.0
+            dt = datetime.datetime.fromtimestamp(unix_sec, datetime.timezone.utc)
+            date_obs = dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        except Exception:
+            date_obs = None
+
+    is_bayer = color_id in (SER_COLOR_BAYER_RGGB, SER_COLOR_BAYER_GRBG, SER_COLOR_BAYER_GBRG, SER_COLOR_BAYER_BGGR)
+    is_rgb = color_id in (SER_COLOR_RGB, SER_COLOR_BGR)
+    is_mono = (color_id == SER_COLOR_MONO)
+
+    return {
+        "path": str(path),
+        "file_id": file_id.decode("ascii"),
+        "lu_id": lu_id,
+        "color_id": color_id,
+        "little_endian": bool(little_endian),
+        "width": width,
+        "height": height,
+        "pixel_depth": pixel_depth,
+        "frame_count": frame_count,
+        "observer": observer,
+        "instrument": instrument,
+        "telescope": telescope,
+        "date_obs": date_obs,
+        "is_mono": is_mono,
+        "is_bayer": is_bayer,
+        "is_rgb": is_rgb,
+        "bayer_pattern": SER_BAYER_NAMES.get(color_id),
+    }
+
+
+def unpack_ser_to_fits(
+    ser_path: Path,
+    out_dir: Path,
+    seq_name: str = "moon_",
+    limit: int = 0,
+    debayer: bool = True,
+) -> dict:
+    """Extract frames from SER file into individual 16-bit FITS files with metadata."""
+    from astropy.io import fits
+    import cv2
+
+    hdr = parse_ser_header(ser_path)
+    w, h = hdr["width"], hdr["height"]
+    depth = hdr["pixel_depth"]
+    color_id = hdr["color_id"]
+    bytes_per_sample = 1 if depth <= 8 else 2
+
+    if hdr["is_rgb"]:
+        plane_count = 3
+    else:
+        plane_count = 1
+
+    frame_bytes = w * h * bytes_per_sample * plane_count
+    file_size = ser_path.stat().st_size
+    data_size = max(0, file_size - 178)
+    max_avail_frames = data_size // frame_bytes if frame_bytes > 0 else 0
+    total_frames = min(hdr["frame_count"], max_avail_frames)
+
+    if total_frames <= 0:
+        raise ValueError(f"SER file contains 0 valid frames (file size {file_size} bytes, frame size {frame_bytes})")
+
+    extract_count = min(total_frames, limit) if limit > 0 else total_frames
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    dt_endian = "<" if hdr["little_endian"] else ">"
+    dt_type = f"{dt_endian}u2" if bytes_per_sample == 2 else "u1"
+
+    # Memory map the video payload
+    mmap_data = np.memmap(
+        ser_path,
+        dtype=np.dtype(dt_type),
+        mode="r",
+        offset=178,
+        shape=(extract_count, h, w, plane_count) if plane_count > 1 else (extract_count, h, w),
+    )
+
+    out_channels = 3 if (hdr["is_rgb"] or (hdr["is_bayer"] and debayer)) else 1
+
+    cv2_code = None
+    if hdr["is_bayer"] and debayer:
+        cv2_map = {
+            SER_COLOR_BAYER_RGGB: cv2.COLOR_BayerRG2RGB,
+            SER_COLOR_BAYER_GRBG: cv2.COLOR_BayerGR2RGB,
+            SER_COLOR_BAYER_GBRG: cv2.COLOR_BayerGB2RGB,
+            SER_COLOR_BAYER_BGGR: cv2.COLOR_BayerBG2RGB,
+        }
+        cv2_code = cv2_map.get(color_id, cv2.COLOR_BayerRG2RGB)
+
+    log(f"unpacking SER [{ser_path.name}]: {extract_count} frames, {w}x{h}, {depth}-bit, color_id={color_id} -> {out_channels}-channel FITS")
+
+    for i in range(extract_count):
+        raw_frame = np.array(mmap_data[i], copy=True)
+        # Normalize to uint16
+        if bytes_per_sample == 1:
+            raw_frame = (raw_frame.astype(np.uint16) << 8) | raw_frame.astype(np.uint16)
+        else:
+            raw_frame = raw_frame.astype(np.uint16)
+
+        if hdr["is_bayer"] and debayer and cv2_code is not None:
+            rgb = cv2.demosaicing(raw_frame, cv2_code)
+            # FITS format: (channels, H, W)
+            fits_data = np.transpose(rgb, (2, 0, 1))
+        elif hdr["is_rgb"]:
+            if color_id == SER_COLOR_BGR:
+                raw_frame = raw_frame[..., ::-1]
+            fits_data = np.transpose(raw_frame, (2, 0, 1))
+        else:
+            # Monochrome or raw CFA
+            fits_data = raw_frame
+
+        target_fit = out_dir / f"{seq_name}{i+1:05d}.fit"
+        hdu = fits.PrimaryHDU(fits_data)
+        if hdr["date_obs"]:
+            hdu.header["DATE-OBS"] = hdr["date_obs"]
+        if hdr["instrument"]:
+            hdu.header["INSTRUME"] = hdr["instrument"]
+        if hdr["telescope"]:
+            hdu.header["TELESCOP"] = hdr["telescope"]
+        if hdr["observer"]:
+            hdu.header["OBSERVER"] = hdr["observer"]
+        if hdr["bayer_pattern"] and not debayer:
+            hdu.header["BAYERPAT"] = hdr["bayer_pattern"]
+
+        hdu.writeto(target_fit, overwrite=True)
+
+    return {
+        "extracted_frames": extract_count,
+        "total_in_file": total_frames,
+        "channels": out_channels,
+        "width": w,
+        "height": h,
+        "metadata": hdr,
+    }
+
+
 # ------------------------------------------------------------------- 1. import
 
 def cmd_import(args) -> None:
     src = Path(args.input).expanduser().resolve()
     work = Path(args.work).expanduser().resolve()
-    if not src.is_dir():
-        die(f"input directory not found: {src}")
+
+    if not src.exists():
+        die(f"input path not found: {src}")
 
     work.mkdir(parents=True, exist_ok=True)
     logs_dir = work / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    candidates = sorted(p for p in src.iterdir() if p.is_file())
-    fits_files = [p for p in candidates if p.suffix.lower() in FIT_EXTS]
-    raw_files = [p for p in candidates if p.suffix.lower() in RAW_EXTS]
-
-    # Format selection
     fmt = getattr(args, "format", "auto")
     limit = getattr(args, "limit", 0)
+    ser_debayer = getattr(args, "ser_debayer", True)
 
-    if fmt == "raw":
-        fits_files = []
+    fits_files, raw_files, ser_files = [], [], []
+
+    if src.is_file():
+        ext = src.suffix.lower()
+        if ext in SER_EXTS:
+            ser_files = [src]
+        elif ext in FIT_EXTS:
+            fits_files = [src]
+        elif ext in RAW_EXTS:
+            raw_files = [src]
+        else:
+            die(f"unsupported single file format: {src}")
+    elif src.is_dir():
+        candidates = sorted(p for p in src.iterdir() if p.is_file())
+        fits_files = [p for p in candidates if p.suffix.lower() in FIT_EXTS]
+        raw_files = [p for p in candidates if p.suffix.lower() in RAW_EXTS]
+        ser_files = [p for p in candidates if p.suffix.lower() in SER_EXTS]
+    else:
+        die(f"invalid input path: {src}")
+
+    # Format filtering / prioritization
+    if fmt == "ser":
+        fits_files, raw_files = [], []
+    elif fmt == "raw":
+        fits_files, ser_files = [], []
     elif fmt == "fits":
-        raw_files = []
+        raw_files, ser_files = [], []
     else:  # auto
-        if fits_files:
-            raw_files = []  # prefer existing FITS if present
+        if ser_files:
+            fits_files, raw_files = [], []
+        elif fits_files:
+            raw_files = []
 
-    # Filter out already stacked masters from FITS inputs
-    usable_fits, rejected_fits = [], []
-    for p in fits_files:
-        if "stack" in p.name.lower():
-            rejected_fits.append({"path": str(p), "reason": "name suggests stacked master"})
-            continue
-        try:
-            h = fits_header_info(p)
-            if h["bitpix"] in (-32, -64):
-                rejected_fits.append({"path": str(p), "reason": f"float master (BITPIX={h['bitpix']})"})
-                continue
-            usable_fits.append(p)
-        except Exception as exc:
-            rejected_fits.append({"path": str(p), "reason": f"unreadable: {exc}"})
-
-    if limit > 0:
-        if raw_files:
-            raw_files = raw_files[:limit]
-        if usable_fits:
-            usable_fits = usable_fits[:limit]
-
-    log(f"inventory: found {len(usable_fits)} FITS frames, {len(raw_files)} RAW files ({len(rejected_fits)} rejected)")
-    if not usable_fits and not raw_files:
-        die(f"no usable frames found in {src}")
-
-    script_lines = ["requires 1.4.4"]
     seq_name = "moon_"
+    rejected_fits = []
+    total_frames = 0
+    channels = 3
+    is_ser = bool(ser_files)
+    is_raw = bool(raw_files)
+    ser_info = None
 
-    if raw_files:
-        # RAW flow: use Siril's native parallel convert -debayer
+    if is_ser:
+        ser_path = ser_files[0]
+        if len(ser_files) > 1:
+            log(f"inventory: found {len(ser_files)} SER files in {src}; selecting primary video: {ser_path.name}")
+        ser_info = unpack_ser_to_fits(
+            ser_path=ser_path,
+            out_dir=work,
+            seq_name=seq_name,
+            limit=limit,
+            debayer=ser_debayer,
+        )
+        total_frames = ser_info["extracted_frames"]
+        channels = ser_info["channels"]
+        log(f"SER import complete: extracted {total_frames} frames ({channels} channel{'s' if channels > 1 else ''})")
+
+    elif is_raw:
+        if limit > 0:
+            raw_files = raw_files[:limit]
         log(f"importing {len(raw_files)} RAW frames via Siril native debayering...")
         raw_staging = work / "raw_staging"
         raw_staging.mkdir(parents=True, exist_ok=True)
@@ -169,16 +385,16 @@ def cmd_import(args) -> None:
             if target_link.is_symlink() or target_link.exists():
                 target_link.unlink()
             os.symlink(r.resolve(), target_link)
-        script_lines.extend([
-            f"convert raw_ -debayer -out=..",
-        ])
+        script_lines = [
+            "requires 1.4.4",
+            "convert raw_ -debayer -out=..",
+            "exit",
+        ]
         cwd = raw_staging
-        script_lines.append("exit")
         receipt = run_siril_script(args.siril, script_lines, cwd, logs_dir / "01_import.log", args.timeout)
         if receipt["exit_code"] != 0:
             die(f"RAW import failed in Siril (exit {receipt['exit_code']}); see {receipt['log']}")
 
-        # Rename converted raw_*.fit in work dir to moon_*.fit and build sequence
         converted_fits = sorted(work.glob("raw_*.fit"))
         for i, cf in enumerate(converted_fits, 1):
             target_fit = work / f"{seq_name}{i:05d}.fit"
@@ -186,9 +402,38 @@ def cmd_import(args) -> None:
                 target_fit.unlink()
             cf.rename(target_fit)
         total_frames = len(converted_fits)
+        channels = 3
+
     else:
-        # FITS flow: safely symlink original files using absolute paths and create .seq
-        log(f"importing {len(usable_fits)} FITS frames via safe symlinks...")
+        # FITS flow
+        usable_fits = []
+        for p in fits_files:
+            if "stack" in p.name.lower():
+                rejected_fits.append({"path": str(p), "reason": "name suggests stacked master"})
+                continue
+            try:
+                h = fits_header_info(p)
+                if h["bitpix"] in (-32, -64):
+                    rejected_fits.append({"path": str(p), "reason": f"float master (BITPIX={h['bitpix']})"})
+                    continue
+                usable_fits.append(p)
+            except Exception as exc:
+                rejected_fits.append({"path": str(p), "reason": f"unreadable: {exc}"})
+
+        if limit > 0:
+            usable_fits = usable_fits[:limit]
+
+        log(f"inventory: found {len(usable_fits)} FITS frames ({len(rejected_fits)} rejected)")
+        if not usable_fits:
+            die(f"no usable frames found in {src}")
+
+        # Detect channels from the first FITS frame
+        first_h = fits_header_info(usable_fits[0])
+        channels = first_h.get("channels") or 1
+        if first_h.get("naxis") == 2:
+            channels = 1
+
+        log(f"importing {len(usable_fits)} FITS frames ({channels} channel{'s' if channels > 1 else ''}) via safe symlinks...")
         for i, f in enumerate(usable_fits, 1):
             target_link = work / f"{seq_name}{i:05d}.fit"
             if target_link.is_symlink() or target_link.exists():
@@ -196,11 +441,14 @@ def cmd_import(args) -> None:
             os.symlink(f.resolve(), target_link)
         total_frames = len(usable_fits)
 
-    # Build standard Siril .seq file
+    if total_frames <= 0:
+        die(f"no usable frames imported from {src}")
+
+    # Build standard Siril .seq file with dynamic channel (L 1 or L 3)
     seq_lines = [
         "#Siril sequence file. Generated by siril-moon-stacking",
         f"S '{seq_name}' 1 {total_frames} {total_frames} 5 -1 6 0 0 0",
-        "L 3",
+        f"L {channels}",
     ]
     for i in range(1, total_frames + 1):
         seq_lines.append(f"I {i} 1")
@@ -211,15 +459,20 @@ def cmd_import(args) -> None:
     import_info = {
         "input": str(src),
         "work": str(work),
-        "is_raw": bool(raw_files),
-        "frame_count": len(raw_files) if raw_files else len(usable_fits),
+        "is_ser": is_ser,
+        "is_raw": is_raw,
+        "channels": channels,
+        "frame_count": total_frames,
         "sequence_name": seq_name,
-        "seq_file": str(work / f"{seq_name}.seq"),
+        "seq_file": str(seq_path),
         "rejected": rejected_fits,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
+    if is_ser and ser_info:
+        import_info["ser_metadata"] = ser_info.get("metadata", {})
+
     dump_json(work / "import_receipt.json", import_info)
-    log(f"import complete: sequence '{seq_name}' ready in {work}")
+    log(f"import complete: sequence '{seq_name}' ready in {work} ({total_frames} frames, L {channels})")
 
 
 # ----------------------------------------------------------------- 2. register
@@ -2609,10 +2862,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.set_defaults(func=cmd_probe)
 
     a = sub.add_parser("import")
-    a.add_argument("--input", required=True, help="Input directory containing RAW or FITS frames")
+    a.add_argument("--input", required=True, help="Input directory containing RAW, FITS, or SER frames, or a single SER file")
     a.add_argument("--work", required=True, help="Isolated working directory")
-    a.add_argument("--format", default="auto", choices=["auto", "fits", "raw"], help="Force format selection")
+    a.add_argument("--format", default="auto", choices=["auto", "fits", "raw", "ser"], help="Force format selection")
     a.add_argument("--limit", type=int, default=0, help="Limit number of frames to import (0=all)")
+    a.add_argument("--ser-debayer", action=argparse.BooleanOptionalAction, default=True, help="Debayer Bayer SER frames to RGB FITS (default: True)")
     a.set_defaults(func=cmd_import)
 
     a = sub.add_parser("register")
@@ -2691,10 +2945,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.set_defaults(func=cmd_verify)
 
     a = sub.add_parser("all")
-    a.add_argument("--input", required=True)
+    a.add_argument("--input", required=True, help="Input directory or single SER file")
     a.add_argument("--work", required=True)
-    a.add_argument("--format", default="auto", choices=["auto", "fits", "raw"], help="Force format selection")
+    a.add_argument("--format", default="auto", choices=["auto", "fits", "raw", "ser"], help="Force format selection")
     a.add_argument("--limit", type=int, default=0, help="Limit number of frames to import (0=all)")
+    a.add_argument("--ser-debayer", action=argparse.BooleanOptionalAction, default=True, help="Debayer Bayer SER frames to RGB FITS (default: True)")
     a.add_argument("--seq", default="moon_")
     a.add_argument("--roi", type=int, default=1024)
     a.add_argument("--select-mode", default="otsu", choices=["otsu", "utility", "mtf-snr", "relative", "percent"],

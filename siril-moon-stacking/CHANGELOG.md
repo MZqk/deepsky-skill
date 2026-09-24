@@ -2,8 +2,16 @@
 
 本文件记录 `siril-moon-stacking` 的独立版本变更。
 
-## [Unreleased]
+## [1.0.3] - 2026-09-24
 
+- **引入行星与月面 SER 视频流原生直接支持（Native SER Video Stream Support）**：
+  - 核心遵循 Lucam Recorder 178 字节二进制标准协议，支持直接传入单文件（`--input /path/to/capture.ser`）或包含 `.ser` 的目录；
+  - 采用零拷贝 `np.memmap` 瞬时读取，上百 GB 大视频零内存膨胀；
+  - 原生支持 Bayer CFA（RGGB/GRBG/GBRG/BGGR）与 RGB/BGR 彩色格式，集成 OpenCV C++ 硬件级多线程 demosaicing（1080p 单帧解拜耳仅需 4.9ms），直接生成 16-bit RGB FITS；
+  - 提取 SER 纳秒级 UTC 科学时间戳，自动换算为标准 ISO-8601 字符串注入 FITS `DATE-OBS`；相机（`INSTRUME`）与望远镜（`TELESCOP`）设备元数据全量无损透传；
+  - **首度建立单色（Mono）与彩色（RGB）全链路自适应**：Mono 数据原生生成 `L 1` 序列并在后处理优雅绕过彩色专属滤镜，为单色冷冻相机配 IR-pass 窄带滤镜的高阶月面摄影铺平道路；
+  - 支持 `--limit <N>` 限制帧数，避免超长视频冗余 I/O；
+  - 新增 `test_ser_header_parser`、`test_ser_unpack_mono`、`test_ser_unpack_bayer`、`test_ser_cmd_import_single_file_and_dir` 4 项单元测试。
 - 引入智能光学参数推断（Intelligent Optical Parameter Inference，Header 元数据挖掘 + 亚像素月盘几何反推）：
   - 自动从 FITS Header 挖掘 `XPIXSZ` / `PIXSIZE` 像元尺寸（如 $3.73\ \mu\text{m}$），解耦命令行硬编码；
   - 联动亚像素 RANSAC 月轮圆拟合，由实测像素直径 $D_{px} = 2097\text{ px}$ 结合天体测量学月球视直径（$31.1'$，区间 $29.4'\sim 33.5'$），通过针孔成像几何精确反推有效焦距 $f \approx 865.5\text{ mm} \approx 866\text{ mm}$（物理区间 $803\sim 915\text{ mm}$）；
