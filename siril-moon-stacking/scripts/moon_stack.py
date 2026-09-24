@@ -1370,6 +1370,117 @@ def _render_deep_cine_mineral(
     return bgr_jpg
 
 
+def _compute_edge_ringing_damping_mask(
+    lum_base: np.ndarray,
+    contrast_threshold: float = 1.0,
+) -> np.ndarray:
+    """Compute subpixel edge undershoot damping mask for lunar step edges.
+
+    Identifies steep luminance cliffs (crater rims, terminator, limb) and
+    localizes the immediate shadow-side valley where deconvolution Gibbs
+    oscillations and wavelet filter negative lobes cause artificial dark halos.
+    """
+    import cv2
+
+    base = lum_base.astype(np.float32)
+    p_min = float(np.min(base))
+    p_max = float(np.max(base))
+    if p_max <= p_min + 1e-7:
+        return np.zeros_like(base, dtype=np.float32)
+
+    norm = (base - p_min) / (p_max - p_min)
+
+    # 1. Gradient magnitude via Sobel
+    gx = cv2.Sobel(norm, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(norm, cv2.CV_32F, 0, 1, ksize=3)
+    grad = np.sqrt(gx * gx + gy * gy)
+
+    # 2. Local dynamic baseline (soft low-pass)
+    smooth = cv2.GaussianBlur(norm, (7, 7), 1.5)
+
+    # 3. Step edge relative contrast (prevents activation on noisy flat maria)
+    rel_contrast = grad / (smooth + 0.02)
+    is_step_edge = rel_contrast > contrast_threshold
+
+    # 4. Shadow side identification (where undershoot dip occurs: L < smooth)
+    is_shadow_side = norm < (smooth - 0.005)
+
+    # 5. Raw hazard field
+    hazard = grad * (is_step_edge & is_shadow_side).astype(np.float32)
+
+    # 6. Morphological dilation along transition zone (2-3 px outwards into shadow)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    dilated = cv2.dilate(hazard, kernel, iterations=2)
+
+    # 7. Smooth Gaussian falloff to prevent sharp mask boundaries
+    damp_mask = cv2.GaussianBlur(dilated, (5, 5), 1.2)
+
+    # 8. Normalize to [0.0, 1.0]
+    active_pixels = damp_mask[damp_mask > 0.001]
+    if active_pixels.size > 10:
+        norm_val = float(np.percentile(active_pixels, 95))
+        damp_mask = np.clip(damp_mask / max(norm_val, 1e-5), 0.0, 1.0)
+    else:
+        damp_mask = np.zeros_like(base, dtype=np.float32)
+
+    return damp_mask.astype(np.float32)
+
+
+def _apply_anti_ringing_damping(
+    lum_base: np.ndarray,
+    lum_sharp: np.ndarray,
+    damping_mask: np.ndarray,
+    strength: float = 0.60,
+) -> np.ndarray:
+    """Apply elastic damping to negative undershoot dips along step edges.
+
+    Preserves 100% of positive highlight sharpening and ridge contrast while
+    softly lifting the artificial negative undershoot dips on the shadow side.
+    """
+    if strength <= 0.0:
+        return lum_sharp
+
+    base = lum_base.astype(np.float32)
+    sharp = lum_sharp.astype(np.float32)
+    delta = sharp - base
+
+    delta_damped = delta.copy()
+    # Damping applies strictly where delta < 0 (undershoot dips) and mask > 0
+    neg_mask = (delta < 0.0) & (damping_mask > 0.0)
+    damping_factor = np.clip(1.0 - strength * damping_mask, 0.0, 1.0)
+    delta_damped[neg_mask] = delta[neg_mask] * damping_factor[neg_mask]
+
+    res = base + delta_damped
+    p_min = float(np.min(base))
+    p_max = float(np.max(base))
+    if p_max > p_min:
+        res = np.clip(res, p_min, max(p_max, float(np.max(sharp))))
+
+    return res.astype(lum_sharp.dtype)
+
+
+def _measure_dark_halo_ratio(
+    lum_base: np.ndarray,
+    lum_sharp: np.ndarray,
+    damping_mask: np.ndarray,
+) -> float:
+    """Measure the Dark Halo Ratio (DHR) within step-edge shadow regions.
+
+    Calculates the relative integrated energy of negative undershoot dips
+    relative to the local unsharpened base signal.
+    """
+    base = lum_base.astype(np.float32)
+    sharp = lum_sharp.astype(np.float32)
+    active = damping_mask > 0.3
+
+    if np.count_nonzero(active) < 10:
+        return 0.0
+
+    undershoot = np.maximum(0.0, base[active] - sharp[active])
+    base_energy = np.sum(base[active]) + 1e-6
+    return float(np.sum(undershoot) / base_energy)
+
+
 def _estimate_adaptive_sharpening(
     lum_data: np.ndarray,
     has_deconv: bool = True,
@@ -1378,6 +1489,8 @@ def _estimate_adaptive_sharpening(
     user_wavelet_l1: float | None = None,
     user_clahe_clip: float | None = None,
     user_unsharp: float | None = None,
+    anti_ringing: str = "auto",
+    damping_factor: float | None = None,
 ) -> dict:
     """Calculate organic, physically-adaptive lunar wavelet and contrast parameters.
 
@@ -1389,6 +1502,7 @@ def _estimate_adaptive_sharpening(
       4. Interpolation filter properties (Bicubic vs Bilinear)
       5. Anti-redundancy defense: automatically bypasses USM unsharp mask when
          multi-scale wavelets or deconvolution are active, eliminating artificial halos.
+      6. Edge undershoot anti-ringing damping factor calculation.
     """
     lum_2d = lum_data.astype(np.float32)
     p999 = float(np.percentile(lum_2d, 99.95))
@@ -1461,6 +1575,23 @@ def _estimate_adaptive_sharpening(
     if user_unsharp is not None:
         unsharp_amt = round(float(user_unsharp), 2)
 
+    # Determine recommended anti-ringing damping strength
+    if damping_factor is not None:
+        rec_damping = float(np.clip(damping_factor, 0.0, 1.0))
+    elif anti_ringing == "off":
+        rec_damping = 0.0
+    elif anti_ringing == "mild":
+        rec_damping = 0.35
+    elif anti_ringing == "aggressive":
+        rec_damping = 0.85
+    else:  # "auto"
+        if has_deconv and interp_used == "cu":
+            rec_damping = 0.65
+        elif interp_used == "li":
+            rec_damping = 0.45
+        else:
+            rec_damping = 0.55
+
     wrecons_cmd = f"wrecons {w_coeffs[0]:.2f} {w_coeffs[1]:.2f} {w_coeffs[2]:.2f} {w_coeffs[3]:.2f} {w_coeffs[4]:.2f} {w_coeffs[5]:.2f}"
     clahe_lines = [f"clahe {clahe_clip:.2f} 32"] if clahe_clip > 0 else []
     unsharp_lines = [f"unsharp 1.0 {unsharp_amt:.2f}"] if unsharp_amt > 0 else []
@@ -1477,6 +1608,8 @@ def _estimate_adaptive_sharpening(
         "sigma_noise": sigma_noise,
         "noise_penalty": noise_penalty if sharp_mode == "auto" else 1.0,
         "deconv_discount": deconv_discount if sharp_mode == "auto" else 1.0,
+        "anti_ringing": anti_ringing,
+        "damping_strength": rec_damping,
     }
 
 
@@ -1587,6 +1720,8 @@ def cmd_postprocess(args) -> None:
     user_wavelet_l1 = getattr(args, "wavelet_l1", None)
     user_clahe_clip = getattr(args, "clahe_clip", None)
     user_unsharp = getattr(args, "unsharp", None)
+    anti_ringing = getattr(args, "anti_ringing", "auto")
+    damping_factor = getattr(args, "damping_factor", None)
 
     sharp_info = _estimate_adaptive_sharpening(
         lum_for_sharp,
@@ -1596,6 +1731,8 @@ def cmd_postprocess(args) -> None:
         user_wavelet_l1=user_wavelet_l1,
         user_clahe_clip=user_clahe_clip,
         user_unsharp=user_unsharp,
+        anti_ringing=anti_ringing,
+        damping_factor=damping_factor,
     )
     wrecons_cmd = sharp_info["wrecons_cmd"]
     clahe_lines = sharp_info["clahe_lines"]
@@ -1611,6 +1748,10 @@ def cmd_postprocess(args) -> None:
         log(f"  - USM unsharp: amount={sharp_info['unsharp_amount']:.2f}")
     else:
         log("  - USM unsharp: bypassed (anti-redundancy protection)")
+    if anti_ringing != "off" and sharp_info["damping_strength"] > 0:
+        log(f"  - anti-ringing: mode='{anti_ringing}', strength={sharp_info['damping_strength']:.2f} (shadow-side undershoot protection)")
+    else:
+        log("  - anti-ringing: bypassed")
 
     if is_rgb:
         if mineral_mode == "lrgb":
@@ -1631,6 +1772,7 @@ def cmd_postprocess(args) -> None:
                 "load moon_lum",
                 *deconv_lines,
                 f"mtf {wb['bg_lum']:.6f} {mid_val:.2f} {wb['hi_lum']:.6f}",
+                "save moon_lum_base",
                 "wavelet 5 2",
                 wrecons_cmd,
                 *clahe_lines,
@@ -1674,6 +1816,7 @@ def cmd_postprocess(args) -> None:
                 f"mtf {wb['bg_g']:.6f} {mid_val:.2f} {wb['hi_g']:.6f} G",
                 f"mtf {wb['bg_b']:.6f} {mid_val:.2f} {wb['hi_b']:.6f} B",
                 "rmgreen 0",
+                "save moon_base",
                 "wavelet 5 2",
                 wrecons_cmd,
                 *clahe_lines,
@@ -1698,6 +1841,7 @@ def cmd_postprocess(args) -> None:
             f"load {master.name}",
             *deconv_lines,
             f"mtf {bg_val:.6f} {mid_val:.2f} {hi_val:.6f}",
+            "save moon_base",
             "wavelet 5 2",
             wrecons_cmd,
             *clahe_lines,
@@ -1710,6 +1854,81 @@ def cmd_postprocess(args) -> None:
     receipt = run_siril_script(args.siril, lines, work, logs_dir / "03_postprocess.log", args.timeout)
     if receipt["exit_code"] != 0:
         die(f"postprocessing failed (exit {receipt['exit_code']}); see {receipt['log']}")
+
+    # Apply subpixel anti-ringing damping to eliminate edge undershoot dark halos
+    strength = sharp_info["damping_strength"]
+    if anti_ringing != "off" and strength > 0.0:
+        import cv2
+
+        if is_rgb and mineral_mode == "lrgb":
+            lum_base_path = work / "moon_lum_base.fit"
+            lum_sharp_path = work / "moon_lum_sharp.fit"
+            if lum_base_path.exists() and lum_sharp_path.exists():
+                with fits.open(lum_base_path, memmap=False) as hd_base:
+                    lum_base_data = hd_base[0].data
+                with fits.open(lum_sharp_path, memmap=False) as hd_sharp:
+                    lum_sharp_data = hd_sharp[0].data
+                    sharp_hdr = hd_sharp[0].header
+
+                damp_mask = _compute_edge_ringing_damping_mask(lum_base_data)
+                dhr_raw = _measure_dark_halo_ratio(lum_base_data, lum_sharp_data, damp_mask)
+                lum_damped = _apply_anti_ringing_damping(lum_base_data, lum_sharp_data, damp_mask, strength=strength)
+                dhr_damped = _measure_dark_halo_ratio(lum_base_data, lum_damped, damp_mask)
+
+                fits.writeto(lum_sharp_path, lum_damped, header=sharp_hdr, overwrite=True)
+                reduction = (1.0 - dhr_damped / max(dhr_raw, 1e-6)) * 100.0 if dhr_raw > 1e-5 else 0.0
+                log(f"anti-ringing damping applied (LRGB): mode='{anti_ringing}', strength={strength:.2f}, DHR={dhr_raw:.4f} -> {dhr_damped:.4f} (reduced {reduction:.1f}%)")
+                receipt["anti_ringing"] = {
+                    "mode": anti_ringing,
+                    "strength": strength,
+                    "dhr_raw": dhr_raw,
+                    "dhr_damped": dhr_damped,
+                    "reduction_percent": reduction,
+                }
+
+                # Refresh moon_natural.tif and moon_natural.jpg with damped lum
+                clean_color_path = work / "moon_color_clean.fit"
+                if clean_color_path.exists() and (work / "moon_natural.tif").exists():
+                    with fits.open(clean_color_path, memmap=False) as hd_clean:
+                        c_clean = hd_clean[0].data
+                    lum_clean = 0.299 * c_clean[0] + 0.587 * c_clean[1] + 0.114 * c_clean[2]
+                    scale = lum_damped / np.maximum(lum_clean, 1e-6)
+                    rgb_damped = np.clip(c_clean * scale, 0.0, 1.0)
+                    rgb_screen = rgb_damped[:, ::-1, :]
+                    bgr_16 = np.transpose((rgb_screen[[2, 1, 0]] * 65535.0).astype(np.uint16), (1, 2, 0))
+                    bgr_8 = np.transpose((rgb_screen[[2, 1, 0]] * 255.0).astype(np.uint8), (1, 2, 0))
+                    cv2.imwrite(str(work / "moon_natural.tif"), bgr_16)
+                    cv2.imwrite(str(work / "moon_natural.jpg"), bgr_8, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        elif not is_rgb:
+            base_path = work / "moon_base.fit"
+            sharp_path = work / "moon_sharp.fit"
+            if base_path.exists() and sharp_path.exists():
+                with fits.open(base_path, memmap=False) as hd_base:
+                    b_data = hd_base[0].data
+                with fits.open(sharp_path, memmap=False) as hd_sharp:
+                    s_data = hd_sharp[0].data
+                    s_hdr = hd_sharp[0].header
+
+                damp_mask = _compute_edge_ringing_damping_mask(b_data)
+                dhr_raw = _measure_dark_halo_ratio(b_data, s_data, damp_mask)
+                damped_mono = _apply_anti_ringing_damping(b_data, s_data, damp_mask, strength=strength)
+                dhr_damped = _measure_dark_halo_ratio(b_data, damped_mono, damp_mask)
+
+                fits.writeto(sharp_path, damped_mono, header=s_hdr, overwrite=True)
+                reduction = (1.0 - dhr_damped / max(dhr_raw, 1e-6)) * 100.0 if dhr_raw > 1e-5 else 0.0
+                log(f"anti-ringing damping applied (mono): mode='{anti_ringing}', strength={strength:.2f}, DHR={dhr_raw:.4f} -> {dhr_damped:.4f} (reduced {reduction:.1f}%)")
+                receipt["anti_ringing"] = {
+                    "mode": anti_ringing,
+                    "strength": strength,
+                    "dhr_raw": dhr_raw,
+                    "dhr_damped": dhr_damped,
+                    "reduction_percent": reduction,
+                }
+                mono_screen = damped_mono[::-1, :]
+                m16 = (np.clip(mono_screen, 0.0, 1.0) * 65535.0).astype(np.uint16)
+                m8 = (np.clip(mono_screen, 0.0, 1.0) * 255.0).astype(np.uint8)
+                cv2.imwrite(str(work / "moon_natural.tif"), m16)
+                cv2.imwrite(str(work / "moon_natural.jpg"), m8, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
 
     mineral_style = getattr(args, "mineral_style", "deep-cine")
     if is_rgb and mineral_mode == "lrgb" and mineral_style == "deep-cine":
@@ -1797,11 +2016,39 @@ def cmd_verify(args) -> None:
         report["reference_frame"] = ref_idx
         report["kept_frames"] = r_info.get("kept_frames")
 
+    # Measure Edge Undershoot Dark Halo Ratio (DHR)
+    lum_base_path = work / "moon_lum_base.fit"
+    lum_sharp_path = work / "moon_lum_sharp.fit"
+    if not lum_base_path.exists():
+        lum_base_path = work / "moon_base.fit"
+        lum_sharp_path = work / "moon_sharp.fit"
+
+    if lum_base_path.exists() and lum_sharp_path.exists():
+        try:
+            with fits.open(lum_base_path, memmap=False) as h_b:
+                b_dat = h_b[0].data
+            with fits.open(lum_sharp_path, memmap=False) as h_s:
+                s_dat = h_s[0].data
+            d_mask = _compute_edge_ringing_damping_mask(b_dat)
+            dhr_val = _measure_dark_halo_ratio(b_dat, s_dat, d_mask)
+            report["dark_halo_ratio"] = dhr_val
+            if dhr_val < 0.015:
+                status = "EXCELLENT (artifact-free)"
+            elif dhr_val < 0.035:
+                status = "GOOD (controlled)"
+            else:
+                status = "WARNING (edge ringing detected)"
+            report["dark_halo_status"] = status
+        except Exception as exc:
+            report["dark_halo_ratio_error"] = str(exc)
+
     dump_json(work / "verify_report.json", report)
     log("verification summary:")
     log(f"  Master dimensions: {report['shape']} (BITPIX={report['bitpix']})")
     log(f"  Pixel range: [{report['min']:.4f}, {report['max']:.4f}] (mean={report['mean']:.4f})")
     log(f"  Background noise std: {report['background_noise_std']:.6f}")
+    if "dark_halo_ratio" in report:
+        log(f"  Dark Halo Ratio (DHR): {report['dark_halo_ratio']:.4f} -> [{report.get('dark_halo_status', 'N/A')}]")
     if (work / "moon_natural.jpg").exists():
         log(f"  [OK] moon_natural.jpg ({round((work / 'moon_natural.jpg').stat().st_size / 1024)} KB)")
     if (work / "moon_mineral.jpg").exists():
@@ -1888,6 +2135,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sharp-mode", default="auto", choices=["auto", "mellow", "mild", "crisp", "none"],
                    help="Sharpening mode: 'auto' (balanced natural organic baseline, default), 'mellow' (ultra-soft optical view, no CLAHE), 'mild' (subtle natural), 'crisp' (classic), 'none' (bypass)")
     a.add_argument("--unsharp", type=float, default=None, help="USM unsharp mask amount (default: auto bypassed when wavelets/deconv active)")
+    a.add_argument("--anti-ringing", default="auto", choices=["auto", "off", "mild", "aggressive"],
+                   help="Edge undershoot dark ringing suppression mode: 'auto' (adaptive damping, default), 'mild' (subtle), 'aggressive' (strong), 'off' (bypass)")
+    a.add_argument("--damping-factor", type=float, default=None,
+                   help="Manual anti-ringing damping factor (0.0 to 1.0, overrides preset if specified)")
     a.add_argument("--aperture", type=float, default=80.0, help="Telescope aperture in mm (for Airy PSF)")
     a.add_argument("--focal", type=float, default=400.0, help="Telescope focal length in mm (for Airy PSF)")
     a.add_argument("--pixel-size", type=float, default=3.73, help="Sensor pixel size in microns (for Airy PSF)")
@@ -1942,6 +2193,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sharp-mode", default="auto", choices=["auto", "mellow", "mild", "crisp", "none"],
                    help="Sharpening mode: 'auto' (balanced natural organic baseline, default), 'mellow' (ultra-soft optical view, no CLAHE), 'mild' (subtle natural), 'crisp' (classic), 'none' (bypass)")
     a.add_argument("--unsharp", type=float, default=None, help="USM unsharp mask amount (default: auto bypassed when wavelets/deconv active)")
+    a.add_argument("--anti-ringing", default="auto", choices=["auto", "off", "mild", "aggressive"],
+                   help="Edge undershoot dark ringing suppression mode: 'auto' (adaptive damping, default), 'mild' (subtle), 'aggressive' (strong), 'off' (bypass)")
+    a.add_argument("--damping-factor", type=float, default=None,
+                   help="Manual anti-ringing damping factor (0.0 to 1.0, overrides preset if specified)")
     a.add_argument("--aperture", type=float, default=80.0)
     a.add_argument("--focal", type=float, default=400.0)
     a.add_argument("--pixel-size", type=float, default=3.73)

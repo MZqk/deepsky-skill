@@ -16,10 +16,13 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from moon_stack import (
+    _apply_anti_ringing_damping,
     _calculate_channel_balance,
+    _compute_edge_ringing_damping_mask,
     _estimate_adaptive_sharpening,
     _estimate_pedestal,
     _locate_high_contrast_roi,
+    _measure_dark_halo_ratio,
     _render_deep_cine_mineral,
     _select_frames_by_quality,
     _subpixel_phase_correlation,
@@ -560,6 +563,95 @@ def test_render_deep_cine_mineral() -> None:
     assert not failures, f"Failures in test_render_deep_cine_mineral: {failures}"
 
 
+def test_anti_ringing_damping_math() -> None:
+    failures = []
+    # 1. Synthesize step edge (sunlit crater rim vs deep shadow)
+    H, W = 256, 256
+    base = np.full((H, W), 0.05, dtype=np.float32)
+    base[:, :128] = 0.85
+
+    # Simulate overshoot on bright side and negative undershoot dip on shadow side
+    sharp = base.copy()
+    sharp[:, 125:128] += 0.08   # overshoot (ridge peak)
+    sharp[:, 128:133] -= 0.045  # undershoot (dark ringing dip -> 0.005)
+
+    damp_mask = _compute_edge_ringing_damping_mask(base)
+    # Check mask localizes shadow side and not bright side
+    shadow_mask_mean = float(np.mean(damp_mask[:, 128:133]))
+    bright_mask_mean = float(np.mean(damp_mask[:, 115:125]))
+    print(f"Anti-ringing mask: shadow-side={shadow_mask_mean:.3f}, bright-side={bright_mask_mean:.3f}")
+
+    if shadow_mask_mean < 0.40:
+        failures.append(f"Damping mask failed to target shadow side: {shadow_mask_mean}")
+    if bright_mask_mean > 0.15:
+        failures.append(f"Damping mask leaked excessively into bright side: {bright_mask_mean}")
+
+    # 2. Test damping application
+    damped = _apply_anti_ringing_damping(base, sharp, damp_mask, strength=0.60)
+
+    # Assert bright side overshoot (peak detail) is 100% retained
+    if not np.allclose(damped[:, 125:128], sharp[:, 125:128]):
+        failures.append("Anti-ringing damping corrupted positive highlight overshoot")
+
+    # Assert shadow-side dip is lifted
+    dip_orig = float(np.mean(sharp[:, 128:133]))
+    dip_damped = float(np.mean(damped[:, 128:133]))
+    print(f"Shadow dip depth: original={dip_orig:.4f} (undershoot), damped={dip_damped:.4f} (base={np.mean(base[:, 128:133]):.4f})")
+    if dip_damped <= dip_orig + 0.015:
+        failures.append(f"Damping did not sufficiently lift dark undershoot dip: {dip_damped}")
+
+    # 3. Test parameter variations
+    res_auto = _estimate_adaptive_sharpening(base, has_deconv=True, interp_used="cu", anti_ringing="auto")
+    if res_auto["damping_strength"] != 0.65:
+        failures.append(f"Expected auto damping 0.65 for deconv+cu, got {res_auto['damping_strength']}")
+
+    res_off = _estimate_adaptive_sharpening(base, anti_ringing="off")
+    if res_off["damping_strength"] != 0.0:
+        failures.append(f"Expected damping 0.0 for anti_ringing='off', got {res_off['damping_strength']}")
+
+    res_manual = _estimate_adaptive_sharpening(base, anti_ringing="auto", damping_factor=0.75)
+    if res_manual["damping_strength"] != 0.75:
+        failures.append(f"Manual damping_factor override failed: {res_manual['damping_strength']}")
+
+    print("Anti-ringing mathematical damping unit test passed")
+    assert not failures, f"Failures in test_anti_ringing_damping_math: {failures}"
+
+
+def test_dark_halo_ratio_metric() -> None:
+    failures = []
+    H, W = 128, 128
+    base = np.full((H, W), 0.10, dtype=np.float32)
+    base[:, :64] = 0.90
+
+    mask = _compute_edge_ringing_damping_mask(base)
+
+    # Case A: Clean image with no undershoot
+    clean_sharp = base.copy()
+    clean_sharp[:, 60:64] += 0.05
+    dhr_clean = _measure_dark_halo_ratio(base, clean_sharp, mask)
+    print(f"DHR clean image: {dhr_clean:.5f} (target 0.0)")
+    if dhr_clean != 0.0:
+        failures.append(f"Clean image should have 0.0 DHR, got {dhr_clean}")
+
+    # Case B: Artificial undershoot injection
+    ringing_sharp = clean_sharp.copy()
+    ringing_sharp[:, 64:68] -= 0.08
+    dhr_ringing = _measure_dark_halo_ratio(base, ringing_sharp, mask)
+    print(f"DHR ringing image: {dhr_ringing:.5f}")
+    if dhr_ringing <= 0.02:
+        failures.append(f"DHR failed to detect severe dark ringing: {dhr_ringing}")
+
+    # Case C: After damping
+    damped = _apply_anti_ringing_damping(base, ringing_sharp, mask, strength=0.75)
+    dhr_damped = _measure_dark_halo_ratio(base, damped, mask)
+    print(f"DHR damped image: {dhr_damped:.5f}")
+    if dhr_damped >= dhr_ringing * 0.40:
+        failures.append(f"DHR after damping did not drop significantly: {dhr_damped} vs {dhr_ringing}")
+
+    print("Dark Halo Ratio metric unit test passed")
+    assert not failures, f"Failures in test_dark_halo_ratio_metric: {failures}"
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -570,6 +662,8 @@ def main() -> int:
         ("test_pedestal_estimation", test_pedestal_estimation),
         ("test_gray_world_channel_balance", test_gray_world_channel_balance),
         ("test_adaptive_sharpening_math", test_adaptive_sharpening_math),
+        ("test_anti_ringing_damping_math", test_anti_ringing_damping_math),
+        ("test_dark_halo_ratio_metric", test_dark_halo_ratio_metric),
         ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
         ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
         ("test_postprocess_pipelines", test_postprocess_pipelines),

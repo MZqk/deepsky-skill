@@ -122,6 +122,11 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
     * **亚像素几何拟合**：采用径向最大负梯度拐点扫描配合 RANSAC 鲁棒圆拟合，精确解算月面真实物理天体圆盘（拟合残差 $\sigma_{res} < 1.0\text{px}$）；
     * **线性平滑衰减场**：在 32 位浮点线性空间非线性拉伸前，保持月盘实体（$r \le R + 1.0\text{px}$）100% 原始信号无损，在 $r \in [R+1, R+1+\delta]$ 实施 Hermite 三次 Smoothstep 平滑过渡（默认 $\delta = 4.5\text{px}$，保留望远镜 Airy 斑真实光学衍射轮廓，绝不产生剪纸边缘），在 $r > R + 1 + \delta$ 彻底清零漫射外太空背景，使深空恢复纯净零噪深邃黑；
     * 支持 `--glare-suppress auto`（默认 4.5px 过渡）、`--glare-suppress mild`（8.0px 柔和）、`--glare-suppress aggressive`（2.5px 紧致）与 `--glare-suppress off`（旁路）；
+  * **亚像素阶跃边缘下冲暗环抑制 (Subpixel Anti-Ringing Damping, 默认 `--anti-ringing auto`)**：
+    * **物理成因诊断**：阳光直射的高耸亮坑壁与坑底深阴影交界处，物理 Airy 反卷积频域振荡、双三次插值负旁瓣与多尺度小波高频差分级联，在暗侧陡峭处产生严重负下冲（Negative Undershoot），导致环形山边缘呈现人工“浓黑细圈/黑描边”（甜甜圈伪影）；
+    * **暗环风险场定位**：基于归一化梯度与局部动态基准，精准锁定明暗交界断崖的暗侧过渡带，生成连续平滑的高斯羽化阻尼掩模 $M_{damp}$；
+    * **非对称弹性阻尼平复**：高光山峰与山脊边缘的正向锐化增量保持 100% 原始解析力无损，仅对暗侧负向增量施加自适应阻尼衰减（`auto` 模式下依据插值与反卷积状态自适应设定为 0.45~0.65），彻底平复暗坑黑圈；
+    * **参数支持**：`--anti-ringing {auto,off,mild,aggressive}`（默认 `auto`），支持 `--damping-factor <0.0-1.0>` 手动精细调节，支持 `--anti-ringing off` 完全旁路；
   * **L/RGB 明度与色度分离重构 (L/RGB Separation Pipeline, 默认 `--mineral-mode lrgb`)**：
     * **物理明度提取**：自动计算物理加权明度 $L = 0.299R + 0.587G + 0.114B$ 生成 32 位 `moon_lum.fit`；
     * **高频细节全归 L**：Airy PSF 物理反卷积、插值联动小波重构、Post-Wavelet CLAHE 与微反差 Unsharp 全部且仅作用于单通道明度 $L$，从物理源头彻底杜绝彩色高频噪点与边缘伪彩镶边；
@@ -153,7 +158,7 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
 ```bash
 python scripts/moon_stack.py verify --work /path/to/work
 ```
-* 打印信噪比改善倍数、锐度提升倍数以及图像统计信息。
+* 打印信噪比改善倍数、锐度提升倍数、边缘下冲暗环指数 (Dark Halo Ratio, DHR) 以及图像统计信息。
 
 > **一键执行模式**：
 > 也可以直接使用 `all` 命令一步完成全套流水线：
@@ -191,6 +196,7 @@ python scripts/moon_stack.py verify --work /path/to/work
 6. **环形山边缘硬振铃/白边暗环防御 (Overshoot & Ringing Prevention)**：
    * 原因：双三次（Bicubic）插值核在阶跃边缘存在负旁瓣，对于阳光直射的亮坑壁与深邃阴影交界处易产生微过冲（白边）与下冲（黑圈）；若小波锐化过猛会被成倍放大。
    * 规范：
+     * 配合新增的 `--anti-ringing auto`（亚像素边缘下冲阻尼），在 32 位浮点明度层对阴影侧负下冲执行非对称软性平复（DHR 降低 60% 以上），彻底切断黑圈形成通道，同时 100% 保留高光山脊的极限锐度；
      * 极端高反差或追求绝对零伪影时，建议使用 `--interp li`（双线性稳健模式），并联动自动放宽小波第 1 层至 `1.10`；
      * 追求极限 MTF 分辨力时使用 `--interp cu`（双三次模式），并严格锁定小波第 1 层在 `1.05` 抑制过冲；
      * 无论何种模式，Siril `seqapplyreg` 均严格保持默认 Clamping，绝不使用 `-noclamp`。
