@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: siril-mosaic
-  version: "1.0.2"
+  version: "1.0.3"
   displayName: Siril Mosaic
   summary: 使用 Siril 自动解算、配准并拼接已堆栈天文面板，交付可审计的线性 FITS 马赛克和显示预览。
   tags: [astronomy, siril, mosaic, fits]
@@ -23,6 +23,8 @@ metadata:
 - FITS/FIT/FTS 是可自动读取 WCS 与近似指向的正式输入；XISF/TIFF 只有在本机盲解算 Astrometry.net 已配置时才进入执行链。
 - 不因 `BAYERPAT` 仍留在 FITS 头中就重复去拜耳；三通道堆栈图仍按成品 panel 处理。
 - RAW lights、暗场/平场校准、单 panel 后期和普通照片拼接不属于本 Skill。
+- 输入 panel 在拼接前切忌过度拟合背景（严禁使用高密度 RBF 采样或高阶曲面扣除光害梯度，避免重叠区边缘亮度曲线反转引发死黑拼缝；全局平场应在全幅拼接完成后统一进行）。
+- 各 panel 建议保持相同滤镜、相当的曝光积时与信噪比，避免拼接处产生噪声粗糙度断层。
 - 不把普通 `register -2pass` 当作宽幅马赛克的静默回退。外围 panel 可能不与同一参考帧重叠，必须使用逐图天体测量。
 
 ## 开始
@@ -68,6 +70,7 @@ link/convert → seqplatesolve → seqapplyreg -framing=max
 常用受控参数：
 
 - `--feather 0|32|64|128`：接缝羽化宽度；省略时取 panel 短边约 4%。
+- `--distortion-order 1|2|3`：SIP 畸变多项式阶数；默认 3。重叠区出现光学差分畸变双星时受控调节。
 - `--scale 0.5`：预计画布单边超过 32768 px 或内存不足时缩小配准输出。
 - `--focal-mm`、`--pixel-size-um`：只在可靠元数据缺失时覆盖。
 - `--keep-work`：仅在调试或用户要求保留中间文件时使用。
@@ -98,7 +101,7 @@ python3 /abs/siril-mosaic/scripts/siril_mosaic.py review '/abs/path/to/new-run' 
 
 只有最终 `result.json` 为 `status=success` 才能报告成功。任何检查为 `fail/unknown` 时使用 `--verdict review_required`。
 
-若只是接缝轻微，可在新的 run 目录中最多再试一个相邻 feather 值；重复星、panel 缺失、内部黑洞或解算失败不能靠 feather 掩盖，应停止并报告证据。
+若只是接缝轻微，可在新的 run 目录中最多再试一个相邻 feather 值；发现死黑暗缝优先排查单图是否过度拟合背景；重复星（双星）、panel 缺失、内部黑洞或解算失败绝不能靠 feather 掩盖，应停止并按诊断决策树报告证据。
 
 ## 交付
 

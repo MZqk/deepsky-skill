@@ -533,6 +533,7 @@ def build_siril_script(
     scale: float,
     feather: int,
     preview_background: float,
+    distortion_order: int = 3,
 ) -> str:
     lines = [
         "requires 1.4.0",
@@ -543,7 +544,7 @@ def build_siril_script(
         f"cd {siril_quote(str(process_dir))}",
     ]
 
-    solve = ["seqplatesolve", "mosaic_", "-order=3"]
+    solve = ["seqplatesolve", "mosaic_", f"-order={distortion_order}"]
     if force_platesolve:
         solve.append("-force")
     if nocache:
@@ -601,6 +602,8 @@ def _validate_run_options(args: argparse.Namespace, inspection: dict[str, Any]) 
         raise MosaicError("--preview-background must be between 0.05 and 0.5")
     if args.timeout < 30:
         raise MosaicError("--timeout must be at least 30 seconds")
+    if getattr(args, "distortion_order", 3) not in (1, 2, 3, 4, 5):
+        raise MosaicError("--distortion-order must be an integer between 1 and 5")
     if not SAFE_OUTPUT_NAME_RE.fullmatch(args.output_name):
         raise MosaicError("--output-name must be a safe filename stem without path separators")
     if args.offline and args.catalog and args.catalog != "localgaia":
@@ -888,6 +891,7 @@ def execute_run(args: argparse.Namespace) -> dict[str, Any]:
             scale=args.scale,
             feather=args.feather,
             preview_background=args.preview_background,
+            distortion_order=args.distortion_order,
         )
         script_path.write_text(script, encoding="utf-8")
         manifest = {
@@ -911,6 +915,7 @@ def execute_run(args: argparse.Namespace) -> dict[str, Any]:
                 "feather_px": args.feather,
                 "preview_background": args.preview_background,
                 "output_name": args.output_name,
+                "distortion_order": args.distortion_order,
             },
             "inspection": inspection,
             "inputs": staged_records,
@@ -1136,6 +1141,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--blind-position", action="store_true")
     run.add_argument("--blind-resolution", action="store_true")
     run.add_argument("--scale", type=float, default=1.0)
+    run.add_argument(
+        "--distortion-order",
+        type=int,
+        choices=(1, 2, 3, 4, 5),
+        default=3,
+        help="SIP polynomial distortion order for platesolving (default: 3)",
+    )
     run.add_argument("--feather", type=int, default=None, help="Pixels; default is 4%% of the shortest panel side")
     run.add_argument("--preview-background", type=float, default=0.20)
     run.add_argument("--output-name", default="mosaic_linear")

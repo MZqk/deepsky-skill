@@ -22,10 +22,11 @@ stack r_mosaic_ rej none -norm=addscale -overlap_norm -feather=64 -maximize -32b
 
 - `seqplatesolve` 为每个 panel 写入 WCS 和 astrometric registration 信息。
 - 在线星表时 `-nocache` 为不同中心的每张图分别取星表；不能用一个中心的缓存覆盖整幅宽场。
-- `-order=3` 固定 Cubic SIP，不依赖用户 GUI 偏好，并允许配准时处理畸变。
+- `-order=3` 固定 3 阶 Cubic SIP 多项式畸变模型（支持通过 `--distortion-order` 受控调整为 1~5）。该阶数在纠正平场镜边缘畸变与抑制高阶多项式边缘发散（Runge 现象）之间取得平衡；当两图重叠区出现差分畸变（differential distortion）引发的双星时，可调整此参数。
 - `-framing=max` 计算所有 panel 的 bounding box；`min` 会裁成交集，`cog` 也不是完整并集。
 - `stack -maximize` 创建真正包含所有 panel 的最终画布。它与 `-framing=max` 缺一不可。
 - 少量已堆栈 panel 使用 mean/no rejection、additive with scaling、无权重；`-overlap_norm` 在重叠区估计亮度差，`-feather` 软化边界。
+- 输入 panel 在拼接前若做平场梯度扣除，严禁高密度/过拟合提取背景；重叠区边缘的亮度曲线一旦反转，`-overlap_norm` 将必然留下暗缝。
 - 不对线性母版使用 `-output_norm`，也不默认使用 `-rgb_equal` 改变窄带 RGB 比例。
 
 跨平台参数只在完整参数外加引号，例如 `"-out=/path with spaces/process"`。不要拼接 shell 命令；通过固定 argv 启动：
@@ -78,7 +79,7 @@ savejpg "/isolated/outputs/mosaic_preview" 95
 close
 ```
 
-预览只用于视觉审查；不可反馈为下一次科学处理输入。
+预览只用于视觉审查；不可反馈为下一次科学处理输入。若预览图中有可疑接缝或暗纹，必须先在 FITS 查看器中检查原始线性母版，防止将激进自动拉伸在弱信号边缘的非线性伪影误诊为底层拼缝缺陷。
 
 ## 官方依据
 

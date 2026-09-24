@@ -423,6 +423,29 @@ class ScriptGenerationTests(unittest.TestCase):
         self.assertNotIn("-output_norm", script)
         self.assertNotIn("-rgb_equal", script)
 
+    def test_builds_astrometric_script_with_custom_distortion_order(self) -> None:
+        root = Path("/tmp/run")
+        script = MOSAIC.build_siril_script(
+            staging_dir=root / "staging",
+            process_dir=root / "process",
+            output_base=root / "outputs" / "mosaic_linear",
+            converter="link",
+            force_platesolve=True,
+            nocache=True,
+            focal_mm=None,
+            pixel_size_um=None,
+            catalog=None,
+            local_astrometry_net=False,
+            blind_position=False,
+            blind_resolution=False,
+            scale=1.0,
+            feather=32,
+            preview_background=0.2,
+            distortion_order=2,
+        )
+
+        self.assertIn("seqplatesolve mosaic_ -order=2 -force -nocache", script)
+
     def test_escaped_home_prefix_is_normalized(self) -> None:
         expanded = MOSAIC.expand_path(r"\~/example")
         self.assertEqual(expanded, (Path.home() / "example").resolve())
