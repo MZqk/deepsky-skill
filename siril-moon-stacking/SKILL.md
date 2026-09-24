@@ -128,6 +128,26 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
     * **暗环风险场定位**：基于归一化梯度与局部动态基准，精准锁定明暗交界断崖的暗侧过渡带，生成连续平滑的高斯羽化阻尼掩模 $M_{damp}$；
     * **非对称弹性阻尼平复**：高光山峰与山脊边缘的正向锐化增量保持 100% 原始解析力无损，仅对暗侧负向增量施加自适应阻尼衰减（`auto` 模式下依据插值与反卷积状态自适应设定为 0.45~0.65），彻底平复暗坑黑圈；
     * **参数支持**：`--anti-ringing {auto,off,mild,aggressive}`（默认 `auto`），支持 `--damping-factor <0.0-1.0>` 手动精细调节，支持 `--anti-ringing off` 完全旁路；
+  * **全局色彩与直方图锁定（Anchor Master Profile Lock）**：
+    * **核心痛点**：多面板月面全景马赛克（Multi-panel Mosaic）切片单独后处理时，各切片地质反照率差异悬殊（如纯暗玄武岩的月海切片 vs 极亮辐射纹的高地切片）。若各自独立估计白平衡与高光拉伸截断点，会导致各切片出现严重色块漂移（如月海切片偏紫、高地切片泛黄），且重叠区明暗映射阶梯跳变高达 400% 以上，拼接后接缝处出现不可调和的明暗断层；
+    * **锁定机制**：支持将基准面板（Anchor Master）的 32 位浮点线性白平衡增益（$k_r, k_b$）与统一直方图拉伸基准（$bg_{lum}, hi_{lum}$、midtone 及矿物月色彩参数）导出为 `lunar_profile.json`，并由所有从属面板（Slave Tiles）一键锁入；
+    * **命令行参数**：
+      * `--lock-profile <path>`：从指定 JSON 档案中加载基准 profile 锁定全局色彩与拉伸；
+      * `--lock-from <work_dir>`：指定基准面板工作目录，自动加载其 `lunar_profile.json`；
+      * `--export-profile <path>`：导出当前切片的校准 profile（默认自动保存至工作目录的 `lunar_profile.json`）；
+      * `--lock-wb <kr> <kb>`：手动强制锁定 R/G 与 B/G 通道增益；
+      * `--lock-stretch <bg> <hi>`：手动强制锁定直方图黑位与高光截断点；
+    * **多面板标准拼接工作流**：
+      1. 选取反照率均匀、包含明暗界线或中央高地的面板作为 **基准面板（Anchor Master）** 执行后处理：
+         ```bash
+         python scripts/moon_stack.py postprocess --work /path/to/tile_center --mosaic-mode tile
+         ```
+      2. 对邻近的所有切片，后处理时统一挂载基准面板的 profile：
+         ```bash
+         python scripts/moon_stack.py postprocess --work /path/to/tile_north --mosaic-mode tile --lock-from /path/to/tile_center
+         python scripts/moon_stack.py postprocess --work /path/to/tile_south --mosaic-mode tile --lock-from /path/to/tile_center
+         ```
+      3. 所有面板在绝对物理级线性归一化基准上对齐，重叠区地质反照率阶梯跳变降为 0.0000%，无缝拼合。
   * **L/RGB 明度与色度分离重构 (L/RGB Separation Pipeline, 默认 `--mineral-mode lrgb`)**：
     * **物理明度提取**：自动计算物理加权明度 $L = 0.299R + 0.587G + 0.114B$ 生成 32 位 `moon_lum.fit`；
     * **高频细节全归 L**：Airy PSF 物理反卷积、插值联动小波重构、Post-Wavelet CLAHE 与微反差 Unsharp 全部且仅作用于单通道明度 $L$，从物理源头彻底杜绝彩色高频噪点与边缘伪彩镶边；
@@ -154,13 +174,15 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
   * `moon_natural.jpg`：高清晰度自然写实影调成果图（冷硬微反差与温润质感）；
   * `moon_mineral.jpg`：电影级深影调地质彩月成果图（Deep-Cine 哑光玄武岩油润深影调）；
   * `moon_mineral_natural.jpg`：经典自然轻盈矿物月备份成果图；
-  * `mosaic_tile_info.json`：切片元数据清单（记录尺寸、位深、物理比例与产品路径，供 `siril-mosaic` 马赛克拼接技能直接消费）。
+  * `lunar_profile.json`：校准 Profile 档案（记录通道增益 $k_r, k_b$、直方图截断 $bg, hi$、矿物月色彩系数，可供其他面板锁入）；
+  * `mosaic_tile_info.json`：切片元数据清单（记录尺寸、位深、物理比例、Profile 锁定状态与产品路径，供 `siril-mosaic` 马赛克拼接技能直接消费）。
 
 ### Step 5: 质检报告与审查
 ```bash
 python scripts/moon_stack.py verify --work /path/to/work
 ```
 * **全面量化质检指标矩阵**：
+  * **切片模式与 Profile 锁定状态**：显示 `Mosaic mode: tile/disc` 与 `Calibration Profile: LOCKED (source=..., hi_lum=...)` 或 `AUTO`；
   * **暗环比率 (Dark Halo Ratio, DHR)**：度量阶跃明暗边缘阴影侧负下冲能量。$<0.015$ 为 `EXCELLENT (artifact-free)`，$<0.035$ 为 `GOOD (controlled)`，$\ge 0.035$ 触发暗环警报；
   * **高光白垩饱和度 (Chalky Saturation Index, CSI)**：检测过度拉伸导致的死白与微反差抹平。$<0.010$ 为 `EXCELLENT (highlight dynamic retained)`，$\ge 0.025$ 触发白垩化警报；
   * **梯度峰度脆裂度 (Gradient Kurtosis Metric, GKM)**：评估边缘梯度重尾分布以量化过度锐化与人工毛刺脆裂感。$<6.0$ 为 `ORGANIC (natural smooth)`，$6.0\sim 14.0$ 为 `CRISP (high detail)`，$\ge 14.0$ 触发脆裂警报；
@@ -215,3 +237,6 @@ python scripts/moon_stack.py verify --work /path/to/work
 9. **马赛克面板边缘被切除或外太空清零抹杀 (Mosaic Tile Edge Truncation)**：
    * 原因：在多面板月面全景拼接时，默认的 `disc` 模式使用 `framing min` 统一截幅，并使用 RANSAC 月轮拟合对 $r > R + 4.5$ 处清零，导致切片邻近区域的月面地形被误杀。
    * 规范：拼接切片必须显式指定 `--mosaic-mode tile`，系统将自动使用 `--framing max` 保留最大画幅交叠，并旁路所有月盘半径清零逻辑，导出 `mosaic_tile_info.json` 与 `siril-mosaic` 联动。
+10. **多面板拼接切片接缝阶梯断层与色块跳跃 (Mosaic Seam Stepping & Color Patch Discontinuity)**：
+    * 原因：多面板切片地质反照率差异悬殊（如玄武岩暗月海 vs 亮高地），若各自独立计算 $p_{99.95}$ 与通道比，MTF 映射斜率相差数倍，拼接时重叠区明暗阶梯断层跳跃可达 400%+ 且色块漂移严重。
+    * 规范：先选定代表性面板作为基准（Anchor Master）导出 `lunar_profile.json`，邻近切片后处理时传入 `--lock-from /path/to/anchor` 或 `--lock-profile ...`，统一白平衡增益与非线性 MTF 映射，将接缝明暗阶跃断层彻底归零至 0.0000%。

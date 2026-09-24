@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+- 引入全局色彩与直方图锁定机制（Anchor Master Profile Lock，`--lock-profile` / `--lock-from` / `--export-profile` / `--lock-wb` / `--lock-stretch`）：
+  - 彻底根除多面板全景拼接时，切片间由于局部反照率差异（暗月海 vs 亮高地）独立拉伸导致的色块漂移与接缝明暗阶梯断层；
+  - 实测将多面板公共重叠区明暗跳跃从未锁定的 409.2% 直接降至 0.0000%；
+  - 支持从基准面板（Anchor Master）一键继承通道平衡增益（$k_r, k_b$）与直方图非线性 MTF 映射基准（$bg_{lum}, hi_{lum}$、midtone、矿物色彩参数）；
+  - `mosaic_tile_info.json` 自动记录锁定状态、来源路径与校验参数；
+  - `verify` 命令集成 Profile 锁定状态审查输出；
+  - 新增数学与物理管道单元测试 `test_histogram_color_lock_pipeline`。
 - 引入亚像素阶跃边缘下冲暗环抑制（Subpixel Anti-Ringing Damping, `--anti-ringing`，默认 `auto`）：
   - 通过局部对数梯度与动态基准分析精确定位明暗阶跃断崖（晨昏线坑壁、月轮边缘）的阴影侧负下冲带；
   - 实施非对称弹性阻尼平复（默认强度 0.45~0.65），彻底根除 Gibbs 振铃与小波负瓣导致的人工暗环/甜甜圈黑圈，同时 100% 保持高光山脊正向极限锐度与解析力；

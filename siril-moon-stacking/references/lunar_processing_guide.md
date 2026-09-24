@@ -119,4 +119,19 @@ Siril 原生的 'à trous'（带孔）B-Spline 小波算法将图像分解为不
 2. **最大画幅交叠保留 (Framing Max)**：
    在序列亚像素对齐后，切片必须采用 `--framing max`（配合 `-maximize`），使重叠特征边缘完整无损保留，杜绝任何画幅裁切。
 3. **元数据清单元对接 (JSON Manifest Interoperability)**：
-   处理完成后自动导出包含实际几何尺寸、像元大小、物理焦距与产品路径的 `mosaic_tile_info.json` 清单，与下游 `siril-mosaic` 拼接技能零摩擦对齐。
+   处理完成后自动导出包含实际几何尺寸、像元大小、物理焦距、Profile 锁定状态与产品路径的 `mosaic_tile_info.json` 清单，与下游 `siril-mosaic` 拼接技能零摩擦对齐。
+4. **全局色彩与直方图锁定物理保证 (Anchor Master Profile Lock Guarantee)**：
+   * **地质反照率差异引发的失真**：
+     月海玄武岩反照率仅约 $0.05\sim 0.08$，而高地斜长石反照率高达 $0.24\sim 0.35$。
+     在独立处理时，纯月海切片的 $p_{99.95}$ 极低（例如 $0.214$），算法为了提亮月海将其强行拉伸映射为高光；而高地切片的 $p_{99.95}$ 极高（例如 $1.028$）。
+     这导致同一片交界地质在暗切片中被赋予极高的相对强度，而在高光切片中相对强度极低，重叠区相对亮度跳变高达：
+     $$\text{Stepping Ratio} = \left|\frac{I_{unlocked, A} - I_{unlocked, B}}{I_{unlocked, B}}\right| \approx 409.2\%$$
+     同时，月海富钛/富铁矿物的微弱色度比在独立灰世界中性化时会被当作“全图平均中性灰”强行除偏，导致邻近面板拼接时出现严重的色彩块状断层（Color Patch Discontinuity）。
+   * **物理级统一定量映射模型**：
+     通过选定基准面板（Anchor Master）锁定通道增益系数 $(k_r, k_b)$ 与非线性拉伸基准 $(bg_{lum}, hi_{lum}, \text{midtone})$：
+     $$I_{norm}(x, y) = \frac{I_{cal}(x, y) - bg_{locked}}{hi_{locked} - bg_{locked}}$$
+     $$I_{out}(x, y) = \text{MTF}(I_{norm}(x, y), m_{locked})$$
+     所有切片执行严格同构的物理映射变换。由于两切片重叠区域的原始入射通量物理上一阶一致，经过相同传递函数后，交叠区像素值在理论与实测上阶梯断层差值完全归零：
+     $$\Delta I_{locked} \equiv 0.0000\%$$
+     从根本上切断了多面板拼接的色差与明暗阶梯断层。
+

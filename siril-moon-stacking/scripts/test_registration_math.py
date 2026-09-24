@@ -21,6 +21,7 @@ from moon_stack import (
     _compute_edge_ringing_damping_mask,
     _estimate_adaptive_sharpening,
     _estimate_pedestal,
+    _load_locked_profile,
     _locate_high_contrast_roi,
     _measure_chalky_saturation_index,
     _measure_dark_halo_ratio,
@@ -783,6 +784,110 @@ def test_mosaic_tile_mode_pipeline() -> None:
     assert not failures, f"Failures in test_mosaic_tile_mode_pipeline: {failures}"
 
 
+def test_histogram_color_lock_pipeline() -> None:
+    failures = []
+    import tempfile
+    import shutil
+    from moon_stack import dump_json
+
+    H, W = 128, 128
+    # Shared overlap terrain patch
+    overlap_r = np.full((32, 32), 0.14, dtype=np.float32)
+    overlap_g = np.full((32, 32), 0.20, dtype=np.float32)
+    overlap_b = np.full((32, 32), 0.10, dtype=np.float32)
+
+    # Panel A (Bright Highland Master): contains brilliant crater peaks (0.75+) and highland anorthosite
+    tile_a_r = np.full((H, W), 0.35, dtype=np.float32)
+    tile_a_g = np.full((H, W), 0.40, dtype=np.float32)
+    tile_a_b = np.full((H, W), 0.25, dtype=np.float32)
+    tile_a_r[40:60, 40:60] = 0.85
+    tile_a_g[40:60, 40:60] = 0.88
+    tile_a_b[40:60, 40:60] = 0.70
+    # Inject overlap patch
+    tile_a_r[:32, :32] = overlap_r
+    tile_a_g[:32, :32] = overlap_g
+    tile_a_b[:32, :32] = overlap_b
+    cube_a = np.stack([tile_a_r, tile_a_g, tile_a_b], axis=0)
+
+    # Panel B (Dark Basalt Mare Slave): dim maria (0.15) with rich titanium blue (high blue relative to red)
+    tile_b_r = np.full((H, W), 0.10, dtype=np.float32)
+    tile_b_g = np.full((H, W), 0.16, dtype=np.float32)
+    tile_b_b = np.full((H, W), 0.18, dtype=np.float32)
+    # Inject same overlap patch
+    tile_b_r[:32, :32] = overlap_r
+    tile_b_g[:32, :32] = overlap_g
+    tile_b_b[:32, :32] = overlap_b
+    cube_b = np.stack([tile_b_r, tile_b_g, tile_b_b], axis=0)
+
+    # 1. Process Anchor Master Tile A
+    wb_a = _calculate_channel_balance(cube_a, bg_r=0.0, bg_g=0.0, bg_b=0.0, mid_val=0.13)
+    hi_a = wb_a["hi_lum"]
+    kr_a, kb_a = wb_a["k_r"], wb_a["k_b"]
+    print(f"Panel A (Highland Master): hi_lum={hi_a:.4f}, k_r={kr_a:.3f}, k_b={kb_a:.3f}")
+
+    # 2. Case 1: Unlocked independent processing on Tile B
+    wb_b_unlocked = _calculate_channel_balance(cube_b, bg_r=0.0, bg_g=0.0, bg_b=0.0, mid_val=0.13)
+    hi_b_unlocked = wb_b_unlocked["hi_lum"]
+    kr_b_unlocked = wb_b_unlocked["k_r"]
+    kb_b_unlocked = wb_b_unlocked["k_b"]
+    print(f"Panel B (Unlocked): hi_lum={hi_b_unlocked:.4f} (stepping vs {hi_a:.4f}), k_r={kr_b_unlocked:.3f}, k_b={kb_b_unlocked:.3f}")
+
+    # In overlap region, compare normalized luminance and color balance
+    lum_overlap_a = np.mean(wb_a["lum_data"][:32, :32]) / hi_a
+    lum_overlap_b_unlocked = np.mean(wb_b_unlocked["lum_data"][:32, :32]) / hi_b_unlocked
+    rel_diff_unlocked = abs(lum_overlap_a - lum_overlap_b_unlocked) / lum_overlap_a
+    print(f"Overlap stepping unlocked: Panel A={lum_overlap_a:.4f}, Panel B={lum_overlap_b_unlocked:.4f} (relative jump={rel_diff_unlocked*100:.1f}%)")
+    if rel_diff_unlocked < 0.20:
+        failures.append(f"Unlocked tiles should exhibit substantial luminance stepping jump, got {rel_diff_unlocked}")
+
+    # 3. Case 2: Locked processing on Tile B using Profile from Tile A
+    prof_a = {
+        "histogram": {"hi_unified": hi_a, "hi_lum": hi_a, "midtone": 0.13},
+        "white_balance": {"k_r": kr_a, "k_b": kb_a, "ratio_r": wb_a["ratio_r"], "ratio_b": wb_a["ratio_b"]},
+    }
+    wb_b_locked = _calculate_channel_balance(cube_b, bg_r=0.0, bg_g=0.0, bg_b=0.0, mid_val=0.13, locked_profile=prof_a)
+    hi_b_locked = wb_b_locked["hi_lum"]
+    kr_b_locked = wb_b_locked["k_r"]
+    kb_b_locked = wb_b_locked["k_b"]
+
+    print(f"Panel B (Locked): hi_lum={hi_b_locked:.4f}, k_r={kr_b_locked:.3f}, k_b={kb_b_locked:.3f}")
+    if abs(hi_b_locked - hi_a) > 1e-6:
+        failures.append(f"Locked hi_lum did not match anchor: {hi_b_locked} vs {hi_a}")
+    if abs(kr_b_locked - kr_a) > 1e-6 or abs(kb_b_locked - kb_a) > 1e-6:
+        failures.append(f"Locked gains did not match anchor: ({kr_b_locked},{kb_b_locked}) vs ({kr_a},{kb_a})")
+
+    lum_overlap_b_locked = np.mean(wb_b_locked["lum_data"][:32, :32]) / hi_b_locked
+    rel_diff_locked = abs(lum_overlap_a - lum_overlap_b_locked) / lum_overlap_a
+    print(f"Overlap stepping locked: Panel A={lum_overlap_a:.4f}, Panel B={lum_overlap_b_locked:.4f} (relative jump={rel_diff_locked*100:.4f}%)")
+    if rel_diff_locked > 1e-4:
+        failures.append(f"Locked tiles still exhibit luminance stepping discontinuity: {rel_diff_locked}")
+
+    # 4. Test profile file load & recovery
+    tmp_dir = Path(tempfile.mkdtemp(prefix="moon_prof_test_"))
+    try:
+        prof_file = tmp_dir / "lunar_profile.json"
+        dump_json(prof_file, prof_a)
+        loaded_prof, src_path = _load_locked_profile(lock_profile_path=str(prof_file))
+        if loaded_prof is None or loaded_prof["histogram"]["hi_lum"] != hi_a:
+            failures.append("Failed to load profile from explicit path")
+
+        # Test loading from directory containing mosaic_tile_info.json
+        tile_info = {
+            "mosaic_mode": "tile",
+            "calibration_profile": prof_a,
+        }
+        dump_json(tmp_dir / "mosaic_tile_info.json", tile_info)
+        prof_file.unlink()  # remove lunar_profile.json to test fallback
+        loaded_dir_prof, src_dir = _load_locked_profile(lock_from_dir=str(tmp_dir))
+        if loaded_dir_prof is None or loaded_dir_prof["histogram"]["hi_lum"] != hi_a:
+            failures.append("Failed to load profile from anchor directory mosaic_tile_info.json fallback")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    print("Histogram and Color Lock pipeline unit test passed")
+    assert not failures, f"Failures in test_histogram_color_lock_pipeline: {failures}"
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -797,6 +902,7 @@ def main() -> int:
         ("test_dark_halo_ratio_metric", test_dark_halo_ratio_metric),
         ("test_anti_brittle_metrics_math", test_anti_brittle_metrics_math),
         ("test_mosaic_tile_mode_pipeline", test_mosaic_tile_mode_pipeline),
+        ("test_histogram_color_lock_pipeline", test_histogram_color_lock_pipeline),
         ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
         ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
         ("test_postprocess_pipelines", test_postprocess_pipelines),

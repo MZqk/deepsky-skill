@@ -1099,6 +1099,45 @@ def _suppress_lunar_limb_glare(
     return out_planes.astype(np.float32), meta
 
 
+def _load_locked_profile(
+    lock_profile_path: str | None = None,
+    lock_from_dir: str | None = None,
+) -> tuple[dict | None, str | None]:
+    """Load calibration profile from explicit file or anchor work directory."""
+    if lock_profile_path:
+        p = Path(lock_profile_path).expanduser().resolve()
+        if not p.exists():
+            die(f"locked profile file not found: {p}")
+        return load_json(p), str(p)
+
+    if lock_from_dir:
+        d = Path(lock_from_dir).expanduser().resolve()
+        if not d.is_dir():
+            die(f"lock-from directory not found: {d}")
+        # Search priority: lunar_profile.json -> mosaic_tile_info.json
+        p_json = d / "lunar_profile.json"
+        if p_json.exists():
+            return load_json(p_json), str(p_json)
+        t_json = d / "mosaic_tile_info.json"
+        if t_json.exists():
+            info = load_json(t_json)
+            if "calibration_profile" in info:
+                return info["calibration_profile"], str(t_json)
+            rec = {
+                "version": "1.0",
+                "source_master": info.get("master"),
+                "histogram": {
+                    "hi_unified": info.get("hi_unified", info.get("hi_lum", 0.03)),
+                    "hi_lum": info.get("hi_unified", info.get("hi_lum", 0.03)),
+                    "midtone": info.get("midtone", 0.13),
+                },
+            }
+            return rec, str(t_json)
+        die(f"no lunar_profile.json or mosaic_tile_info.json found in anchor directory: {d}")
+
+    return None, None
+
+
 def _calculate_channel_balance(
     d: np.ndarray,
     bg_r: float,
@@ -1107,6 +1146,9 @@ def _calculate_channel_balance(
     mid_val: float = 0.13,
     wb_mode: str = "gray-world",
     glare_mode: str = "auto",
+    locked_profile: dict | None = None,
+    lock_wb: tuple[float, float] | None = None,
+    lock_stretch: tuple[float, float] | None = None,
 ) -> dict:
     """Calculate channel white point stretch parameters with neutral Gray-World balance.
 
@@ -1115,13 +1157,9 @@ def _calculate_channel_balance(
     color divergence, destroying color fidelity in shadows and generating purple fringing along
     high-contrast boundaries (the lunar limb).
 
-    This function:
-    1. Subtracts per-channel pedestals linearly (R_net, G_net, B_net);
-    2. Suppresses diffuse optical and atmospheric lunar limb glare (Limb Glare Suppression);
-    3. Identifies valid lunar surface pixels and computes relative Gray-World linear gains (k_R, k_B);
-    4. Normalizes color channels so that average lunar albedo renders as true neutral gray;
-    5. Suppresses optical chromatic aberration / Rayleigh blue flare (Defringe) along the limb;
-    6. Derives a physical 32-bit Luminance channel and unified isometric stretch parameters.
+    Supports Global Profile Locking (P2) for mosaic multi-panel stitching:
+    Locks histogram stretch ceiling (hi_lum) and linear white balance gains (k_R, k_B)
+    to eliminate seam brightness stepping and patch chrominance drift across panels.
     """
     import numpy as np
 
@@ -1151,6 +1189,8 @@ def _calculate_channel_balance(
         "k_r": 1.0,
         "k_b": 1.0,
         "moon_pixels": 0,
+        "wb_locked": False,
+        "stretch_locked": False,
     }
 
     if wb_mode != "gray-world":
@@ -1178,44 +1218,69 @@ def _calculate_channel_balance(
     valid_count = int(np.count_nonzero(mask))
     res["moon_pixels"] = valid_count
 
-    if valid_count < 200:
-        return res
+    # Determine Gray-World gains (check locked profile first)
+    is_wb_locked = False
+    if lock_wb is not None:
+        k_r = float(lock_wb[0])
+        k_b = float(lock_wb[1])
+        ratio_r = 1.0 / max(k_r, 1e-6)
+        ratio_b = 1.0 / max(k_b, 1e-6)
+        is_wb_locked = True
+    elif locked_profile and "white_balance" in locked_profile:
+        wb_prof = locked_profile["white_balance"]
+        if "k_r" in wb_prof and "k_b" in wb_prof:
+            k_r = float(wb_prof["k_r"])
+            k_b = float(wb_prof["k_b"])
+            ratio_r = float(wb_prof.get("ratio_r", 1.0 / max(k_r, 1e-6)))
+            ratio_b = float(wb_prof.get("ratio_b", 1.0 / max(k_b, 1e-6)))
+            is_wb_locked = True
 
-    net_r = float(np.median(r_net[mask]))
-    net_g = float(np.median(g_net[mask]))
-    net_b = float(np.median(b_net[mask]))
+    if not is_wb_locked:
+        if valid_count < 200:
+            return res
+        net_r = float(np.median(r_net[mask]))
+        net_g = float(np.median(g_net[mask]))
+        net_b = float(np.median(b_net[mask]))
+        if net_g <= 1e-5 or net_r <= 1e-5 or net_b <= 1e-5:
+            return res
+        ratio_r = net_r / net_g
+        ratio_b = net_b / net_g
+        k_r = 1.0 / ratio_r
+        k_b = 1.0 / ratio_b
 
-    if net_g <= 1e-5 or net_r <= 1e-5 or net_b <= 1e-5:
-        return res
-
-    ratio_r = net_r / net_g
-    ratio_b = net_b / net_g
-    k_r = 1.0 / ratio_r
-    k_b = 1.0 / ratio_b
-
-    # 2. Linear channel balancing
+    # 3. Linear channel balancing
     r_lin = r_net * k_r
     g_lin = g_net
     b_lin = b_net * k_b
 
-    # 3. Edge Defringe (Optical Chromatic Aberration & Purple Fringe Suppression)
-    # The physical lunar surface consists of basalt and anorthosite: titanium maria reach at most +15% blue excess.
-    # High-contrast optical dispersion causes unphysical blue/violet flare (+100%~+380%) along the limb and crater shadows.
-    # On lunar body: allow up to 1.15x for legitimate titanium maria.
-    # In edge transition (lum_approx < 0.10 * p999): strictly cap Blue to max(Green, Red)
-    # because highlands/limbs are non-titanium and edge optical dispersion flares Blue.
+    # 4. Edge Defringe (Optical Chromatic Aberration & Purple Fringe Suppression)
     max_b_body = np.maximum(g_lin, r_lin) * 1.15
     max_b_edge = np.maximum(g_lin, r_lin) * 1.00
     edge_zone = lum_approx < (0.10 * p999_lum_raw)
     max_allowed_b = np.where(edge_zone, max_b_edge, max_b_body)
     b_clean = np.minimum(b_lin, max_allowed_b)
 
-    # 4. Calibrated Luminance and Color planes
+    # 5. Calibrated Luminance and Color planes
     lum_clean = (0.299 * r_lin + 0.587 * g_lin + 0.114 * b_clean).astype(np.float32)
     color_clean = np.stack([r_lin, g_lin, b_clean], axis=0).astype(np.float32)
 
-    p999_clean = float(np.percentile(lum_clean, 99.95))
-    hi_unified = max(p999_clean * 1.10, 0.01)
+    # Determine unified stretch ceiling (check locked profile first)
+    is_stretch_locked = False
+    if lock_stretch is not None:
+        hi_unified = float(lock_stretch[1])
+        is_stretch_locked = True
+    elif locked_profile and "histogram" in locked_profile:
+        hist_prof = locked_profile["histogram"]
+        if "hi_unified" in hist_prof:
+            hi_unified = float(hist_prof["hi_unified"])
+            is_stretch_locked = True
+        elif "hi_lum" in hist_prof:
+            hi_unified = float(hist_prof["hi_lum"])
+            is_stretch_locked = True
+
+    if not is_stretch_locked:
+        p999_clean = float(np.percentile(lum_clean, 99.95))
+        hi_unified = max(p999_clean * 1.10, 0.01)
 
     res.update({
         "bg_r": 0.0, "hi_r": hi_unified,
@@ -1228,6 +1293,8 @@ def _calculate_channel_balance(
         "ratio_b": ratio_b,
         "k_r": k_r,
         "k_b": k_b,
+        "wb_locked": is_wb_locked,
+        "stretch_locked": is_stretch_locked,
     })
     return res
 
@@ -1802,20 +1869,68 @@ def cmd_postprocess(args) -> None:
         glare_mode = "off"
         log("mosaic tile mode active: bypassing lunar limb detection and glare suppression")
 
+    # Load locked calibration profile (P2: Global color and histogram locking)
+    lock_profile_path = getattr(args, "lock_profile", None)
+    lock_from_dir = getattr(args, "lock_from", None)
+    locked_profile, lock_source = _load_locked_profile(lock_profile_path, lock_from_dir)
+
+    lock_wb = None
+    if getattr(args, "lock_wb", None):
+        lock_wb = (float(args.lock_wb[0]), float(args.lock_wb[1]))
+    lock_stretch = None
+    if getattr(args, "lock_stretch", None):
+        lock_stretch = (float(args.lock_stretch[0]), float(args.lock_stretch[1]))
+
+    if locked_profile:
+        log(f"loaded calibration profile from {lock_source}")
+        # Inherit mineral aesthetic params if user did not specify override
+        if "mineral" in locked_profile:
+            m_prof = locked_profile["mineral"]
+            if getattr(args, "mineral_fe_boost", None) is None and "fe_boost" in m_prof:
+                args.mineral_fe_boost = float(m_prof["fe_boost"])
+            if getattr(args, "mineral_ti_boost", None) is None and "ti_boost" in m_prof:
+                args.mineral_ti_boost = float(m_prof["ti_boost"])
+            if getattr(args, "mineral_gamma", None) is None and "gamma" in m_prof:
+                args.mineral_gamma = float(m_prof["gamma"])
+
     if is_rgb:
         bg_r = _estimate_pedestal(d[0])
         bg_g = _estimate_pedestal(d[1])
         bg_b = _estimate_pedestal(d[2])
-        wb = _calculate_channel_balance(d, bg_r, bg_g, bg_b, mid_val=mid_val, wb_mode=wb_mode, glare_mode=glare_mode)
+        wb = _calculate_channel_balance(
+            d, bg_r, bg_g, bg_b,
+            mid_val=mid_val,
+            wb_mode=wb_mode,
+            glare_mode=glare_mode,
+            locked_profile=locked_profile,
+            lock_wb=lock_wb,
+            lock_stretch=lock_stretch,
+        )
         if "glare_meta" in wb and wb["glare_meta"].get("active"):
             gm = wb["glare_meta"]
             log(f"lunar limb glare suppression active: center=({gm['center_x']:.1f}, {gm['center_y']:.1f}), R={gm['radius']:.1f}px (res_std={gm['residual_std']:.2f}px, falloff={gm['delta']:.1f}px)")
-        if wb["moon_pixels"] >= 200 and wb_mode == "gray-world":
+        if wb.get("wb_locked"):
+            log(f"neutral Gray-World balance LOCKED: R/G={wb['ratio_r']:.3f}, B/G={wb['ratio_b']:.3f} (k_r={wb['k_r']:.3f}, k_b={wb['k_b']:.3f})")
+        elif wb["moon_pixels"] >= 200 and wb_mode == "gray-world":
             log(f"neutral Gray-World balance applied: R/G={wb['ratio_r']:.3f}, B/G={wb['ratio_b']:.3f} ({wb['moon_pixels']} lunar surface pixels sampled)")
-        log(f"calibrated channels (bg=[{wb['bg_r']:.5f}, {wb['bg_g']:.5f}, {wb['bg_b']:.5f}], hi=[{wb['hi_r']:.5f}, {wb['hi_g']:.5f}, {wb['hi_b']:.5f}], midtone={mid_val})")
+        if wb.get("stretch_locked"):
+            log(f"calibrated channels (LOCKED hi_unified={wb['hi_lum']:.5f}, midtone={mid_val})")
+        else:
+            log(f"calibrated channels (bg=[{wb['bg_r']:.5f}, {wb['bg_g']:.5f}, {wb['bg_b']:.5f}], hi=[{wb['hi_r']:.5f}, {wb['hi_g']:.5f}, {wb['hi_b']:.5f}], midtone={mid_val})")
         lum_for_sharp = wb["lum_data"]
     else:
         plane = d if d.ndim == 2 else d[0]
+        bg_val = _estimate_pedestal(plane)
+        p999_val = float(np.percentile(plane, 99.95))
+        hi_val = max(p999_val * 1.10, bg_val + 0.01)
+        if lock_stretch:
+            bg_val, hi_val = lock_stretch[0], lock_stretch[1]
+            log(f"monochrome stretch ceiling LOCKED: bg={bg_val:.5f}, hi={hi_val:.5f}")
+        elif locked_profile and "histogram" in locked_profile:
+            hist_prof = locked_profile["histogram"]
+            hi_val = float(hist_prof.get("hi_lum", hist_prof.get("hi_unified", hi_val)))
+            bg_val = float(hist_prof.get("bg_lum", bg_val))
+            log(f"monochrome stretch ceiling LOCKED from profile: bg={bg_val:.5f}, hi={hi_val:.5f}")
         lum_for_sharp = plane
 
     # Dynamic Organic Sharpening Parameter Generation
@@ -2035,6 +2150,9 @@ def cmd_postprocess(args) -> None:
                 cv2.imwrite(str(work / "moon_natural.jpg"), m8, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
 
     mineral_style = getattr(args, "mineral_style", "deep-cine")
+    fe_boost = float(getattr(args, "mineral_fe_boost", 6.8))
+    ti_boost = float(getattr(args, "mineral_ti_boost", 10.2))
+    gamma = float(getattr(args, "mineral_gamma", 1.09))
     if is_rgb and mineral_mode == "lrgb" and mineral_style == "deep-cine":
         lum_sharp_path = work / "moon_lum_sharp.fit"
         color_bal_path = work / "moon_color_balanced.fit"
@@ -2049,9 +2167,6 @@ def cmd_postprocess(args) -> None:
                 c_meta = dict(c_meta) if c_meta else {}
                 c_meta["is_tile"] = True
                 c_meta["active"] = False
-            fe_boost = float(getattr(args, "mineral_fe_boost", 6.8))
-            ti_boost = float(getattr(args, "mineral_ti_boost", 10.2))
-            gamma = float(getattr(args, "mineral_gamma", 1.09))
 
             import cv2
             import shutil
@@ -2077,6 +2192,49 @@ def cmd_postprocess(args) -> None:
     receipt["mosaic_mode"] = mosaic_mode
     dump_json(work / "postprocess_receipt.json", receipt)
 
+    # Global calibration profile (P2: Multi-panel stitching consistency)
+    active_profile = {
+        "version": "1.0",
+        "source_master": str(master),
+        "locked": bool(locked_profile or lock_wb or lock_stretch),
+        "lock_source": lock_source,
+        "histogram": {
+            "bg_r": float(wb["bg_r"]) if is_rgb else float(bg_val),
+            "bg_g": float(wb["bg_g"]) if is_rgb else float(bg_val),
+            "bg_b": float(wb["bg_b"]) if is_rgb else float(bg_val),
+            "bg_lum": float(wb["bg_lum"]) if is_rgb else float(bg_val),
+            "hi_unified": float(wb["hi_lum"]) if is_rgb else float(hi_val),
+            "hi_lum": float(wb["hi_lum"]) if is_rgb else float(hi_val),
+            "midtone": float(mid_val),
+        },
+        "white_balance": {
+            "mode": wb_mode if is_rgb else "mono",
+            "k_r": float(wb["k_r"]) if is_rgb else 1.0,
+            "k_b": float(wb["k_b"]) if is_rgb else 1.0,
+            "ratio_r": float(wb.get("ratio_r", 1.0)) if is_rgb else 1.0,
+            "ratio_b": float(wb.get("ratio_b", 1.0)) if is_rgb else 1.0,
+        },
+        "mineral": {
+            "mineral_style": mineral_style,
+            "fe_boost": fe_boost,
+            "ti_boost": ti_boost,
+            "gamma": gamma,
+        },
+    }
+
+    # Save lunar_profile.json
+    profile_path = work / "lunar_profile.json"
+    dump_json(profile_path, active_profile)
+
+    export_path_str = getattr(args, "export_profile", None)
+    if export_path_str:
+        export_p = Path(export_path_str).expanduser().resolve()
+        export_p.parent.mkdir(parents=True, exist_ok=True)
+        dump_json(export_p, active_profile)
+        log(f"calibration profile exported to {export_p}")
+    else:
+        log(f"calibration profile generated & saved to {profile_path}")
+
     # Export mosaic tile info for downstream siril-mosaic skill
     tile_info = {
         "mosaic_mode": mosaic_mode,
@@ -2086,6 +2244,8 @@ def cmd_postprocess(args) -> None:
         "pixel_size": px_size,
         "focal_length": fl,
         "aperture": dia,
+        "profile_locked": active_profile["locked"],
+        "calibration_profile": active_profile,
         "products": {
             "natural_tif": str(work / "moon_natural.tif"),
             "natural_jpg": str(work / "moon_natural.jpg"),
@@ -2143,6 +2303,18 @@ def cmd_verify(args) -> None:
         else:
             mosaic_mode = "disc"
     report["mosaic_mode"] = mosaic_mode
+
+    prof_json = work / "lunar_profile.json"
+    if prof_json.exists():
+        try:
+            p_data = load_json(prof_json)
+            report["profile_locked"] = bool(p_data.get("locked"))
+            report["lock_source"] = p_data.get("lock_source")
+            report["profile_hi_lum"] = p_data.get("histogram", {}).get("hi_lum")
+            report["profile_kr"] = p_data.get("white_balance", {}).get("k_r")
+            report["profile_kb"] = p_data.get("white_balance", {}).get("k_b")
+        except Exception:
+            pass
 
     # Background noise in corner
     bg_patch = master_data[:, :150, :150] if master_data.ndim == 3 else master_data[:150, :150]
@@ -2206,6 +2378,10 @@ def cmd_verify(args) -> None:
     dump_json(work / "verify_report.json", report)
     log("verification summary:")
     log(f"  Mosaic mode: {report['mosaic_mode']}")
+    if report.get("profile_locked"):
+        log(f"  Calibration Profile: LOCKED (source={report.get('lock_source')}, hi_lum={report.get('profile_hi_lum')})")
+    elif "profile_locked" in report:
+        log(f"  Calibration Profile: ANCHOR MASTER (unlocked baseline, hi_lum={report.get('profile_hi_lum')})")
     log(f"  Master dimensions: {report['shape']} (BITPIX={report['bitpix']})")
     log(f"  Pixel range: [{report['min']:.4f}, {report['max']:.4f}] (mean={report['mean']:.4f})")
     log(f"  Background noise std: {report['background_noise_std']:.6f}")
@@ -2327,6 +2503,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--mineral-gamma", type=float, default=1.09, help="Deep-cine filmic luminance sculpting gamma (default: 1.09)")
     a.add_argument("--mosaic-mode", default="disc", choices=["disc", "tile"],
                    help="Mosaic mode: 'disc' (full celestial disk with limb handling, default) or 'tile' (lunar mosaic panel, bypasses limb glare suppression, exports tile metadata)")
+    a.add_argument("--lock-profile", default=None, help="Path to lunar_profile.json to lock global histogram and color balance")
+    a.add_argument("--lock-from", default=None, help="Directory of reference anchor panel to auto-load lunar_profile.json or mosaic_tile_info.json")
+    a.add_argument("--export-profile", default=None, help="Explicit destination file path to export calibration profile (default: work/lunar_profile.json)")
+    a.add_argument("--lock-wb", nargs=2, type=float, default=None, help="Explicitly lock Gray-World gains (k_r k_b)")
+    a.add_argument("--lock-stretch", nargs=2, type=float, default=None, help="Explicitly lock histogram stretch range (bg_lum hi_lum)")
     a.set_defaults(func=cmd_postprocess)
 
     a = sub.add_parser("verify")
@@ -2353,6 +2534,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--framing", default=None, choices=["min", "max", "cog"], help="Framing mode for resampling (default: 'min' for disc, 'max' for tile)")
     a.add_argument("--mosaic-mode", default="disc", choices=["disc", "tile"],
                    help="Mosaic mode: 'disc' (full celestial disk, default) or 'tile' (lunar mosaic panel, framing=max, bypasses limb glare suppression, exports tile metadata)")
+    a.add_argument("--lock-profile", default=None, help="Path to lunar_profile.json to lock global histogram and color balance")
+    a.add_argument("--lock-from", default=None, help="Directory of reference anchor panel to auto-load lunar_profile.json or mosaic_tile_info.json")
+    a.add_argument("--export-profile", default=None, help="Explicit destination file path to export calibration profile (default: work/lunar_profile.json)")
+    a.add_argument("--lock-wb", nargs=2, type=float, default=None, help="Explicitly lock Gray-World gains (k_r k_b)")
+    a.add_argument("--lock-stretch", nargs=2, type=float, default=None, help="Explicitly lock histogram stretch range (bg_lum hi_lum)")
     a.add_argument("--interp", default="cu", choices=["cu", "li", "la", "none", "cubic", "linear", "lanczos", "bilinear"],
                    help="Resampling interpolation: 'li'/'linear' (bilinear, zero overshoot), 'cu'/'cubic' (bicubic, default)")
     a.add_argument("--out", default="moon_master.fit")
