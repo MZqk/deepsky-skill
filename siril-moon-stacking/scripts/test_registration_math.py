@@ -20,6 +20,7 @@ from moon_stack import (
     _estimate_adaptive_sharpening,
     _estimate_pedestal,
     _locate_high_contrast_roi,
+    _render_deep_cine_mineral,
     _select_frames_by_quality,
     _subpixel_phase_correlation,
     _suppress_lunar_limb_glare,
@@ -466,6 +467,92 @@ def test_lunar_limb_glare_suppression() -> None:
     assert not failures, f"Failures in test_lunar_limb_glare_suppression: {failures}"
 
 
+def test_render_deep_cine_mineral() -> None:
+    failures = []
+    h, w = 256, 256
+    yy, xx = np.mgrid[0:h, 0:w]
+    cx, cy, R = 128.0, 128.0, 100.0
+    r_dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+    moon_mask = r_dist <= R
+
+    # 1. Synthesize lum_sharp (2D float)
+    lum_sharp = np.zeros((h, w), dtype=np.float32)
+    lum_sharp[moon_mask] = 0.40
+    # Shadow craters near terminator (lum ~ 0.04)
+    shadow_mask = moon_mask & (xx < 60)
+    lum_sharp[shadow_mask] = 0.04
+    # Bright ray peaks (lum ~ 0.95)
+    ray_mask = moon_mask & (xx > 200)
+    lum_sharp[ray_mask] = 0.95
+
+    # 2. Synthesize color_balanced (3, 256, 256)
+    color_bal = np.zeros((3, h, w), dtype=np.float32)
+    color_bal[0, moon_mask] = lum_sharp[moon_mask]
+    color_bal[1, moon_mask] = lum_sharp[moon_mask]
+    color_bal[2, moon_mask] = lum_sharp[moon_mask]
+
+    # Add Fe-rich zone (R excess) in northern maria (yy < 100, 80 <= xx <= 180)
+    fe_zone = moon_mask & (yy < 100) & (xx >= 80) & (xx <= 180)
+    color_bal[0, fe_zone] *= 1.03
+    color_bal[2, fe_zone] *= 0.97
+
+    # Add Ti-rich basalt zone (B excess) in southern mare (yy > 150, 80 <= xx <= 180)
+    ti_zone = moon_mask & (yy > 150) & (xx >= 80) & (xx <= 180)
+    color_bal[2, ti_zone] *= 1.04
+    color_bal[0, ti_zone] *= 0.96
+
+    circle_meta = {"active": True, "center_x": cx, "center_y": cy, "radius": R}
+
+    bgr = _render_deep_cine_mineral(
+        lum_sharp,
+        color_bal,
+        circle_meta=circle_meta,
+        fe_boost=8.5,
+        ti_boost=9.0,
+        gamma=1.38,
+    )
+
+    if bgr.shape != (h, w, 3) or bgr.dtype != np.uint8:
+        failures.append(f"Unexpected output shape/dtype: shape={bgr.shape}, dtype={bgr.dtype}")
+
+    # Verify outer space zeroing (r_dist > R + 6)
+    r_dist_bgr = r_dist[::-1, :]
+    outer_space = r_dist_bgr > (R + 6.0)
+    if np.max(bgr[outer_space]) > 0:
+        failures.append(f"Outer space was not strictly zeroed: max={np.max(bgr[outer_space])}")
+
+    # Shadow craters roll-off: shadow craters had lum ~ 0.04 (< 0.05), so shadow_mask taper is 0.
+    shadow_bgr_mask = shadow_mask[::-1, :]
+    shadow_pixels = bgr[shadow_bgr_mask]
+    diff_rg = np.abs(shadow_pixels[:, 2].astype(int) - shadow_pixels[:, 1].astype(int))
+    diff_bg = np.abs(shadow_pixels[:, 0].astype(int) - shadow_pixels[:, 1].astype(int))
+    if np.max(diff_rg) > 1 or np.max(diff_bg) > 1:
+        failures.append(f"Shadow crater chroma was not rolled off: max diff RG={np.max(diff_rg)}, BG={np.max(diff_bg)}")
+
+    # Check Fe vs Ti color discrimination:
+    fe_bgr_mask = fe_zone[::-1, :]
+    mean_fe_r = np.mean(bgr[fe_bgr_mask, 2])
+    mean_fe_b = np.mean(bgr[fe_bgr_mask, 0])
+    if mean_fe_r <= mean_fe_b:
+        failures.append(f"Fe zone did not boost red: mean R={mean_fe_r:.1f} <= B={mean_fe_b:.1f}")
+
+    ti_bgr_mask = ti_zone[::-1, :]
+    mean_ti_b = np.mean(bgr[ti_bgr_mask, 0])
+    mean_ti_r = np.mean(bgr[ti_bgr_mask, 2])
+    if mean_ti_b <= mean_ti_r:
+        failures.append(f"Ti zone did not boost blue: mean B={mean_ti_b:.1f} <= R={mean_ti_r:.1f}")
+
+    # Deep tone sculpting: midtone 0.40 with gamma=1.38 should sculpt midtones ~ 0.27
+    mid_neutral = (moon_mask & (lum_sharp == 0.40) & ~fe_zone & ~ti_zone)[::-1, :]
+    med_val = np.median(bgr[mid_neutral, 1])
+    print(f"Deep-Cine sculpted midtone median: {med_val:.1f} (expected ~ 65-75, linear was ~102)")
+    if not (50 <= med_val <= 85):
+        failures.append(f"Deep-Cine midtone out of expected sculpted range: {med_val}")
+
+    print("Deep-Cine mineral rendering unit test passed")
+    assert not failures, f"Failures in test_render_deep_cine_mineral: {failures}"
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -477,6 +564,7 @@ def main() -> int:
         ("test_gray_world_channel_balance", test_gray_world_channel_balance),
         ("test_adaptive_sharpening_math", test_adaptive_sharpening_math),
         ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
+        ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
         ("test_postprocess_pipelines", test_postprocess_pipelines),
     ]
     failed = 0

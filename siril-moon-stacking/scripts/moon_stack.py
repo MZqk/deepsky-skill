@@ -1228,6 +1228,148 @@ def _calculate_channel_balance(
     return res
 
 
+def _render_deep_cine_mineral(
+    lum_sharp: np.ndarray,
+    color_balanced: np.ndarray,
+    circle_meta: dict | None = None,
+    fe_boost: float = 6.8,
+    ti_boost: float = 10.2,
+    gamma: float = 1.09,
+) -> np.ndarray:
+    """Render high-end deep-tone geological mineral moon (Refined Deep-Cine Aesthetic).
+
+    Features:
+      1. Filmic S-Curve Tone Sculpting: Deep velvety basalt maria (V ~ 110-130) + radiant
+         silver-white highlands (V ~ 180-220), eliminating perceptual color washout while
+         retaining crisp dynamic range.
+      2. Bilateral / Gaussian Low-pass Chroma Filtering: Eliminates Bayer sensor noise
+         and subpixel atmospheric dispersion on high-contrast crater rims.
+      3. Bipolar Pure Geological Saturation:
+         - Fe (Iron-rich regolith / Mare Serenitatis): Pure Terracotta / Copper Peach
+           (H ~ 11-12 in OpenCV hue, zero yellow-green mud).
+         - Ti (Titanium-rich basalts / Mare Tranquillitatis): Pure Azure / Denim Blue
+           (H ~ 106-107 in OpenCV hue, radiant and cerulean).
+      4. Terminator Phase-Reddening Defense:
+         - Distance transform from unlit night side smoothly zeroes saturation within
+           terminator zone, eliminating artificial neon-orange crater rim glow.
+      5. Dual Luma-guided Chroma Protection:
+         - Shadow Rolloff: Craters along terminator transition to 100% pure neutral stone gray/carbon black.
+         - Highlight Rolloff: Copernicus/Tycho ray systems and crater peaks remain crisp silver-white.
+         - Limb Edge Zeroing: Suppresses color fringing at physical celestial boundary.
+    """
+    import cv2
+
+    H, W = lum_sharp.shape
+    lum_sharp = np.ascontiguousarray(lum_sharp, dtype=np.float32)
+    r = np.ascontiguousarray(color_balanced[0], dtype=np.float32)
+    g = np.ascontiguousarray(color_balanced[1], dtype=np.float32)
+    b = np.ascontiguousarray(color_balanced[2], dtype=np.float32)
+
+    lum_lin = 0.299 * r + 0.587 * g + 0.114 * b
+    p999_lin = float(np.percentile(lum_lin[lum_lin > 0.0001], 99.95))
+
+    mask_valid = lum_lin > (0.01 * p999_lin)
+    cr_r = np.ones_like(r)
+    cr_g = np.ones_like(g)
+    cr_b = np.ones_like(b)
+
+    cr_r[mask_valid] = r[mask_valid] / lum_lin[mask_valid]
+    cr_g[mask_valid] = g[mask_valid] / lum_lin[mask_valid]
+    cr_b[mask_valid] = b[mask_valid] / lum_lin[mask_valid]
+
+    # Geological chrominance smoothing (filters Bayer noise and subpixel rim dispersion)
+    sigma_color = max(11, int(round(min(H, W) * 0.016)))
+    cr_r_f = cv2.GaussianBlur(cr_r, (0, 0), sigma_color)
+    cr_g_f = cv2.GaussianBlur(cr_g, (0, 0), sigma_color)
+    cr_b_f = cv2.GaussianBlur(cr_b, (0, 0), sigma_color)
+
+    dr = cr_r_f - 1.0
+    dg = cr_g_f - 1.0
+    db = cr_b_f - 1.0
+
+    # Celestial circle geometry
+    if circle_meta and circle_meta.get("active"):
+        cx = float(circle_meta["center_x"])
+        cy = float(circle_meta["center_y"])
+        R = float(circle_meta["radius"])
+    else:
+        fit = _fit_lunar_limb_circle(lum_sharp)
+        if fit:
+            cx, cy, R, _ = fit
+        else:
+            cx, cy, R = W / 2.0, H / 2.0, min(H, W) * 0.45
+
+    yy, xx = np.mgrid[0:H, 0:W]
+    r_grid = np.sqrt((xx - cx)**2 + (yy - cy)**2)
+    limb_dist = R - r_grid
+    limb_mask = np.clip(limb_dist / 14.0, 0.0, 1.0)
+
+    # 1. Terminator phase-reddening defense
+    lit_mask = np.zeros((H, W), dtype=np.uint8)
+    lit_mask[(r_grid <= R) & (lum_sharp >= 0.05)] = 1
+    if np.count_nonzero(lit_mask) > 100:
+        dist_term = cv2.distanceTransform(lit_mask, cv2.DIST_L2, 5)
+        term_mask = np.clip((dist_term - 25.0) / 80.0, 0.0, 1.0)**1.5
+    else:
+        term_mask = 1.0
+
+    # 2. Smooth luma masks (shadow proximity and highland ray control)
+    sigma_luma = max(5, int(round(min(H, W) * 0.007)))
+    lum_smooth = cv2.GaussianBlur(lum_sharp, (0, 0), sigma_luma)
+    shadow_mask = np.clip((lum_smooth - 0.10) / 0.16, 0.0, 1.0)**1.4
+    hi_mask = 1.0 - np.clip((lum_smooth - 0.62) / 0.22, 0.0, 1.0)**1.4
+
+    color_weight = shadow_mask * hi_mask * limb_mask * term_mask
+
+    # 3. Pure Bipolar Mineral Color Synthesis (Azure Blue & Terracotta Peach)
+    delta_rb = dr - db
+    dr_b = np.zeros_like(dr)
+    dg_b = np.zeros_like(dg)
+    db_b = np.zeros_like(db)
+
+    # Ti-rich Basalt: Azure / Denim Blue (OpenCV H ~ 106-107)
+    ti_m = (delta_rb < -0.001) & (db > 0.001)
+    mag_ti = np.maximum(db[ti_m], -delta_rb[ti_m]) * ti_boost * color_weight[ti_m]
+    db_b[ti_m] = mag_ti
+    dr_b[ti_m] = -0.32 * mag_ti
+    dg_b[ti_m] = +0.38 * mag_ti
+
+    # Fe-rich Regolith: Pure Terracotta / Copper Peach (OpenCV H ~ 11-12)
+    fe_m = (delta_rb > 0.001) & (dr > 0.001)
+    mag_fe = np.maximum(dr[fe_m], delta_rb[fe_m]) * fe_boost * color_weight[fe_m]
+    dr_b[fe_m] = mag_fe
+    db_b[fe_m] = -0.35 * mag_fe
+    dg_b[fe_m] = +0.18 * mag_fe
+
+    cr_r_new = np.clip(1.0 + dr_b, 0.1, 4.0)
+    cr_g_new = np.clip(1.0 + dg_b, 0.1, 4.0)
+    cr_b_new = np.clip(1.0 + db_b, 0.1, 4.0)
+
+    # 4. Filmic S-curve tone sculpting: deep velvety maria + radiant silver highlands
+    lum_safe = np.nan_to_num(np.clip(lum_sharp, 0.0, 1.0), nan=0.0)
+    blend = np.clip((lum_safe - 0.35) / 0.45, 0.0, 1.0)
+    blend = blend * blend * (3.0 - 2.0 * blend)
+    g_dark = max(1.0, gamma * 1.06)
+    g_bright = max(0.95, gamma * 0.88)
+    lum_cine = (1.0 - blend) * np.power(lum_safe, g_dark) + blend * np.power(lum_safe, g_bright)
+    lum_cine = np.nan_to_num(np.clip(lum_cine, 0.0, 1.0), nan=0.0)
+
+    final_r = np.nan_to_num(np.clip(lum_cine * cr_r_new, 0.0, 1.0), nan=0.0)
+    final_g = np.nan_to_num(np.clip(lum_cine * cr_g_new, 0.0, 1.0), nan=0.0)
+    final_b = np.nan_to_num(np.clip(lum_cine * cr_b_new, 0.0, 1.0), nan=0.0)
+
+    # Outer space clean zeroing
+    final_r[r_grid > R + 4.5] = 0
+    final_g[r_grid > R + 4.5] = 0
+    final_b[r_grid > R + 4.5] = 0
+
+    # Flip vertically to match image row 0 at top convention
+    rgb_fits = np.stack([final_r, final_g, final_b], axis=-1)
+    rgb_jpg = rgb_fits[::-1, :, :]
+    bgr_jpg = cv2.cvtColor((rgb_jpg * 255.0).astype(np.uint8), cv2.COLOR_RGB2BGR)
+    return bgr_jpg
+
+
 def _estimate_adaptive_sharpening(
     lum_data: np.ndarray,
     has_deconv: bool = True,
@@ -1560,12 +1702,50 @@ def cmd_postprocess(args) -> None:
     if receipt["exit_code"] != 0:
         die(f"postprocessing failed (exit {receipt['exit_code']}); see {receipt['log']}")
 
+    mineral_style = getattr(args, "mineral_style", "deep-cine")
+    if is_rgb and mineral_mode == "lrgb" and mineral_style == "deep-cine":
+        lum_sharp_path = work / "moon_lum_sharp.fit"
+        color_bal_path = work / "moon_color_balanced.fit"
+        if lum_sharp_path.exists() and color_bal_path.exists():
+            with fits.open(lum_sharp_path, memmap=False) as hdul_l:
+                l_data = hdul_l[0].data
+            with fits.open(color_bal_path, memmap=False) as hdul_c:
+                c_data = hdul_c[0].data
+
+            c_meta = wb.get("glare_meta")
+            fe_boost = float(getattr(args, "mineral_fe_boost", 6.8))
+            ti_boost = float(getattr(args, "mineral_ti_boost", 10.2))
+            gamma = float(getattr(args, "mineral_gamma", 1.09))
+
+            import cv2
+            import shutil
+
+            deep_mineral_bgr = _render_deep_cine_mineral(
+                l_data,
+                c_data,
+                circle_meta=c_meta,
+                fe_boost=fe_boost,
+                ti_boost=ti_boost,
+                gamma=gamma,
+            )
+
+            # Backup default Siril mineral output as moon_mineral_natural.jpg
+            legacy_mineral_path = work / "moon_mineral.jpg"
+            if legacy_mineral_path.exists():
+                shutil.copy2(legacy_mineral_path, work / "moon_mineral_natural.jpg")
+
+            # Write deep-cine mineral JPG
+            cv2.imwrite(str(work / "moon_mineral.jpg"), deep_mineral_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+            log(f"deep-cine mineral moon rendered: Fe terracotta red (x{fe_boost:.1f}) + Ti cobalt blue (x{ti_boost:.1f}), bilateral chroma smoothing, shadow/ray rolloff")
+
     dump_json(work / "postprocess_receipt.json", receipt)
     log(f"postprocessing complete! Products in {work}:")
     log(f"  - Natural master TIFF: {work / 'moon_natural.tif'}")
     log(f"  - Natural JPG:         {work / 'moon_natural.jpg'}")
     if (work / "moon_mineral.jpg").exists():
         log(f"  - Mineral Moon JPG:    {work / 'moon_mineral.jpg'}")
+        if (work / "moon_mineral_natural.jpg").exists():
+            log(f"  - Natural Mineral JPG: {work / 'moon_mineral_natural.jpg'}")
 
 
 # ------------------------------------------------------------------- 5. verify
@@ -1712,6 +1892,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
     a.add_argument("--glare-suppress", default="auto", choices=["auto", "mild", "aggressive", "off"],
                    help="Lunar limb forward scattering glare suppression mode: 'auto' (4.5px falloff, default), 'mild' (8.0px), 'aggressive' (2.5px), 'off' (bypass)")
+    a.add_argument("--mineral-style", default="deep-cine", choices=["deep-cine", "natural"],
+                   help="Mineral moon aesthetic style: 'deep-cine' (deep matte basalt tone, bilateral chroma smoothing, terracotta/cobalt pure boost, shadow/ray rolloff, default) or 'natural' (classic subtle saturation)")
+    a.add_argument("--mineral-fe-boost", type=float, default=6.8, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 6.8)")
+    a.add_argument("--mineral-ti-boost", type=float, default=10.2, help="Deep-cine saturation boost for Ti-rich basalt (azure denim blue, default: 10.2)")
+    a.add_argument("--mineral-gamma", type=float, default=1.09, help="Deep-cine filmic luminance sculpting gamma (default: 1.09)")
     a.set_defaults(func=cmd_postprocess)
 
     a = sub.add_parser("verify")
@@ -1761,6 +1946,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
     a.add_argument("--glare-suppress", default="auto", choices=["auto", "mild", "aggressive", "off"],
                    help="Lunar limb forward scattering glare suppression mode: 'auto' (4.5px falloff, default), 'mild' (8.0px), 'aggressive' (2.5px), 'off' (bypass)")
+    a.add_argument("--mineral-style", default="deep-cine", choices=["deep-cine", "natural"],
+                   help="Mineral moon aesthetic style: 'deep-cine' (deep matte basalt tone, bilateral chroma smoothing, terracotta/cobalt pure boost, shadow/ray rolloff, default) or 'natural' (classic subtle saturation)")
+    a.add_argument("--mineral-fe-boost", type=float, default=6.8, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 6.8)")
+    a.add_argument("--mineral-ti-boost", type=float, default=10.2, help="Deep-cine saturation boost for Ti-rich basalt (azure denim blue, default: 10.2)")
+    a.add_argument("--mineral-gamma", type=float, default=1.09, help="Deep-cine filmic luminance sculpting gamma (default: 1.09)")
     a.set_defaults(func=cmd_all)
 
     return p

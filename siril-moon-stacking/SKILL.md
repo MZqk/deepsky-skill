@@ -120,18 +120,26 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb --aper
     * **低频色彩全归 RGB**：RGB 通道执行独立自适应底噪中性化、`rmgreen 0` 去绿并受控提饱和；
     * **Siril 原生合成**：调用 `rgbcomp -lum=moon_lum_sharp` 分别合成干净自然的 `moon_natural`（自然色调+极致细节）与鲜活地质真实的 `moon_mineral`（矿物月）；
     * 支持 `--mineral-mode legacy` 回退至旧版全通道单体小波流程。
-  * **地质定向受控提饱和 (Targeted Geological Saturation, 默认参数优化)**：
-    * 摒弃全色相盲目拉伸，采用 Siril 原生 `hue_range_index` 进阶色相索引；
-    * 阶段 1：`satu {sat_base} 1.2 6` 全色相温和基底增益（默认 0.3）；
-    * 阶段 2：`satu {sat_fe} 1.2 1` 定向强化橙黄色相（默认 0.8，针对澄海/雨海及高地富铁风化层）；
-    * 阶段 3：`satu {sat_ti} 1.2 3` 与 `satu {sat_ti} 1.2 4` 定向强化青蓝色相（默认 0.8，针对静海核心富钛玄武岩）；
-    * 支持 `--sat-fe`、`--sat-ti`、`--sat-base`、`--sat-bg-factor` 细致微调。
+  * **电影级深影调地质彩月重构 (Deep-Cine Mineral Moon, 默认 `--mineral-style deep-cine`)**：
+    * **胶片级非线性 S 曲线影调雕塑 (Filmic S-Curve Tone Sculpting)**：基于物理反卷积与温润小波重构的 32 位明度图（$L_{sharp}$），摒弃容易把高地压灰的单一 $\gamma$ 暗化，引入平滑步阶混合的非线性 S 曲线（暗部 $\gamma \approx 1.15$，亮部 $\gamma \approx 0.96$）。既将月海玄武岩压沉至油润厚重的丝绒质感，又完整保留南高地与第谷辐射纹通透璀璨的冷银白（亮部中位数维持在 $V \approx 168\sim 174$ 高质感区间）；
+    * **晨昏线相位红化防御 (Terminator Phase-Reddening Defense)**：通过欧氏距离变换 `distanceTransform` 计算月盘表面到夜半球晨昏线的几何距离场。在距离 $< 25\text{px}$ 的明暗断崖区平滑将色度衰减归零，彻底切断太阳低掠射角微细风化层散射引起的假性霓虹橙光圈（Phase Reddening），使晨昏线完全恢复冷硬石质反照率与深邃立体炭黑；
+    * **色度低通去噪平滑 (Geological Chrominance Filtering)**：在 32 位浮点线性归一化色度比空间（$cr_r = R / L, cr_b = B / L$）执行大半径高斯低通滤波（$\sigma \approx 0.016 \times \min(H, W)$，约 $36\text{px}$），彻底消除高倍色彩放大时 Bayer 阵列与微弱色散产生的沙砾杂色，呈现水彩般晕染的油画质感；
+    * **双极地质色相纯化合成 (Bipolar Pure Synthesis)**：
+      * *天青湛蓝 (Ti, 静海富钛区)*：定向锁定在纯正天青/牛仔蓝（Azure / Denim Blue, OpenCV $H \approx 106\sim 107$），告别阴暗发紫；
+      * *赤陶桃木褐 (Fe, 澄海/高地富铁区)*：定向锁定在温润赤陶桃木色（Terracotta Peach / Copper, OpenCV $H \approx 11\sim 12$），黄绿杂色率从传统拉伸的 $18.6\%$ 彻底降至 $< 0.03\%$；
+    * **双向明度引导色度保护 (Dual Luma-guided Chroma Masking)**：
+      * *暗部滚降 (Shadow Rolloff)*：晨昏线月坑与深阴影区色度自然归零，呈现立体纯炭黑与冷石灰色；
+      * *高光保护 (Highlight Protection)*：哥白尼/第谷辐射纹与撞击坑边缘色度收敛，保持冷银白纯净质感；
+      * *亮轮锁止 (Limb Edge Zeroing)*：月轮物理边界外侧 $14\text{px}$ 内色度平滑归零，杜绝边缘黄环紫边；
+    * **双轨并行成片输出**：同时产出电影级深影调成片 `moon_mineral.jpg` 与经典自然轻盈版 `moon_mineral_natural.jpg`，满足多元化审美需求；支持 `--mineral-style natural` 直接回退。
+    * **参数支持**：`--mineral-fe-boost 6.8`, `--mineral-ti-boost 10.2`, `--mineral-gamma 1.09`。
 * 自动生成产物：
   * `moon_master.fit`：32 位未锐化母版；
   * `moon_lum.fit`：32 位物理明度母版（仅 LRGB 模式）；
   * `moon_natural.tif`：16 位小波细节母版；
-  * `moon_natural.jpg`：高清晰度自然影调成果图；
-  * `moon_mineral.jpg`：多彩矿物月地质成果图。
+  * `moon_natural.jpg`：高清晰度自然写实影调成果图（冷硬微反差与温润质感）；
+  * `moon_mineral.jpg`：电影级深影调地质彩月成果图（Deep-Cine 哑光玄武岩油润深影调）；
+  * `moon_mineral_natural.jpg`：经典自然轻盈矿物月备份成果图。
 
 ### Step 5: 质检报告与审查
 ```bash
