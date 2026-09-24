@@ -32,6 +32,8 @@ from moon_stack import (
     _suppress_lunar_limb_glare,
     _infer_optical_parameters,
     DEFAULT_SIRIL,
+    _apply_extinction_compensation,
+    _estimate_atmospheric_extinction_gradient,
     cmd_import,
     cmd_postprocess,
     parse_ser_header,
@@ -1140,6 +1142,90 @@ def test_ser_cmd_import_single_file_and_dir():
     print("SER cmd_import single file and directory integration unit test passed")
 
 
+def test_extinction_gradient_synthetic():
+    """Verify robust recovery of zenith extinction angle and planar slope, and compensation flattening."""
+    import math
+    moon = make_synthetic_moon(h=256, w=256, seed=123)
+    p999 = float(np.percentile(moon, 99.95))
+    mask = (moon > 0.05 * p999) & (moon < 0.95 * p999)
+
+    h, w = moon.shape
+    xc, yc = w / 2.0, h / 2.0
+    r_norm = 0.5 * math.hypot(w, h)
+    yy, xx = np.mgrid[0:h, 0:w]
+    nx = (xx - xc) / r_norm
+    ny = (yy - yc) / r_norm
+
+    # True extinction tilt: Zenith at 45 degrees (upper-right)
+    true_gx_b, true_gy_b = 0.05, 0.05
+    true_gx_r, true_gy_r = -0.02, -0.02
+
+    t_b = np.exp(true_gx_b * nx + true_gy_b * ny)
+    t_r = np.exp(true_gx_r * nx + true_gy_r * ny)
+
+    g_net = moon.copy()
+    b_net = (moon * t_b).astype(np.float32)
+    r_net = (moon * t_r).astype(np.float32)
+
+    net_planes = np.stack([r_net, g_net, b_net], axis=0)
+    info = _estimate_atmospheric_extinction_gradient(net_planes, mask, mode="auto")
+
+    assert info["active"] is True
+    assert info["applied"] is True
+    # Verify recovered zenith angle is approx 45 degrees
+    assert abs(info["zenith_angle_deg"] - 45.0) < 5.0, f"Recovered angle {info['zenith_angle_deg']} vs 45.0"
+    # Verify blue amplitude: 2 * sqrt(0.05^2 + 0.05^2) = 2 * 0.0707 = 0.1414
+    assert abs(info["amp_b"] - 0.1414) < 0.02, f"Recovered amp_b {info['amp_b']} vs 0.1414"
+    assert info["confidence"] >= 0.8
+
+    # Apply planar compensation
+    r_corr, g_corr, b_corr = _apply_extinction_compensation(r_net, g_net, b_net, info, mask)
+
+    # In raw tilted image, log(B/G) has significant spatial slope:
+    raw_l_bg = np.log(b_net[mask] / g_net[mask])
+    corr_l_bg = np.log(b_corr[mask] / g_corr[mask])
+    assert corr_l_bg.std() < 0.35 * raw_l_bg.std(), f"STD after compensation {corr_l_bg.std()} vs raw {raw_l_bg.std()}"
+    print("Synthetic atmospheric extinction gradient recovery & compensation unit test passed")
+
+
+def test_extinction_gradient_flat_bypass():
+    """Verify that flat/high-altitude moon automatically bypasses extinction compensation."""
+    moon = make_synthetic_moon(h=256, w=256, seed=456)
+    p999 = float(np.percentile(moon, 99.95))
+    mask = (moon > 0.05 * p999) & (moon < 0.95 * p999)
+
+    # Natural balanced channels (no extinction slope)
+    net_planes = np.stack([moon.copy(), moon.copy(), moon.copy()], axis=0)
+    info = _estimate_atmospheric_extinction_gradient(net_planes, mask, mode="auto")
+
+    assert info["active"] is True
+    assert info["applied"] is False, f"Expected bypass on flat moon, but applied={info['applied']} (amp_b={info.get('amp_b')})"
+    print("Extinction gradient flat bypass unit test passed")
+
+
+def test_extinction_geological_immunity():
+    """Verify that localized mare/highland color patches do not create false macroscopic extinction slopes."""
+    moon = make_synthetic_moon(h=256, w=256, seed=789)
+    p999 = float(np.percentile(moon, 99.95))
+    mask = (moon > 0.05 * p999) & (moon < 0.95 * p999)
+
+    r_net = moon.copy()
+    g_net = moon.copy()
+    b_net = moon.copy()
+
+    # Add localized titanium mare patch on the left side (high Blue)
+    b_net[100:150, 60:110] *= 1.15
+    # Add localized iron highland patch on the right side (high Red)
+    r_net[100:150, 150:200] *= 1.15
+
+    net_planes = np.stack([r_net, g_net, b_net], axis=0)
+    info = _estimate_atmospheric_extinction_gradient(net_planes, mask, mode="auto")
+
+    # The robust IRLS fit should suppress these local patches and not declare a large extinction gradient
+    assert info["amp_b"] < 0.035, f"Huber should suppress local patches, but got amp_b={info['amp_b']}"
+    print("Extinction geological immunity unit test passed")
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -1160,6 +1246,9 @@ def main() -> int:
         ("test_ser_unpack_mono", test_ser_unpack_mono),
         ("test_ser_unpack_bayer", test_ser_unpack_bayer),
         ("test_ser_cmd_import_single_file_and_dir", test_ser_cmd_import_single_file_and_dir),
+        ("test_extinction_gradient_synthetic", test_extinction_gradient_synthetic),
+        ("test_extinction_gradient_flat_bypass", test_extinction_gradient_flat_bypass),
+        ("test_extinction_geological_immunity", test_extinction_geological_immunity),
         ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
         ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
         ("test_postprocess_pipelines", test_postprocess_pipelines),

@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: siril-moon-stacking
-  version: "1.0.3"
+  version: "1.0.4"
   displayName: Siril Moon Stacking
   summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
   tags: [astronomy, lunar, siril, lucky-imaging]
@@ -32,6 +32,7 @@ metadata:
   * 32 位 FITS 母版、16 位 TIFF 母版及高质量 JPG 导出。
 * **Python 的职责（插件）**：
   * **专业 SER 视频流原生直读与极速解压**：直接解析 178 字节规范头，零拷贝 `np.memmap` 提取帧数据，OpenCV 硬件级 demosaicing（1080p 单帧 <5ms），元数据（UTC 时间戳/相机/望远镜）无损注入 FITS；
+  * **低仰角宏观大气消光一阶梯度补偿**：在 32 位浮点线性空间与对数色比空间鲁棒估计横跨月盘的 Rayleigh 消光红化坡度，平复“底暖顶冷、底暗顶亮”倾斜，杜绝矿物月被大气消光撕裂；
   * **单色（Mono）与彩色（RGB）全链路自适应**：智能生成 `L 1` 与 `L 3` 序列，单色输入自动规避彩色专属滤镜；
   * 智能月相感知与高反差特征地貌定位（终结者明暗线/环形山密集区，抗月相干扰）；
   * 基于 Hann 加窗的 FFT 亚像素频域相位相关位移计算；
@@ -138,6 +139,12 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb
     * **暗环风险场定位**：基于归一化梯度与局部动态基准，精准锁定明暗交界断崖的暗侧过渡带，生成连续平滑的高斯羽化阻尼掩模 $M_{damp}$；
     * **非对称弹性阻尼平复**：高光山峰与山脊边缘的正向锐化增量保持 100% 原始解析力无损，仅对暗侧负向增量施加自适应阻尼衰减（`auto` 模式下依据插值与反卷积状态自适应设定为 0.45~0.65），彻底平复暗坑黑圈；
     * **参数支持**：`--anti-ringing {auto,off,mild,aggressive}`（默认 `auto`），支持 `--damping-factor <0.0-1.0>` 手动精细调节，支持 `--anti-ringing off` 完全旁路；
+  * **低仰角宏观大气消光一阶梯度补偿 (Atmospheric Extinction Gradient Compensation, 默认 `--extinction-comp auto`)**：
+    * **物理成因诊断**：月面低仰角（$a < 30^\circ$）拍摄时，因半度视场跨度的大气柱质量（Airmass）差诱发 Rayleigh/气溶胶消光空间倾斜，导致月盘呈现“底暖顶冷、底暗顶亮”的宏观红化与通量坡度，严重污染矿物月并造成拼接色差；
+    * **地质反照率解耦**：将像元映射至对数色比空间（$\ln(B/G), \ln(R/G)$），表面绝对光通量差异被完全消除；
+    * **网格中位数降采样与 Huber 鲁棒回归**：通过 $16\times 16$ 局部块中位数提取低频空间斜率，对局部高钛玄武岩色块天然免疫；
+    * **Rayleigh 物理一致性校核**：验证蓝光与红光消光矢量的反向共线性，视场梯度 $<1.5\%$ 时自动旁路（高仰角零扰动）；
+    * **参数支持**：`--extinction-comp {auto,mild,aggressive,off}`（默认 `auto`），在 32 位浮点线性空间执行通量守恒除法平复。
   * **全局色彩与直方图锁定（Anchor Master Profile Lock）**：
     * **核心痛点**：多面板月面全景马赛克（Multi-panel Mosaic）切片单独后处理时，各切片地质反照率差异悬殊（如纯暗玄武岩的月海切片 vs 极亮辐射纹的高地切片）。若各自独立估计白平衡与高光拉伸截断点，会导致各切片出现严重色块漂移（如月海切片偏紫、高地切片泛黄），且重叠区明暗映射阶梯跳变高达 400% 以上，拼接后接缝处出现不可调和的明暗断层；
     * **锁定机制**：支持将基准面板（Anchor Master）的 32 位浮点线性白平衡增益（$k_r, k_b$）与统一直方图拉伸基准（$bg_{lum}, hi_{lum}$、midtone 及矿物月色彩参数）导出为 `lunar_profile.json`，并由所有从属面板（Slave Tiles）一键锁入；

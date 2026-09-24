@@ -1540,6 +1540,198 @@ def _load_locked_profile(
     return None, None
 
 
+def _estimate_atmospheric_extinction_gradient(
+    net_planes: np.ndarray,
+    mask: np.ndarray,
+    mode: str = "auto",
+) -> dict:
+    """Robustly estimate first-order atmospheric extinction spatial gradient.
+
+    Physical basis:
+      In low-altitude lunar imaging (altitude < 30°), the airmass gradient across
+      the 0.5° lunar disc induces an asymmetric Rayleigh/aerosol extinction slope:
+      shorter blue wavelengths attenuate significantly faster towards the horizon than red.
+      This produces a macroscopic 'warm/dark horizon, cool/bright zenith' color/luminance tilt.
+
+    Mathematical strategy:
+      1. Coarse grid median subsampling: partitions the moon into 16x16 blocks to decouple
+         high-frequency crater details and sharp terminator topography.
+      2. Log-color-ratio mapping:
+         s_B = ln(B / G), s_R = ln(R / G)
+         Completely cancels out surface albedo variations (mare vs highlands).
+      3. Robust Huber / IRLS 2D planar regression:
+         Fits s_c(x, y) = c + alpha_x * nx + alpha_y * ny
+         Suppresses local geological anomalies (e.g. localized titanium-rich Mare Tranquillitatis).
+      4. Rayleigh physical consistency check:
+         Verifies that blue and red slope vectors are negatively collinear (opposing directions).
+      5. Significance thresholding:
+         If total color-ratio slope < 1.5% across the disc, automatically bypasses (zero disturbance at high altitude).
+    """
+    import math
+    import numpy as np
+
+    if mode == "off" or net_planes.shape[0] != 3:
+        return {"active": False, "applied": False, "mode": mode, "reason": "mode off or non-RGB"}
+
+    h, w = net_planes[0].shape
+    xc, yc = w / 2.0, h / 2.0
+    r_norm = 0.5 * math.hypot(w, h)
+
+    # 1. Coarse grid median subsampling
+    n_grid = 16
+    gh, gw = max(4, h // n_grid), max(4, w // n_grid)
+    grid_pts = []
+
+    for gy in range(n_grid):
+        y0 = gy * gh
+        y1 = (gy + 1) * gh if gy < n_grid - 1 else h
+        for gx in range(n_grid):
+            x0 = gx * gw
+            x1 = (gx + 1) * gw if gx < n_grid - 1 else w
+            sub_m = mask[y0:y1, x0:x1]
+            if np.count_nonzero(sub_m) < 30:
+                continue
+            sub_r = net_planes[0, y0:y1, x0:x1][sub_m]
+            sub_g = net_planes[1, y0:y1, x0:x1][sub_m]
+            sub_b = net_planes[2, y0:y1, x0:x1][sub_m]
+
+            med_g = float(np.median(sub_g))
+            med_r = float(np.median(sub_r))
+            med_b = float(np.median(sub_b))
+            if med_g <= 1e-4 or med_r <= 1e-4 or med_b <= 1e-4:
+                continue
+
+            cell_xc = (x0 + x1) / 2.0
+            cell_yc = (y0 + y1) / 2.0
+            nx = (cell_xc - xc) / r_norm
+            ny = (cell_yc - yc) / r_norm
+
+            l_bg = math.log(med_b / med_g)
+            l_rg = math.log(med_r / med_g)
+            grid_pts.append((nx, ny, l_bg, l_rg))
+
+    if len(grid_pts) < 12:
+        return {"active": False, "applied": False, "mode": mode, "reason": "insufficient valid grid cells (<12)"}
+
+    pts = np.array(grid_pts, dtype=np.float64)
+    xs = pts[:, 0]
+    ys = pts[:, 1]
+    y_bg = pts[:, 2]
+    y_rg = pts[:, 3]
+
+    # 2. Robust IRLS Plane Fitting
+    def _fit_plane_irls(x_arr, y_arr, target):
+        A = np.column_stack([np.ones_like(x_arr), x_arr, y_arr])
+        # Initial least squares
+        beta = np.linalg.lstsq(A, target, rcond=None)[0]
+        for _ in range(5):
+            res = target - A @ beta
+            mad = np.median(np.abs(res - np.median(res))) + 1e-6
+            delta = 1.345 * mad * 1.4826
+            weights = np.ones_like(res)
+            outliers = np.abs(res) > delta
+            weights[outliers] = delta / np.abs(res[outliers])
+            W = np.diag(weights)
+            try:
+                beta = np.linalg.solve(A.T @ W @ A, A.T @ W @ target)
+            except np.linalg.LinAlgError:
+                break
+        return beta  # [intercept, slope_x, slope_y]
+
+    beta_bg = _fit_plane_irls(xs, ys, y_bg)
+    beta_rg = _fit_plane_irls(xs, ys, y_rg)
+
+    gx_b, gy_b = float(beta_bg[1]), float(beta_bg[2])
+    gx_r, gy_r = float(beta_rg[1]), float(beta_rg[2])
+
+    amp_b = 2.0 * math.hypot(gx_b, gy_b)
+    amp_r = 2.0 * math.hypot(gx_r, gy_r)
+
+    # 3. Physical consistency check (Rayleigh negative collinearity)
+    denom = (math.hypot(gx_b, gy_b) * math.hypot(gx_r, gy_r)) + 1e-8
+    cos_br = (gx_b * gx_r + gy_b * gy_r) / denom
+
+    zenith_angle_deg = math.degrees(math.atan2(gy_b, gx_b)) % 360.0
+    confidence = float(np.clip(-cos_br, 0.0, 1.0))
+
+    threshold = 0.015 if mode == "auto" else 0.005
+    is_significant = (amp_b >= threshold)
+
+    applied = False
+    if is_significant and (cos_br < 0.0 or mode in ("mild", "aggressive")):
+        applied = True
+
+    strength = 0.85
+    if mode == "mild":
+        strength = 0.50
+    elif mode == "aggressive":
+        strength = 1.00
+
+    return {
+        "active": True,
+        "applied": applied,
+        "mode": mode,
+        "zenith_angle_deg": round(zenith_angle_deg, 2),
+        "amp_b": round(amp_b, 4),
+        "amp_r": round(amp_r, 4),
+        "slope_b": (gx_b, gy_b),
+        "slope_r": (gx_r, gy_r),
+        "cos_br": round(cos_br, 3),
+        "confidence": round(confidence, 3),
+        "strength": strength,
+        "r_norm": r_norm,
+        "center": (xc, yc),
+    }
+
+
+def _apply_extinction_compensation(
+    r_net: np.ndarray,
+    g_net: np.ndarray,
+    b_net: np.ndarray,
+    ext_info: dict,
+    mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Apply first-order planar transmission division with flux conservation."""
+    import numpy as np
+
+    if not ext_info.get("applied"):
+        return r_net, g_net, b_net
+
+    h, w = r_net.shape
+    xc, yc = ext_info["center"]
+    r_norm = ext_info["r_norm"]
+    strength = ext_info.get("strength", 0.85)
+
+    gx_b, gy_b = ext_info["slope_b"]
+    gx_r, gy_r = ext_info["slope_r"]
+
+    # Scale slopes by dampening factor
+    gx_b_s, gy_b_s = gx_b * strength, gy_b * strength
+    gx_r_s, gy_r_s = gx_r * strength, gy_r * strength
+    # Luminance flux compensation along zenith axis (approx 40% of blue extinction slope)
+    gx_l_s, gy_l_s = gx_b_s * 0.40, gy_b_s * 0.40
+
+    yy, xx = np.mgrid[0:h, 0:w]
+    nx = ((xx - xc) / r_norm).astype(np.float32)
+    ny = ((yy - yc) / r_norm).astype(np.float32)
+
+    T_b = np.exp(gx_b_s * nx + gy_b_s * ny).astype(np.float32)
+    T_r = np.exp(gx_r_s * nx + gy_r_s * ny).astype(np.float32)
+    T_l = np.exp(gx_l_s * nx + gy_l_s * ny).astype(np.float32)
+
+    # Flux conservation normalization across lunar disc
+    if np.any(mask):
+        T_b /= float(np.mean(T_b[mask]))
+        T_r /= float(np.mean(T_r[mask]))
+        T_l /= float(np.mean(T_l[mask]))
+
+    b_corr = (b_net / (T_b * T_l)).astype(np.float32)
+    r_corr = (r_net / (T_r * T_l)).astype(np.float32)
+    g_corr = (g_net / T_l).astype(np.float32)
+
+    return r_corr, g_corr, b_corr
+
+
 def _calculate_channel_balance(
     d: np.ndarray,
     bg_r: float,
@@ -1548,6 +1740,7 @@ def _calculate_channel_balance(
     mid_val: float = 0.13,
     wb_mode: str = "gray-world",
     glare_mode: str = "auto",
+    extinction_comp: str = "auto",
     locked_profile: dict | None = None,
     lock_wb: tuple[float, float] | None = None,
     lock_stretch: tuple[float, float] | None = None,
@@ -1562,6 +1755,8 @@ def _calculate_channel_balance(
     Supports Global Profile Locking (P2) for mosaic multi-panel stitching:
     Locks histogram stretch ceiling (hi_lum) and linear white balance gains (k_R, k_B)
     to eliminate seam brightness stepping and patch chrominance drift across panels.
+
+    Supports Atmospheric Extinction Gradient Compensation (First-order planar field compensation).
     """
     import numpy as np
 
@@ -1619,6 +1814,17 @@ def _calculate_channel_balance(
     mask = (lum_approx > (0.05 * p999_lum_raw)) & (lum_approx < (0.95 * p999_lum_raw))
     valid_count = int(np.count_nonzero(mask))
     res["moon_pixels"] = valid_count
+
+    # 2.5 Atmospheric Extinction Gradient Compensation (First-order planar field compensation)
+    ext_info = _estimate_atmospheric_extinction_gradient(
+        np.stack([r_net, g_net, b_net], axis=0),
+        mask,
+        mode=extinction_comp,
+    )
+    res["extinction_meta"] = ext_info
+    if ext_info.get("applied"):
+        r_net, g_net, b_net = _apply_extinction_compensation(r_net, g_net, b_net, ext_info, mask)
+        lum_approx = 0.299 * r_net + 0.587 * g_net + 0.114 * b_net
 
     # Determine Gray-World gains (check locked profile first)
     is_wb_locked = False
@@ -2308,11 +2514,13 @@ def cmd_postprocess(args) -> None:
         bg_r = _estimate_pedestal(d[0])
         bg_g = _estimate_pedestal(d[1])
         bg_b = _estimate_pedestal(d[2])
+        extinction_comp = getattr(args, "extinction_comp", "auto")
         wb = _calculate_channel_balance(
             d, bg_r, bg_g, bg_b,
             mid_val=mid_val,
             wb_mode=wb_mode,
             glare_mode=glare_mode,
+            extinction_comp=extinction_comp,
             locked_profile=locked_profile,
             lock_wb=lock_wb,
             lock_stretch=lock_stretch,
@@ -2320,6 +2528,10 @@ def cmd_postprocess(args) -> None:
         if "glare_meta" in wb and wb["glare_meta"].get("active"):
             gm = wb["glare_meta"]
             log(f"lunar limb glare suppression active: center=({gm['center_x']:.1f}, {gm['center_y']:.1f}), R={gm['radius']:.1f}px (res_std={gm['residual_std']:.2f}px, falloff={gm['delta']:.1f}px)")
+        if "extinction_meta" in wb and wb["extinction_meta"].get("applied"):
+            em = wb["extinction_meta"]
+            log(f"atmospheric extinction gradient compensated: zenith_angle={em['zenith_angle_deg']:.1f}°, B-grad={em['amp_b']*100:.1f}%, R-grad={em['amp_r']*100:.1f}%, confidence={em['confidence']:.2f}")
+            dump_json(work / "extinction_receipt.json", em)
         if wb.get("wb_locked"):
             log(f"neutral Gray-World balance LOCKED: R/G={wb['ratio_r']:.3f}, B/G={wb['ratio_b']:.3f} (k_r={wb['k_r']:.3f}, k_b={wb['k_b']:.3f})")
         elif wb["moon_pixels"] >= 200 and wb_mode == "gray-world":
@@ -2734,6 +2946,13 @@ def cmd_verify(args) -> None:
         except Exception:
             pass
 
+    ext_json = work / "extinction_receipt.json"
+    if ext_json.exists():
+        try:
+            report["extinction_compensation"] = load_json(ext_json)
+        except Exception:
+            pass
+
     # Background noise in corner
     bg_patch = master_data[:, :150, :150] if master_data.ndim == 3 else master_data[:150, :150]
     report["background_noise_std"] = float(bg_patch.std())
@@ -2811,6 +3030,9 @@ def cmd_verify(args) -> None:
     log(f"  Master dimensions: {report['shape']} (BITPIX={report['bitpix']})")
     log(f"  Pixel range: [{report['min']:.4f}, {report['max']:.4f}] (mean={report['mean']:.4f})")
     log(f"  Background noise std: {report['background_noise_std']:.6f}")
+    if "extinction_compensation" in report:
+        ec = report["extinction_compensation"]
+        log(f"  Atmospheric Extinction: COMPENSATED (zenith={ec.get('zenith_angle_deg')}°, B-grad={ec.get('amp_b', 0)*100:.1f}%, conf={ec.get('confidence')})")
     if "dark_halo_ratio" in report:
         log(f"  Dark Halo Ratio (DHR): {report['dark_halo_ratio']:.4f} -> [{report.get('dark_halo_status', 'N/A')}]")
     if "chalky_saturation_index" in report:
@@ -2923,6 +3145,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
     a.add_argument("--glare-suppress", default="auto", choices=["auto", "mild", "aggressive", "off"],
                    help="Lunar limb forward scattering glare suppression mode: 'auto' (4.5px falloff, default), 'mild' (8.0px), 'aggressive' (2.5px), 'off' (bypass)")
+    a.add_argument("--extinction-comp", default="auto", choices=["auto", "mild", "aggressive", "off"],
+                   help="Atmospheric extinction gradient compensation: 'auto' (adaptive threshold, default), 'mild' (50% strength), 'aggressive', 'off' (bypass)")
     a.add_argument("--mineral-style", default="deep-cine", choices=["deep-cine", "natural"],
                    help="Mineral moon aesthetic style: 'deep-cine' (deep matte basalt tone, bilateral chroma smoothing, terracotta/cobalt pure boost, shadow/ray rolloff, default) or 'natural' (classic subtle saturation)")
     a.add_argument("--mineral-fe-boost", type=float, default=6.8, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 6.8)")
@@ -2998,6 +3222,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
     a.add_argument("--glare-suppress", default="auto", choices=["auto", "mild", "aggressive", "off"],
                    help="Lunar limb forward scattering glare suppression mode: 'auto' (4.5px falloff, default), 'mild' (8.0px), 'aggressive' (2.5px), 'off' (bypass)")
+    a.add_argument("--extinction-comp", default="auto", choices=["auto", "mild", "aggressive", "off"],
+                   help="Atmospheric extinction gradient compensation: 'auto' (adaptive threshold, default), 'mild' (50% strength), 'aggressive', 'off' (bypass)")
     a.add_argument("--mineral-style", default="deep-cine", choices=["deep-cine", "natural"],
                    help="Mineral moon aesthetic style: 'deep-cine' (deep matte basalt tone, bilateral chroma smoothing, terracotta/cobalt pure boost, shadow/ray rolloff, default) or 'natural' (classic subtle saturation)")
     a.add_argument("--mineral-fe-boost", type=float, default=6.8, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 6.8)")

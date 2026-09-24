@@ -2,6 +2,17 @@
 
 本文件记录 `siril-moon-stacking` 的独立版本变更。
 
+## [1.0.4] - 2026-09-24
+
+- **引入低仰角宏观大气消光一阶梯度补偿（Atmospheric Extinction Gradient Compensation, `--extinction-comp {auto,mild,aggressive,off}`）**：
+  - 针对月出/月落低仰角（$a < 30^\circ$）拍摄时，因月盘半度视场跨度引起的大气质量（Airmass）差诱发的宏观 Rayleigh 消光倾斜（“底暖顶冷、底暗顶亮”坡度），在 32 位浮点线性空间实施通量守恒除法平复；
+  - 创新采用对数色比空间映射（$s_B = \ln(B/G), s_R = \ln(R/G)$），表面反照率（月海 vs 高地）与月相明暗在此空间完全被除法抵消；
+  - 集成多尺度 $16\times 16$ 网格中位数降采样与 Huber 鲁棒平面回归（IRLS），天然免疫局部高钛玄武岩色块干扰；
+  - 引入 Rayleigh 物理反向共线性校验与自适应门限（全盘色偏 $<1.5\%$ 自动旁路，确保高仰角零扰动）；
+  - 彻底根除深空矿物彩月被宏观消光污染导致的“半边黄泥、半边紫蓝”的伪地质色带；
+  - 导出 `extinction_receipt.json` 并集成到 `verify` 质检审计报告；
+  - 新增 `test_extinction_gradient_synthetic`、`test_extinction_gradient_flat_bypass`、`test_extinction_geological_immunity` 3 项高强度单元测试。
+
 ## [1.0.3] - 2026-09-24
 
 - **引入行星与月面 SER 视频流原生直接支持（Native SER Video Stream Support）**：
