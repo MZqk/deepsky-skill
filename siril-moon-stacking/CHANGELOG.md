@@ -2,6 +2,18 @@
 
 本文件记录 `siril-moon-stacking` 的独立版本变更。
 
+## [1.0.10] - 2026-09-25
+
+- **增强非标准视频解码错误提示与自愈引导（Enhanced Non-Standard Video Diagnostics & Recovery Guidance）**：
+  - **智能文件头与 OpenCV 状态诊断矩阵 (`format_video_decode_error`)**：当 OpenCV `VideoCapture` 打开或抽取帧失败时，不再抛出无语义的简陋 `ValueError`，而是深入透视文件头魔数与尾部数据，生成结构化诊断报告（包含目标路径、字节大小、容器类型推断、FourCC 编码识别、OpenCV 后端状态与确凿根因）；
+  - **高频损坏场景精准定位与自愈命令注入**：
+    - *未闭合 MP4 识别*：自动检测拍摄中途断电/App闪退造成的 `moov atom missing`，并给出即拷即用的 `ffmpeg -err_detect ignore_err -i input.mp4 -c copy fixed.mp4` 修复指令；
+    - *缺失编解码器支持*：识别 H.265/HEVC、AV1、Apple ProRes 等 OpenCV 缺少解码后端的格式，给出无损 rawvideo/mjpeg AVI 转码指令；
+    - *天文相机特有 FourCC*：识别 `Y800`、`GREY`、`DIB `、`ZWO ` 等未压缩调色板，提供 PIPP / AutoStakkert / ffmpeg 适配建议；
+    - *扩展名伪装识别*：自动识别被误命名为 `.mp4/.avi` 的真实 SER 天文流或 FITS 图像，引导用户直接使用 `--format ser` 或 `--format fits` 导入；
+    - *异常格式前置拦截*：针对 `.webm`, `.ts`, `.flv` 等视频扩展名在 `import` 入口处给出友好的标准转码指引。
+  - 全套 29 项单元测试（含新增 `test_nonstandard_video_diagnostics`）100% 保持绿色通过。
+
 ## [1.0.9] - 2026-09-25
 
 - **修复视频 Bayer 解码两处色彩正确性缺陷（Color Fidelity Fixes）**：

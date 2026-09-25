@@ -1,12 +1,12 @@
 ---
 name: siril-moon-stacking
 description: |
-  AI-directed lunar lucky imaging and surface astrophotography processor combining Siril 1.4.4 CLI with Python sub-pixel FFT registration. Use when the user wants to align, stack, wavelet-deconvolve, and enhance lunar RAW/SER/FITS image sequences, correct atmospheric dispersion, or produce mineral moon color images under authenticity constraints.
-  AI 主导的月面天文摄影与幸运成像处理助手。融合 Siril 1.4.4 CLI 与 Python 亚像素频域配准插件，支持月球单帧连拍与 SER/FITS 序列的选帧堆叠、小波反卷积、色散校正与矿物月色彩提取。
+  AI-directed lunar lucky imaging and surface astrophotography processor combining Siril 1.4.4 CLI with Python sub-pixel FFT registration. Use when the user wants to align, stack, wavelet-deconvolve, and enhance lunar RAW/SER/FITS/AVI/MP4 image sequences or videos (such as from Seestar S50/S30, planetary cameras, or telephoto lenses), correct atmospheric dispersion, or produce mineral moon color images under authenticity constraints.
+  AI 主导的月面天文摄影与幸运成像处理助手。融合 Siril 1.4.4 CLI 与 Python 亚像素频域配准插件，支持月球单帧连拍与 SER/FITS/AVI/MP4 视频流（如 Seestar S50/S30、行星相机或单反长焦拍摄）的选帧堆叠、小波反卷积、色散校正、非标准视频自愈与矿物月色彩提取。
 license: Proprietary
 metadata:
   slug: siril-moon-stacking
-  version: "1.0.9"
+  version: "1.0.10"
   displayName: Siril Moon Stacking
   summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
   tags: [astronomy, lunar, siril, lucky-imaging]
@@ -262,3 +262,6 @@ python scripts/moon_stack.py verify --work /path/to/work
 10. **多面板拼接切片接缝阶梯断层与色块跳跃 (Mosaic Seam Stepping & Color Patch Discontinuity)**：
     * 原因：多面板切片地质反照率差异悬殊（如玄武岩暗月海 vs 亮高地），若各自独立计算 $p_{99.95}$ 与通道比，MTF 映射斜率相差数倍，拼接时重叠区明暗阶梯断层跳跃可达 400%+ 且色块漂移严重。
     * 规范：先选定代表性面板作为基准（Anchor Master）导出 `lunar_profile.json`，邻近切片后处理时传入 `--lock-from /path/to/anchor` 或 `--lock-profile ...`，统一白平衡增益与非线性 MTF 映射，将接缝明暗阶跃断层彻底归零至 0.0000%。
+11. **非标准视频解码失败与损坏容器自愈 (Non-Standard Video Codec & Corrupted Container Recovery)**：
+    * 原因：拍摄中途断电/App崩溃致 MP4 缺失关键 `moov` 索引原子；视频采用 H.265/HEVC、AV1 或 Apple ProRes 高规格编码，而当前 Python OpenCV 缺少解码器后端；行星相机特殊未压缩调色板（FourCC 如 `Y800`, `GREY`, `DIB `）未被映射；天文专用 SER 文件或 FITS 图像被误命为 `.mp4/.avi` 扩展名。
+    * 规范：脚本内置全套智能文件头与 OpenCV 状态诊断器（`format_video_decode_error`），在解码受阻时自动输出包含文件大小、魔数、FourCC、捕获状态及确凿根因的报告；针对未闭合 MP4 自动生成快速修复指令（`ffmpeg -err_detect ignore_err -i input.mp4 -c copy fixed.mp4`）；针对非标准编码自动生成无损转码指令（`ffmpeg -i input.mp4 -c:v rawvideo -pix_fmt bgr24 converted.avi`）；识别到真实 SER/FITS 头时自动引导使用 `--format ser` 或 `--format fits`。

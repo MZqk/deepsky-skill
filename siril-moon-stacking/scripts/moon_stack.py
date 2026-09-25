@@ -302,6 +302,307 @@ def unpack_ser_to_fits(
     }
 
 
+def format_video_decode_error(
+    video_path: Path,
+    failure_stage: str,
+    cap: Any = None,
+    total_reported: int = 0,
+) -> str:
+    """Analyze a failed video decode attempt and construct a detailed diagnostic report.
+
+    Inspects magic bytes, container atoms, FourCC codec flags, file truncation,
+    and OpenCV capture state to provide precise root causes and copy-pasteable ffmpeg
+    remediation commands.
+    """
+    import cv2
+
+    lines = []
+    lines.append("=" * 80)
+    lines.append("[moon-stack] 视频解码诊断报告 / Video Decoding Diagnostic Report")
+    lines.append("-" * 80)
+    lines.append(f"目标文件 / Target File:   {video_path}")
+
+    if not video_path.exists():
+        lines.append("文件状态 / File Status:   不存在 (File Not Found)")
+        lines.append("=" * 80)
+        return "\n".join(lines)
+
+    try:
+        size_bytes = video_path.stat().st_size
+    except Exception:
+        size_bytes = 0
+
+    if size_bytes < 1024:
+        size_str = f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        size_str = f"{size_bytes / 1024:.1f} KB ({size_bytes:,} bytes)"
+    else:
+        size_str = f"{size_bytes / (1024 * 1024):.2f} MB ({size_bytes:,} bytes)"
+
+    lines.append(f"文件大小 / File Size:     {size_str}")
+
+    # Read header and footer bytes
+    header_bytes = b""
+    footer_bytes = b""
+    try:
+        with open(video_path, "rb") as f:
+            header_bytes = f.read(65536)
+            if size_bytes > 65536:
+                f.seek(max(0, size_bytes - 65536))
+                footer_bytes = f.read(65536)
+    except Exception as exc:
+        lines.append(f"读取异常 / Read Error:    {exc}")
+
+    # Container & Magic analysis
+    container_guess = "Unknown"
+    detected_fourcc = ""
+    has_moov = False
+    is_ser = False
+    is_fits = False
+    is_image = False
+    image_type = ""
+
+    if header_bytes.startswith(b"RIFF") and len(header_bytes) >= 12 and header_bytes[8:12] == b"AVI ":
+        container_guess = "AVI (Resource Interchange File Format)"
+        idx_vids = header_bytes.find(b"vids")
+        if idx_vids != -1 and idx_vids + 8 <= len(header_bytes):
+            raw_fc = header_bytes[idx_vids + 4 : idx_vids + 8]
+            detected_fourcc = "".join(chr(b) for b in raw_fc if 32 <= b <= 126).strip()
+    elif b"ftyp" in header_bytes[:64] or b"moov" in header_bytes[:1024] or b"mdat" in header_bytes[:1024]:
+        container_guess = "MP4/MOV (ISO Base Media File Format)"
+        has_moov = (b"moov" in header_bytes) or (b"moov" in footer_bytes)
+    elif header_bytes.startswith(b"LUCAM-RECORDER"):
+        container_guess = "SER (Planetary Astronomy Video Stream)"
+        is_ser = True
+    elif header_bytes.startswith(b"SIMPLE  ="):
+        container_guess = "FITS (Flexible Image Transport System)"
+        is_fits = True
+    elif header_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        container_guess = "PNG (Static Image)"
+        is_image = True
+        image_type = "PNG"
+    elif header_bytes.startswith(b"\xff\xd8\xff"):
+        container_guess = "JPEG (Static Image)"
+        is_image = True
+        image_type = "JPEG"
+    elif header_bytes.startswith(b"II*\x00") or header_bytes.startswith(b"MM\x00*"):
+        container_guess = "TIFF (Static Image)"
+        is_image = True
+        image_type = "TIFF"
+    elif header_bytes.startswith(b"<!DOCTYPE") or header_bytes.startswith(b"<html") or header_bytes.startswith(b"{\n"):
+        container_guess = "Text/HTML Document"
+
+    lines.append(f"容器分析 / Container:     {container_guess}")
+
+    # Inspect OpenCV Capture status
+    cap_opened = False
+    cap_backend = ""
+    w, h, fps = 0, 0, 0.0
+    cap_fourcc = ""
+    cap_frames = total_reported
+
+    probe_cap = None
+    target_cap = cap
+    if target_cap is None:
+        try:
+            probe_cap = cv2.VideoCapture(str(video_path))
+            target_cap = probe_cap
+        except Exception:
+            pass
+
+    if target_cap is not None:
+        try:
+            cap_opened = bool(target_cap.isOpened())
+            if cap_opened:
+                w = int(target_cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                h = int(target_cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                fps = float(target_cap.get(cv2.CAP_PROP_FPS) or 0.0)
+                cap_frames = int(target_cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                fourcc_val = int(target_cap.get(cv2.CAP_PROP_FOURCC) or 0)
+                raw_chars = [chr((fourcc_val >> 8 * i) & 0xFF) for i in range(4)]
+                cap_fourcc = "".join([c for c in raw_chars if 32 <= ord(c) <= 126]).strip()
+                if hasattr(target_cap, "getBackendName"):
+                    cap_backend = str(target_cap.getBackendName())
+        except Exception:
+            pass
+
+    if probe_cap is not None:
+        try:
+            probe_cap.release()
+        except Exception:
+            pass
+
+    fourcc_display = detected_fourcc or cap_fourcc or "None/Unknown"
+    lines.append(f"编码标识 / FourCC Code:   {fourcc_display}")
+    lines.append(
+        f"OpenCV状态 / Capture:     isOpened={cap_opened}, Backend={cap_backend or 'default'}, "
+        f"Res={w}x{h}, Frames={cap_frames if cap_frames > 0 else 'stream'}"
+    )
+
+    # Root cause diagnosis & remediation
+    lines.append("-" * 80)
+    lines.append("【问题定位 / Root Cause】")
+
+    root_cause = ""
+    remedy_steps = []
+
+    fourcc_upper = fourcc_display.upper()
+    is_hevc = fourcc_upper in ("H265", "HEVC", "HVC1", "HEV1") or (b"hvc1" in header_bytes) or (b"hev1" in header_bytes)
+    is_av1 = fourcc_upper in ("AV01", "AV1") or (b"av01" in header_bytes)
+    is_prores = fourcc_upper in ("APCN", "APCH", "APCO", "AP4H", "APRN") or (b"apcn" in header_bytes) or (b"apch" in header_bytes)
+    is_planetary_raw = fourcc_upper in ("Y800", "GREY", "DIB ", "ZWO ", "QHY ", "RAW ")
+
+    fixed_avi = video_path.with_name(f"{video_path.stem}_converted.avi")
+    fixed_mp4 = video_path.with_name(f"{video_path.stem}_fixed.mp4")
+
+    if size_bytes == 0:
+        root_cause = (
+            "视频文件大小为 0 字节（空文件）。\n"
+            "这通常是由于录像未正常开始、拍摄程序异常中断、或是从手机/智能望远镜传输过程中中断造成的文件损坏。"
+        )
+        remedy_steps.append("请检查拍摄设备源文件是否完好，并重新导出或拷贝完整视频。")
+
+    elif is_ser:
+        root_cause = (
+            f"文件扩展名为 '{video_path.suffix}'，但底层实际为天文专用 SER 视频流（包含 'LUCAM-RECORDER' 魔数头）。\n"
+            "OpenCV 仅支持通用音视频容器（AVI/MP4/MOV），无法直接按通用视频解码 SER 流。"
+        )
+        remedy_steps.append(
+            f"将文件重命名为 .ser 扩展名，或在导入时显式声明 --format ser:\n"
+            f"  python scripts/moon_stack.py import --input \"{video_path}\" --work /path/to/work --format ser"
+        )
+
+    elif is_fits:
+        root_cause = (
+            f"文件实际为标准 FITS 天文图像文件（Header 包含 'SIMPLE = T'），而非视频流文件。"
+        )
+        remedy_steps.append(
+            f"请将文件重命名为 .fit/.fits 扩展名，或在导入时显式声明 --format fits:\n"
+            f"  python scripts/moon_stack.py import --input \"{video_path}\" --work /path/to/work --format fits"
+        )
+
+    elif is_image:
+        root_cause = (
+            f"文件实际为单张静态图片（{image_type} 格式），并非用于幸运成像堆叠的多帧视频容器。"
+        )
+        remedy_steps.append("月面堆叠需要多帧连拍或视频流；单张成片可直接使用后期工具处理，无需执行多帧堆叠。")
+
+    elif container_guess.startswith("MP4/MOV") and not has_moov and size_bytes > 4096:
+        root_cause = (
+            "检测到 MP4/MOV 容器缺少关键的 'moov' 元数据索引原子（moov atom missing）。\n"
+            "这是 MP4 录制中极其常见的高频故障：当智能望远镜（如 Seestar）、相机在拍摄过程中突然断电、App 闪退、"
+            "或存储卡被提前拔出时，未完成正常封装闭合。OpenCV 依赖 moov 索引定位关键帧与样本描述，因此彻底无法打开。"
+        )
+        remedy_steps.append(
+            "尝试使用 ffmpeg 的忽略错误模式无损重建索引（非常快速，不重新编解码）：\n"
+            f"  ffmpeg -err_detect ignore_err -i \"{video_path}\" -c copy \"{fixed_mp4}\""
+        )
+        remedy_steps.append(
+            "若 ffmpeg 无法识别，可使用开源修复工具 untrunc，配合同一设备拍摄的正常参考视频修复该文件。"
+        )
+
+    elif is_hevc:
+        root_cause = (
+            f"视频编码格式为 H.265 / HEVC（FourCC: {fourcc_display}）。\n"
+            "当前 Python 运行时的 OpenCV 库缺少 HEVC/H.265 硬件或软件解码器支持，导致 VideoCapture 无法解码帧。"
+        )
+        remedy_steps.append(
+            "使用 ffmpeg 将其无损快速转码为标准高质量 AVI 容器（推荐，保留 100% 画质与帧率）：\n"
+            f"  ffmpeg -i \"{video_path}\" -c:v rawvideo -pix_fmt bgr24 \"{fixed_avi}\""
+        )
+        remedy_steps.append(
+            "或者转换为高画质的 MJPEG 编码 AVI：\n"
+            f"  ffmpeg -i \"{video_path}\" -c:v mjpeg -q:v 1 \"{fixed_avi}\""
+        )
+
+    elif is_av1:
+        root_cause = (
+            f"视频编码格式为 AV1（FourCC: {fourcc_display}）。\n"
+            "当前环境的 OpenCV 缺少 AV1 解码器支持。"
+        )
+        remedy_steps.append(
+            "建议使用 ffmpeg 转码为标准无损 AVI:\n"
+            f"  ffmpeg -i \"{video_path}\" -c:v rawvideo -pix_fmt bgr24 \"{fixed_avi}\""
+        )
+
+    elif is_prores:
+        root_cause = (
+            f"视频编码格式为 Apple ProRes（FourCC: {fourcc_display}）。\n"
+            "OpenCV 默认后端无法解码 ProRes 视频流。"
+        )
+        remedy_steps.append(
+            "建议使用 ffmpeg 转换为无损 AVI 序列:\n"
+            f"  ffmpeg -i \"{video_path}\" -c:v rawvideo -pix_fmt bgr24 \"{fixed_avi}\""
+        )
+
+    elif is_planetary_raw:
+        root_cause = (
+            f"视频使用了天文相机特有的未压缩原始色彩格式（FourCC: {fourcc_display}）。\n"
+            "通用 OpenCV 库缺乏对该特殊调色板或 Bayer 格式的解码器映射。"
+        )
+        remedy_steps.append(
+            "建议使用天文专用工具 PIPP (Planetary Imaging PreProcessor) 或 AutoStakkert 转换为标准 .SER 或 FITS 序列后导入。"
+        )
+        remedy_steps.append(
+            "亦可尝试使用 ffmpeg 转封装为标准 rawvideo AVI:\n"
+            f"  ffmpeg -i \"{video_path}\" -c:v rawvideo \"{fixed_avi}\""
+        )
+
+    elif cap_opened and (w <= 0 or h <= 0):
+        root_cause = (
+            f"OpenCV 成功打开了文件容器，但解析到的画面尺寸异常 ({w}x{h})。\n"
+            "视频流的元数据头可能损坏或未声明有效的图像画幅。"
+        )
+        remedy_steps.append(
+            "尝试使用 ffmpeg 重新打包容器:\n"
+            f"  ffmpeg -i \"{video_path}\" -c copy \"{fixed_mp4}\""
+        )
+
+    elif failure_stage in ("probe_initial_frame", "unpack_zero_frames") or (cap_opened and total_reported == 0):
+        root_cause = (
+            f"OpenCV 成功连接到视频容器（FourCC: {fourcc_display}, 报告总帧数: {cap_frames}），\n"
+            "但在尝试读取视频帧时失败（read() 返回 False/None，有效抽取帧数为 0）。\n"
+            "可能原因为：关键帧索引损坏、视频流过早截断、或使用了非标准编解码器。"
+        )
+        remedy_steps.append(
+            "使用 ffmpeg 检查视频流完整性:\n"
+            f"  ffmpeg -v error -i \"{video_path}\" -f null -"
+        )
+        remedy_steps.append(
+            "使用 ffmpeg 转码为标准高质量无损 AVI（确保 100% 兼容性）:\n"
+            f"  ffmpeg -i \"{video_path}\" -c:v rawvideo -pix_fmt bgr24 \"{fixed_avi}\""
+        )
+
+    else:
+        root_cause = (
+            f"OpenCV 无法打开或解析该视频文件（失败阶段: {failure_stage}）。\n"
+            "常见原因：不支持的文件格式、缺失解码器后端、容器受损或访问权限受限。"
+        )
+        remedy_steps.append(
+            "1. 确认该视频能否在常规播放器（如 VLC、IINA）中正常播放；"
+        )
+        remedy_steps.append(
+            "2. 使用 ffmpeg 转码为本技能完美支持的标准高质量 AVI:\n"
+            f"   ffmpeg -i \"{video_path}\" -c:v rawvideo -pix_fmt bgr24 \"{fixed_avi}\""
+        )
+        remedy_steps.append(
+            "3. 如需更全的编解码器支持，可尝试安装带完整 FFmpeg 绑定的 OpenCV:\n"
+            "   pip install --upgrade opencv-python"
+        )
+
+    lines.append(root_cause)
+    lines.append("-" * 80)
+    lines.append("【修复与自愈建议 / Suggested Actions】")
+    for i, step in enumerate(remedy_steps, 1):
+        if len(remedy_steps) == 1:
+            lines.append(step)
+        else:
+            lines.append(f"{i}. {step}")
+    lines.append("=" * 80)
+
+    return "\n".join(lines)
+
+
 def probe_video_seeing_profile(
     video_path: Path,
     stride: int = 2,
@@ -320,7 +621,8 @@ def probe_video_seeing_profile(
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        raise ValueError(f"Failed to open video container: {video_path}")
+        cap.release()
+        raise ValueError(format_video_decode_error(video_path, "probe_open"))
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -330,7 +632,7 @@ def probe_video_seeing_profile(
     ret, frame = cap.read()
     if not ret or frame is None:
         cap.release()
-        raise ValueError(f"Failed to read initial frame from {video_path}")
+        raise ValueError(format_video_decode_error(video_path, "probe_initial_frame", cap=cap, total_reported=total_frames))
 
     gray_init = frame[..., 0] if frame.ndim == 3 else frame
     mask = gray_init > 20
@@ -395,7 +697,8 @@ def unpack_video_to_fits(
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        raise ValueError(f"Failed to open video container: {video_path}")
+        cap.release()
+        raise ValueError(format_video_decode_error(video_path, "unpack_open"))
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -404,6 +707,10 @@ def unpack_video_to_fits(
     fourcc_val = int(cap.get(cv2.CAP_PROP_FOURCC) or 0)
     raw_chars = [chr((fourcc_val >> 8 * i) & 0xFF) for i in range(4)]
     fourcc_str = "".join([c for c in raw_chars if 32 <= ord(c) <= 126]).strip()
+
+    if w <= 0 or h <= 0:
+        cap.release()
+        raise ValueError(format_video_decode_error(video_path, "invalid_resolution", cap=cap, total_reported=total_in_file))
 
     if target_indices is not None and len(target_indices) > 0:
         mode_seek = True
@@ -641,7 +948,7 @@ def unpack_video_to_fits(
     cap.release()
 
     if extract_count <= 0:
-        raise ValueError(f"Failed to extract any valid frames from {video_path}")
+        raise ValueError(format_video_decode_error(video_path, "unpack_zero_frames", total_reported=total_in_file))
 
     return {
         "extracted_frames": extract_count,
@@ -686,6 +993,14 @@ def cmd_import(args) -> None:
         elif ext in RAW_EXTS:
             raw_files = [src]
         else:
+            other_video_exts = {".webm", ".ts", ".flv", ".wmv", ".m2ts"}
+            if ext in other_video_exts:
+                die(
+                    f"检测到未直接支持的视频容器格式: {src.name} ({ext})\n"
+                    f"当前直解仅支持标准格式: {', '.join(sorted(VIDEO_EXTS))}\n"
+                    f"建议使用 ffmpeg 转换为高质量标准 AVI 容器后重试:\n"
+                    f"  ffmpeg -i \"{src}\" -c:v rawvideo -pix_fmt bgr24 \"{src.with_suffix('.avi')}\""
+                )
             die(f"unsupported single file format: {src}")
     elif src.is_dir():
         candidates = sorted(p for p in src.iterdir() if p.is_file())
@@ -737,7 +1052,10 @@ def cmd_import(args) -> None:
         if sample_mode in ("smart-top", "smart-cluster") and limit > 0:
             import cv2
             cap_probe = cv2.VideoCapture(str(video_path))
-            v_total = int(cap_probe.get(cv2.CAP_PROP_FRAME_COUNT)) if cap_probe.isOpened() else 0
+            if not cap_probe.isOpened():
+                cap_probe.release()
+                die(format_video_decode_error(video_path, "probe_open"))
+            v_total = int(cap_probe.get(cv2.CAP_PROP_FRAME_COUNT))
             cap_probe.release()
 
             if v_total > 0 and v_total <= limit:
@@ -747,7 +1065,10 @@ def cmd_import(args) -> None:
                 if v_total > 0 and v_total // effective_stride < limit:
                     effective_stride = max(1, v_total // limit)
 
-                scored = probe_video_seeing_profile(video_path, stride=effective_stride)
+                try:
+                    scored = probe_video_seeing_profile(video_path, stride=effective_stride)
+                except ValueError as exc:
+                    die(str(exc))
                 if scored:
                     all_vals = [s[1] for s in scored]
                     k_limit = min(limit, len(scored))
@@ -787,16 +1108,19 @@ def cmd_import(args) -> None:
                     }
 
         start_frame = int(getattr(args, "start_frame", 0) or 0)
-        video_info = unpack_video_to_fits(
-            video_path=video_path,
-            out_dir=work,
-            seq_name=seq_name,
-            limit=limit,
-            force_mono=force_mono,
-            debayer=video_debayer,
-            start_frame=start_frame,
-            target_indices=target_indices,
-        )
+        try:
+            video_info = unpack_video_to_fits(
+                video_path=video_path,
+                out_dir=work,
+                seq_name=seq_name,
+                limit=limit,
+                force_mono=force_mono,
+                debayer=video_debayer,
+                start_frame=start_frame,
+                target_indices=target_indices,
+            )
+        except ValueError as exc:
+            die(str(exc))
         if probe_stats:
             video_info["seeing_probe"] = probe_stats
         total_frames = video_info["extracted_frames"]

@@ -40,6 +40,7 @@ from moon_stack import (
     parse_ser_header,
     unpack_ser_to_fits,
     unpack_video_to_fits,
+    format_video_decode_error,
 )
 
 
@@ -1500,6 +1501,65 @@ def test_video_8bit_stack_policy():
     print("8-bit video automatic 'stack sum' policy unit test passed")
 
 
+def test_nonstandard_video_diagnostics():
+    """Verify detailed diagnostic reports and actionable hints for non-standard / corrupted videos."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp_dir = Path(td)
+
+        # 1. Test empty video file (0 bytes)
+        empty_mp4 = tmp_dir / "zero_bytes.mp4"
+        empty_mp4.touch()
+        err_msg_empty = format_video_decode_error(empty_mp4, failure_stage="open_container")
+        assert "0 B" in err_msg_empty, "Expected '0 B' in file size report"
+        assert "空文件" in err_msg_empty or "0 字节" in err_msg_empty, "Expected empty file root cause"
+        assert "重新导出" in err_msg_empty or "拷贝" in err_msg_empty, "Expected actionable export advice"
+
+        # 2. Test MP4 missing moov atom
+        bad_mp4 = tmp_dir / "missing_moov.mp4"
+        bad_mp4.write_bytes(b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2mp41\x00\x00\x10\x00mdat" + b"\x00" * 5000)
+        err_msg_moov = format_video_decode_error(bad_mp4, failure_stage="open_container")
+        assert "moov" in err_msg_moov.lower(), "Expected 'moov' atom diagnosis"
+        assert "ffmpeg -err_detect ignore_err" in err_msg_moov, "Expected ffmpeg repair command in advice"
+
+        # 3. Test HEVC / H.265 FourCC detection
+        hevc_avi = tmp_dir / "sample_hevc.avi"
+        hevc_header = (
+            b"RIFF\x00\x10\x00\x00AVI LIST\x00\x08\x00\x00hdrlavih"
+            b"\x00\x00\x00\x00LIST\x00\x04\x00\x00strlvidsH265"
+            + b"\x00" * 2000
+        )
+        hevc_avi.write_bytes(hevc_header)
+        err_msg_hevc = format_video_decode_error(hevc_avi, failure_stage="open_container")
+        assert "H.265" in err_msg_hevc or "HEVC" in err_msg_hevc, "Expected HEVC diagnosis"
+        assert "ffmpeg -i" in err_msg_hevc, "Expected ffmpeg transcoding command"
+
+        # 4. Test SER file disguised as .mp4
+        fake_ser = tmp_dir / "disguised_ser.mp4"
+        fake_ser.write_bytes(b"LUCAM-RECORDER\x00\x00" + b"\x00" * 200)
+        err_msg_ser = format_video_decode_error(fake_ser, failure_stage="open_container")
+        assert "SER" in err_msg_ser, "Expected SER format identification"
+        assert "--format ser" in err_msg_ser, "Expected suggestion to use --format ser"
+
+        # 5. Test FITS file disguised as .avi
+        fake_fits = tmp_dir / "disguised_fits.avi"
+        fake_fits.write_bytes(b"SIMPLE  =                    T / Standard FITS format\n" + b" " * 2800)
+        err_msg_fits = format_video_decode_error(fake_fits, failure_stage="open_container")
+        assert "FITS" in err_msg_fits, "Expected FITS format identification"
+        assert "--format fits" in err_msg_fits, "Expected suggestion to use --format fits"
+
+        # 6. Test unpack_video_to_fits raises ValueError with full diagnostic on 0-byte file
+        try:
+            unpack_video_to_fits(empty_mp4, tmp_dir / "fits_out")
+            assert False, "Expected unpack_video_to_fits to raise ValueError"
+        except ValueError as exc:
+            assert "视频解码诊断报告" in str(exc)
+            assert "0 B" in str(exc)
+
+    print("Non-standard video decoding diagnostics & recovery guidance unit test passed")
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -1524,6 +1584,7 @@ def main() -> int:
         ("test_video_cmd_import_single_file_and_dir", test_video_cmd_import_single_file_and_dir),
         ("test_video_two_pass_selection", test_video_two_pass_selection),
         ("test_video_8bit_stack_policy", test_video_8bit_stack_policy),
+        ("test_nonstandard_video_diagnostics", test_nonstandard_video_diagnostics),
         ("test_extinction_gradient_synthetic", test_extinction_gradient_synthetic),
         ("test_extinction_gradient_flat_bypass", test_extinction_gradient_flat_bypass),
         ("test_extinction_geological_immunity", test_extinction_geological_immunity),
