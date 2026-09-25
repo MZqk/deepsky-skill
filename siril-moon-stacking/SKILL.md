@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: siril-moon-stacking
-  version: "1.0.4"
+  version: "1.0.6"
   displayName: Siril Moon Stacking
   summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
   tags: [astronomy, lunar, siril, lucky-imaging]
@@ -23,7 +23,7 @@ metadata:
   * 相机 RAW 原生多线程解码与去马赛克（`convert -debayer` / 支持 `split_cfa`, `seqsplit_cfa`）；
   * 序列管理与安全工作目录隔离；
   * 基于单应性矩阵的多线程双三次（Bicubic）亚像素重采样与构图自适应（`seqapplyreg -framing=min/max -interp=cu`）；
-  * **按位深自适应堆叠**：8-bit（AVI/SER）采用加法叠加（`stack sum`）物理扩展动态范围；16-bit+（FITS/16-bit SER）采用带剔除的平均值叠加（`stack rej w 3 3`），严禁中位数/最值叠加；
+  * **按位深自适应堆叠（Vincent Hourdin 规范）**：8-bit（AVI/MP4/SER）采用加法叠加（`stack sum`）物理扩展动态范围；16-bit+（FITS/16-bit SER/RAW）采用带剔除的平均值叠加（`stack rej w 3 3`），严禁中位数/最值叠加；亦支持 `--stack-method {auto, sum, rej}` 显式指定；
   * **物理艾里斑 Airy Disc 反卷积**（`makepsf manual -airy` + `sb -iters=2` Split Bregman / Wiener / RL），针对月面高斯噪声模型消除环形山暗环伪影；
   * 自适应行星通道中值传递函数（`mtf`）与双曲拉伸（`asinh` / `ght`）校正白平衡与底噪偏置；
   * 局部对比度自适应增强（`clahe`）；
@@ -31,9 +31,10 @@ metadata:
   * 色散校正与矿物月饱和度渐进式提升（`rmgreen 0` + `satu`）；
   * 32 位 FITS 母版、16 位 TIFF 母版及高质量 JPG 导出。
 * **Python 的职责（插件）**：
+  * **AVI / MP4 / MOV 通用视频原生直解（Direct-pass FITS）**：直接利用 OpenCV 硬件级解码逐帧抽取并平滑扩展至 16-bit FITS 序列，零中间容器转录，节省 50% 磁盘 I/O 写入带宽；自动注入 `BITPIX=16`, `ORIG_BIT=8` 并在下游与 Siril `stack sum` 联动；
   * **专业 SER 视频流原生直读与极速解压**：直接解析 178 字节规范头，零拷贝 `np.memmap` 提取帧数据，OpenCV 硬件级 demosaicing（1080p 单帧 <5ms），元数据（UTC 时间戳/相机/望远镜）无损注入 FITS；
   * **低仰角宏观大气消光一阶梯度补偿**：在 32 位浮点线性空间与对数色比空间鲁棒估计横跨月盘的 Rayleigh 消光红化坡度，平复“底暖顶冷、底暗顶亮”倾斜，杜绝矿物月被大气消光撕裂；
-  * **单色（Mono）与彩色（RGB）全链路自适应**：智能生成 `L 1` 与 `L 3` 序列，单色输入自动规避彩色专属滤镜；
+  * **单色（Mono）与彩色（RGB）全链路自适应**：智能生成 `L 1` 与 `L 3` 序列，单色输入（或 `--force-mono`）自动规避彩色专属滤镜；
   * 智能月相感知与高反差特征地貌定位（终结者明暗线/环形山密集区，抗月相干扰）；
   * 基于 Hann 加窗的 FFT 亚像素频域相位相关位移计算；
   * 视宁度与云雾置信度评分，帧数感知动态挑选（小样本自动扩充比例，保证高信噪比）；
@@ -62,8 +63,11 @@ python scripts/moon_stack.py probe
 # 方式 A：扫描并导入单帧 RAW 或 FITS 目录
 python scripts/moon_stack.py import --input /path/to/moon_raws --work /path/to/work
 
-# 方式 B（新增）：直接传入单个 SER 视频文件（或包含 .ser 的录像目录），支持限制导入帧数
+# 方式 B：直接传入单个 SER 视频文件（或包含 .ser 的录像目录），支持限制导入帧数
 python scripts/moon_stack.py import --input /path/to/moon_capture.ser --work /path/to/work --limit 500
+
+# 方式 C（新增）：直接传入 AVI / MP4 / MOV 视频文件，直出 16 位 FITS 序列并联动 stack sum
+python scripts/moon_stack.py import --input /path/to/moon_capture.avi --work /path/to/work --limit 500
 ```
 > **前置条件**：需已安装 Siril 1.4.4+（macOS 默认路径 `/Applications/Siril.app/Contents/MacOS/siril-cli`，可用 `--siril` 覆盖）。
 > `probe` 输出的 `numpy` / `astropy` / `cv2` / `skimage` 四项必须均非 `null`，否则对应步骤会以 `ModuleNotFoundError` 中断。

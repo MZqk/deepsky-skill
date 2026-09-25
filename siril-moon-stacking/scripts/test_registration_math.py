@@ -36,8 +36,10 @@ from moon_stack import (
     _estimate_atmospheric_extinction_gradient,
     cmd_import,
     cmd_postprocess,
+    cmd_stack,
     parse_ser_header,
     unpack_ser_to_fits,
+    unpack_video_to_fits,
 )
 
 
@@ -274,7 +276,7 @@ def test_postprocess_pipelines() -> None:
             failures.append("moon_lum.fit was not generated in LRGB mode")
         else:
             with fits.open(lum_file) as h:
-                actual_val = float(h[0].data[0, 0])
+                actual_val = float(h[0].data[128, 128])
                 if actual_val <= 0 or not np.isfinite(actual_val):
                     failures.append(f"Invalid luminance value: {actual_val}")
                 if h[0].data.shape != (256, 256):
@@ -409,14 +411,16 @@ def test_adaptive_sharpening_math() -> None:
         failures.append(f"Expected deconv discount 0.55, got {res_deconv['deconv_discount']}")
     if res_deconv["unsharp_amount"] != 0.0 or res_deconv["unsharp_lines"]:
         failures.append("USM unsharp mask should be automatically bypassed in auto mode")
-    if not (0.05 <= res_deconv["clahe_clip"] <= 0.25):
-        failures.append(f"CLAHE clip out of balanced organic range: {res_deconv['clahe_clip']}")
+    if res_deconv["clahe_clip"] != 0.0 or res_deconv["clahe_lines"]:
+        failures.append("CLAHE should be automatically bypassed when deconvolution is active to avoid pepper-salt shot noise amplification")
 
-    # 2. Test auto mode without deconvolution (should have higher wavelet gain)
+    # 2. Test auto mode without deconvolution (should have higher wavelet gain and organic CLAHE)
     res_nodeconv = _estimate_adaptive_sharpening(img, has_deconv=False, interp_used="cu", sharp_mode="auto")
     print(f"Adaptive deconv=False: wrecons={res_nodeconv['wrecons_cmd']}, clahe={res_nodeconv['clahe_clip']}")
     if res_nodeconv["wavelet_coeffs"][2] <= res_deconv["wavelet_coeffs"][2]:
         failures.append("Wavelet gain without deconvolution should be greater than with deconvolution")
+    if not (0.05 <= res_nodeconv["clahe_clip"] <= 0.25):
+        failures.append(f"CLAHE clip out of balanced organic range when deconv=False: {res_nodeconv['clahe_clip']}")
 
     # 3. Test interpolation awareness (bilinear interp should boost L1 compared to bicubic)
     res_li = _estimate_adaptive_sharpening(img, has_deconv=True, interp_used="li", sharp_mode="auto")
@@ -1226,6 +1230,173 @@ def test_extinction_geological_immunity():
     print("Extinction geological immunity unit test passed")
 
 
+def make_synthetic_avi(path: Path, num_frames: int = 5, h: int = 120, w: int = 160, is_color: bool = True) -> Path:
+    """Generate a valid AVI video using OpenCV VideoWriter for testing."""
+    import cv2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+    out = cv2.VideoWriter(str(path), fourcc, 15.0, (w, h), isColor=is_color)
+    for i in range(num_frames):
+        img = np.zeros((h, w, 3) if is_color else (h, w), dtype=np.uint8)
+        # Draw simulated moon disc with craters
+        cv2.circle(img, (w // 2, h // 2), min(h, w) // 3 + i, (180, 180, 180) if is_color else 180, -1)
+        if is_color:
+            # Blue-tinted mare patch and reddish highland
+            cv2.circle(img, (w // 2 - 15, h // 2 - 10), 12, (220, 160, 120), -1)
+            cv2.circle(img, (w // 2 + 15, h // 2 + 10), 10, (120, 150, 210), -1)
+        out.write(img)
+    out.release()
+    return path
+
+
+def test_video_unpack_synthetic_avi():
+    """Verify direct extraction of AVI frames to 16-bit FITS with metadata."""
+    import tempfile
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp_dir = Path(td)
+        avi_file = tmp_dir / "test_moon.avi"
+        make_synthetic_avi(avi_file, num_frames=6, h=64, w=80, is_color=True)
+
+        out_fits = tmp_dir / "extracted_fits"
+        info = unpack_video_to_fits(avi_file, out_fits, seq_name="test_v_", limit=4)
+
+        assert info["extracted_frames"] == 4, f"Expected 4 extracted frames (limit=4), got {info['extracted_frames']}"
+        assert info["channels"] == 3, f"Expected 3 channels, got {info['channels']}"
+        assert info["orig_bit_depth"] == 8, f"Expected orig_bit_depth=8, got {info['orig_bit_depth']}"
+
+        # Inspect first generated FITS frame
+        fit_path = out_fits / "test_v_00001.fit"
+        assert fit_path.exists(), "FITS frame test_v_00001.fit does not exist"
+
+        with fits.open(fit_path, memmap=False) as hdul:
+            data = hdul[0].data
+            hdr = hdul[0].header
+            assert data.shape == (3, 64, 80), f"Expected FITS shape (3, 64, 80), got {data.shape}"
+            assert hdr.get("BITPIX") == 16, f"Expected BITPIX=16, got {hdr.get('BITPIX')}"
+            assert hdr.get("ORIG_BIT") == 8, f"Expected ORIG_BIT=8, got {hdr.get('ORIG_BIT')}"
+            assert hdr.get("SRC_FMT") == "AVI", f"Expected SRC_FMT=AVI, got {hdr.get('SRC_FMT')}"
+            # Check 16-bit dynamic expansion: maximum value should be normalized to uint16 range (> 255)
+            assert data.max() > 255, f"Expected dynamic expansion > 255, got {data.max()}"
+
+    print("Synthetic AVI unpack to 16-bit FITS unit test passed")
+
+
+def test_video_cmd_import_single_file_and_dir():
+    """Verify cmd_import handles both a single video file and a directory containing video files."""
+    import argparse
+    import json
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp_dir = Path(td)
+        v_dir = tmp_dir / "video_source"
+        v_dir.mkdir(parents=True, exist_ok=True)
+        v_path1 = v_dir / "clip1.avi"
+        make_synthetic_avi(v_path1, num_frames=5, h=64, w=80, is_color=True)
+
+        work1 = tmp_dir / "work_single"
+        # Test A: single video file as --input
+        args1 = argparse.Namespace(
+            input=str(v_path1),
+            work=str(work1),
+            format="auto",
+            limit=3,
+            ser_debayer=True,
+            force_mono=False,
+            siril=DEFAULT_SIRIL,
+            timeout=60,
+        )
+        cmd_import(args1)
+
+        seq_file1 = work1 / "moon_.seq"
+        assert seq_file1.exists(), f"Sequence file {seq_file1} was not generated"
+        seq_text1 = seq_file1.read_text(encoding="utf-8")
+        assert "L 3" in seq_text1, f"Expected 'L 3' in seq text, got:\n{seq_text1}"
+        assert (work1 / "moon_00003.fit").exists(), "Frame 3 was not created"
+        assert not (work1 / "moon_00004.fit").exists(), "Frame 4 should not exist due to limit=3"
+
+        rcpt1 = json.loads((work1 / "import_receipt.json").read_text(encoding="utf-8"))
+        assert rcpt1["is_video"] is True, f"Expected is_video=True, got {rcpt1.get('is_video')}"
+        assert rcpt1["orig_bit_depth"] == 8, f"Expected orig_bit_depth=8, got {rcpt1.get('orig_bit_depth')}"
+        assert rcpt1["frame_count"] == 3
+
+        # Test B: directory containing video as --input
+        work2 = tmp_dir / "work_dir"
+        args2 = argparse.Namespace(
+            input=str(v_dir),
+            work=str(work2),
+            format="video",
+            limit=0,
+            ser_debayer=True,
+            force_mono=True,  # force mono
+            siril=DEFAULT_SIRIL,
+            timeout=60,
+        )
+        cmd_import(args2)
+
+        seq_file2 = work2 / "moon_.seq"
+        seq_text2 = seq_file2.read_text(encoding="utf-8")
+        assert "L 1" in seq_text2, f"Expected 'L 1' for forced mono, got:\n{seq_text2}"
+        rcpt2 = json.loads((work2 / "import_receipt.json").read_text(encoding="utf-8"))
+        assert rcpt2["channels"] == 1
+        assert rcpt2["frame_count"] == 5
+
+    print("Video cmd_import single file and directory integration unit test passed")
+
+
+def test_video_8bit_stack_policy():
+    """Verify that 8-bit video automatically triggers 'stack sum' stacking policy."""
+    import argparse
+    import json
+    import tempfile
+    from unittest.mock import patch
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp_dir = Path(td)
+        work = tmp_dir / "work_stack"
+        work.mkdir(parents=True, exist_ok=True)
+        (work / "logs").mkdir(parents=True, exist_ok=True)
+
+        # Create dummy sequence and import_receipt with orig_bit_depth=8
+        seq_file = work / "moon_.seq"
+        seq_file.write_text("S 'moon_' 1 2 2 5 -1 6 0 0 0\nL 3\nI 1 1\nI 2 1\n", encoding="utf-8")
+        rcpt = {"is_video": True, "orig_bit_depth": 8, "frame_count": 2}
+        (work / "import_receipt.json").write_text(json.dumps(rcpt), encoding="utf-8")
+
+        captured_lines = []
+
+        def mock_run_siril(siril, script_lines, cwd, log_path, timeout):
+            captured_lines.extend(script_lines)
+            (work / "moon_master.fit").touch()
+            return {"exit_code": 0, "log": str(log_path), "seconds": 0.1, "output": "ok"}
+
+        args = argparse.Namespace(
+            work=str(work),
+            seq="moon_",
+            out="moon_master.fit",
+            framing=None,
+            mosaic_mode="disc",
+            interp="cu",
+            sigma=["3", "3"],
+            norm="addscale",
+            stack_method="auto",
+            siril=DEFAULT_SIRIL,
+            timeout=60,
+        )
+
+        with patch("moon_stack.run_siril_script", side_effect=mock_run_siril):
+            cmd_stack(args)
+
+        script_str = "\n".join(captured_lines)
+        assert "stack r_moon_ sum -filter-included" in script_str, (
+            f"Expected 'stack r_moon_ sum' for 8-bit video source, got:\n{script_str}"
+        )
+
+    print("8-bit video automatic 'stack sum' policy unit test passed")
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -1246,6 +1417,9 @@ def main() -> int:
         ("test_ser_unpack_mono", test_ser_unpack_mono),
         ("test_ser_unpack_bayer", test_ser_unpack_bayer),
         ("test_ser_cmd_import_single_file_and_dir", test_ser_cmd_import_single_file_and_dir),
+        ("test_video_unpack_synthetic_avi", test_video_unpack_synthetic_avi),
+        ("test_video_cmd_import_single_file_and_dir", test_video_cmd_import_single_file_and_dir),
+        ("test_video_8bit_stack_policy", test_video_8bit_stack_policy),
         ("test_extinction_gradient_synthetic", test_extinction_gradient_synthetic),
         ("test_extinction_gradient_flat_bypass", test_extinction_gradient_flat_bypass),
         ("test_extinction_geological_immunity", test_extinction_geological_immunity),
