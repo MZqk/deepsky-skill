@@ -302,6 +302,72 @@ def unpack_ser_to_fits(
     }
 
 
+def probe_video_seeing_profile(
+    video_path: Path,
+    stride: int = 2,
+    roi_size: int = 400,
+) -> list[tuple[int, float]]:
+    """Pass 1: Lightweight stream probe without disk I/O.
+
+    Computes high-frequency seeing sharpness on central lunar surface ROI
+    across the entire video container to generate an objective seeing timeline.
+    """
+    import cv2
+    import numpy as np
+
+    if not video_path.is_file():
+        raise FileNotFoundError(f"Video file not found: {video_path}")
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError(f"Failed to open video container: {video_path}")
+
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
+    # 1. Localize lunar center on first valid frame
+    ret, frame = cap.read()
+    if not ret or frame is None:
+        cap.release()
+        raise ValueError(f"Failed to read initial frame from {video_path}")
+
+    gray_init = frame[..., 0] if frame.ndim == 3 else frame
+    mask = gray_init > 20
+    ys, xs = np.nonzero(mask)
+    if len(xs) > 100:
+        cx, cy = int(round(xs.mean())), int(round(ys.mean()))
+    else:
+        cx, cy = w // 2, h // 2
+
+    half = roi_size // 2
+    x0, x1 = max(0, cx - half), min(w, cx + half)
+    y0, y1 = max(0, cy - half), min(h, cy + half)
+
+    stride = max(1, int(stride))
+    log(f"pass 1 seeing probe: scanning video container [{video_path.name}] (total={total_frames if total_frames > 0 else 'stream'} frames, stride={stride}, ROI=[{x0}:{x1}, {y0}:{y1}])...")
+
+    results: list[tuple[int, float]] = []
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    frame_idx = 0
+
+    while True:
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            break
+
+        if frame_idx % stride == 0:
+            gray_roi = frame[y0:y1, x0:x1, 0] if frame.ndim == 3 else frame[y0:y1, x0:x1]
+            lap_val = float(cv2.Laplacian(gray_roi, cv2.CV_32F).var())
+            results.append((frame_idx, lap_val))
+
+        frame_idx += 1
+
+    cap.release()
+    log(f"pass 1 seeing probe complete: sampled {len(results)} frames across {frame_idx} total frames")
+    return results
+
+
 def unpack_video_to_fits(
     video_path: Path,
     out_dir: Path,
@@ -310,11 +376,12 @@ def unpack_video_to_fits(
     force_mono: bool = False,
     debayer: str = "auto",
     start_frame: int = 0,
+    target_indices: list[int] | None = None,
 ) -> dict:
     """Extract frames from an AVI/MP4/MOV video container directly into 16-bit FITS files.
 
     Direct-pass architecture:
-      - Reads frames sequentially via OpenCV VideoCapture (FFmpeg backend).
+      - Reads frames sequentially or via targeted direct-seek (FFmpeg/OpenCV).
       - Autodetects RAW Bayer CFA videos (e.g. Seestar/planetary camera RAW.avi) and applies hardware demosaicing.
       - Converts BGR to RGB and normalizes 8-bit [0, 255] to 16-bit [0, 65535] ((val << 8) | val).
       - Injects standard astronomical FITS metadata (BITPIX=16, ORIG_BIT=8, FPS, etc.).
@@ -338,9 +405,18 @@ def unpack_video_to_fits(
     raw_chars = [chr((fourcc_val >> 8 * i) & 0xFF) for i in range(4)]
     fourcc_str = "".join([c for c in raw_chars if 32 <= ord(c) <= 126]).strip()
 
-    if start_frame > 0:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-        log(f"seeking video stream to start_frame={start_frame} (of {total_in_file} total frames)...")
+    if target_indices is not None and len(target_indices) > 0:
+        mode_seek = True
+        frame_queue = sorted(list(target_indices))
+        if limit > 0:
+            frame_queue = frame_queue[:limit]
+        log(f"unpacking video in targeted direct-seek mode: extracting {len(frame_queue)} optimal frames...")
+    else:
+        mode_seek = False
+        frame_queue = None
+        if start_frame > 0:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            log(f"seeking video stream to start_frame={start_frame} (of {total_in_file} total frames)...")
 
     out_dir.mkdir(parents=True, exist_ok=True)
     extract_count = 0
@@ -375,12 +451,27 @@ def unpack_video_to_fits(
     out_channels = 1 if force_mono else 3
     detected_mode = None  # "mono", "rgb", or debayer cv2 code
 
+    seek_ptr = 0
     while True:
-        if limit > 0 and extract_count >= limit:
-            break
-        ret, frame = cap.read()
+        if mode_seek:
+            if seek_ptr >= len(frame_queue):
+                break
+            target_fno = frame_queue[seek_ptr]
+            seek_ptr += 1
+            cap.set(cv2.CAP_PROP_POS_FRAMES, target_fno)
+            current_src_frame = target_fno
+            ret, frame = cap.read()
+        else:
+            if limit > 0 and extract_count >= limit:
+                break
+            current_src_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+            ret, frame = cap.read()
+
         if not ret or frame is None:
-            break
+            if mode_seek:
+                continue
+            else:
+                break
 
         # Check mode on first valid frame
         if detected_mode is None:
@@ -433,10 +524,15 @@ def unpack_video_to_fits(
                                 "BGGR": cv2.COLOR_BayerBG2RGB,
                                 "RGGB": cv2.COLOR_BayerRG2RGB,
                             }
-                            # Crop a 128x128 center patch with even dimensions
-                            ch0, ch1 = max(0, h // 2 - 64), min(h, h // 2 + 64)
-                            cw0, cw1 = max(0, w // 2 - 64), min(w, w // 2 + 64)
-                            test_crop = gray_sample[ch0 : ch0 + (ch1 - ch0) // 2 * 2, cw0 : cw0 + (cw1 - cw0) // 2 * 2]
+                            # Probe the brightest lunar surface patch (128x128) instead of the
+                            # frame center, which may be empty sky and carry no CFA information.
+                            _gsm = gray_sample[::8, ::8].astype(np.float32)
+                            _py, _px = np.unravel_index(
+                                int(np.argmax(cv2.GaussianBlur(_gsm, (7, 7), 0))), _gsm.shape
+                            )
+                            _cy0 = int(np.clip(_py * 8 - 64, 0, max(h - 128, 0)))
+                            _cx0 = int(np.clip(_px * 8 - 64, 0, max(w - 128, 0)))
+                            test_crop = gray_sample[_cy0 : _cy0 + 128, _cx0 : _cx0 + 128]
 
                             best_pattern = "GBRG"
                             min_grid_metric = float("inf")
@@ -449,7 +545,31 @@ def unpack_video_to_fits(
                                     min_grid_metric = metric
                                     best_pattern = pname
 
-                            # If tied or close, prefer GBRG/RGGB over inverted GRBG/BGGR based on red lunar albedo
+                            # R/B disambiguation: the grid-artifact metric is identical for a
+                            # Bayer pattern and its R<->B mirror (e.g. GRBG vs GBRG), so it can
+                            # silently select an R/B-swapped pattern. The Moon is physically warm
+                            # (integrated R/G > B/G), so if the demosaiced patch is blue-dominant,
+                            # switch to the warm-lunar mirror pattern.
+                            mirror_patterns = {
+                                "GBRG": "GRBG", "GRBG": "GBRG",
+                                "RGGB": "BGGR", "BGGR": "RGGB",
+                            }
+                            try:
+                                _dem = cv2.demosaicing(test_crop, codes[best_pattern]).astype(np.float32)
+                                _msk = _dem[..., 1] > 20
+                                if np.count_nonzero(_msk) > 100:
+                                    _rg = _dem[..., 2][_msk].mean() / max(_dem[..., 1][_msk].mean(), 1e-6)
+                                    _bg = _dem[..., 0][_msk].mean() / max(_dem[..., 1][_msk].mean(), 1e-6)
+                                    if _bg > 1.05 * _rg:
+                                        log(
+                                            f"Bayer R/B disambiguation: {best_pattern} is blue-dominant "
+                                            f"(R/G={_rg:.2f} < B/G={_bg:.2f}) -> switching to warm-lunar "
+                                            f"mirror {mirror_patterns[best_pattern]}"
+                                        )
+                                        best_pattern = mirror_patterns[best_pattern]
+                            except Exception:
+                                pass
+
                             detected_mode = codes[best_pattern]
                             out_channels = 3
                             log(f"detected Bayer CFA pattern in video [{video_path.name}] (best={best_pattern}, residual grid metric={min_grid_metric:.2f}) -> applying OpenCV {best_pattern} demosaicing")
@@ -472,9 +592,12 @@ def unpack_video_to_fits(
             u16_rgb = (rgb.astype(np.uint16) << 8) | rgb.astype(np.uint16)
             fits_data = np.transpose(u16_rgb, (2, 0, 1))
         else:
-            # OpenCV Bayer demosaicing code
+            # OpenCV Bayer demosaicing code.
+            # NOTE: cv2 demosaicing returns BGR-ordered planes (OpenCV convention),
+            # so convert to RGB to match the rgb-mode branch and FITS/Siril RGB order.
             raw_plane = frame[..., 0] if frame.ndim == 3 else frame
             rgb = cv2.demosaicing(raw_plane, detected_mode)
+            rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
             u16_rgb = (rgb.astype(np.uint16) << 8) | rgb.astype(np.uint16)
             fits_data = np.transpose(u16_rgb, (2, 0, 1))
 
@@ -489,6 +612,8 @@ def unpack_video_to_fits(
             hdu.header["FPS"] = fps
         if fourcc_str:
             hdu.header["FOURCC"] = fourcc_str
+        if current_src_frame is not None:
+            hdu.header["SRC_FRM"] = int(current_src_frame)
 
         if "SENSOR" in sidecar_meta:
             hdu.header["INSTRUME"] = sidecar_meta["SENSOR"]
@@ -604,6 +729,63 @@ def cmd_import(args) -> None:
         video_path = video_files[0]
         if len(video_files) > 1:
             log(f"inventory: found {len(video_files)} video files in {src}; selecting primary video: {video_path.name}")
+        sample_mode = getattr(args, "sample_mode", "smart-top") or "smart-top"
+        probe_stride = max(1, int(getattr(args, "probe_stride", 2) or 2))
+        target_indices = None
+        probe_stats = None
+
+        if sample_mode in ("smart-top", "smart-cluster") and limit > 0:
+            import cv2
+            cap_probe = cv2.VideoCapture(str(video_path))
+            v_total = int(cap_probe.get(cv2.CAP_PROP_FRAME_COUNT)) if cap_probe.isOpened() else 0
+            cap_probe.release()
+
+            if v_total > 0 and v_total <= limit:
+                log(f"video has {v_total} frames <= limit {limit}: importing all frames without subsampling")
+            else:
+                effective_stride = probe_stride
+                if v_total > 0 and v_total // effective_stride < limit:
+                    effective_stride = max(1, v_total // limit)
+
+                scored = probe_video_seeing_profile(video_path, stride=effective_stride)
+                if scored:
+                    all_vals = [s[1] for s in scored]
+                    k_limit = min(limit, len(scored))
+
+                    if sample_mode == "smart-top":
+                        scored_sorted = sorted(scored, key=lambda x: x[1], reverse=True)
+                        chosen = scored_sorted[:k_limit]
+                        target_indices = sorted([x[0] for x in chosen])
+                        chosen_scores = [x[1] for x in chosen]
+                        log(f"smart-top selection complete: picked {len(target_indices)} frames (avg sharpness={np.mean(chosen_scores):.1f}, range=[{min(chosen_scores):.1f}, {max(chosen_scores):.1f}], frame span=[{target_indices[0]} - {target_indices[-1]}])")
+                    elif sample_mode == "smart-cluster":
+                        n_bins = 10
+                        bin_size = max(1, len(scored) // n_bins)
+                        per_bin_k = max(1, k_limit // n_bins)
+                        chosen = []
+                        for b in range(n_bins):
+                            sub = scored[b * bin_size : (b + 1) * bin_size]
+                            sub_sorted = sorted(sub, key=lambda x: x[1], reverse=True)
+                            chosen.extend(sub_sorted[:per_bin_k])
+                        if len(chosen) < k_limit:
+                            remaining = [x for x in scored if x not in chosen]
+                            remaining.sort(key=lambda x: x[1], reverse=True)
+                            chosen.extend(remaining[: (k_limit - len(chosen))])
+                        target_indices = sorted([x[0] for x in chosen[:k_limit]])
+                        chosen_scores = [x[1] for x in chosen[:k_limit]]
+                        log(f"smart-cluster selection complete: picked {len(target_indices)} frames across {n_bins} time windows (avg sharpness={np.mean(chosen_scores):.1f})")
+
+                    probe_stats = {
+                        "total_probed": len(scored),
+                        "sample_mode": sample_mode,
+                        "min_sharpness": float(np.min(all_vals)),
+                        "p50_sharpness": float(np.percentile(all_vals, 50)),
+                        "p90_sharpness": float(np.percentile(all_vals, 90)),
+                        "max_sharpness": float(np.max(all_vals)),
+                        "chosen_avg_sharpness": float(np.mean(chosen_scores)),
+                        "chosen_frame_count": len(target_indices),
+                    }
+
         start_frame = int(getattr(args, "start_frame", 0) or 0)
         video_info = unpack_video_to_fits(
             video_path=video_path,
@@ -613,7 +795,10 @@ def cmd_import(args) -> None:
             force_mono=force_mono,
             debayer=video_debayer,
             start_frame=start_frame,
+            target_indices=target_indices,
         )
+        if probe_stats:
+            video_info["seeing_probe"] = probe_stats
         total_frames = video_info["extracted_frames"]
         channels = video_info["channels"]
         log(f"video import complete: extracted {total_frames} frames ({channels} channel{'s' if channels > 1 else ''})")
@@ -1428,6 +1613,16 @@ def cmd_stack(args) -> None:
     receipt["mosaic_mode"] = mosaic_mode
     dump_json(work / "stack_receipt.json", receipt)
     log(f"master stack generated successfully: {master} (interp={interp}, framing={framing})")
+
+    # Clean up intermediate resampled frames (r_*.fit) to conserve disk space
+    resampled_fits = list(work.glob(f"r_{seq_name}*.fit"))
+    if resampled_fits:
+        log(f"cleaning up {len(resampled_fits)} intermediate resampled frames (r_{seq_name}*.fit) to reclaim disk space...")
+        for rf in resampled_fits:
+            try:
+                rf.unlink()
+            except Exception:
+                pass
 
 
 # -------------------------------------------------------------- 4. postprocess
@@ -3517,6 +3712,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--work", required=True, help="Isolated working directory")
     a.add_argument("--format", default="auto", choices=["auto", "fits", "raw", "ser", "video", "avi", "mp4"], help="Force format selection")
     a.add_argument("--limit", type=int, default=0, help="Limit number of frames to import (0=all)")
+    a.add_argument("--sample-mode", default="smart-top", choices=["smart-top", "smart-cluster", "window", "head"],
+                   help="Frame sampling strategy for video containers: 'smart-top' (global sharpness scan & top-K extraction, default), 'smart-cluster' (temporal windowed top-K), 'window' (consecutive window starting at --start-frame), 'head' (first N frames)")
+    a.add_argument("--probe-stride", type=int, default=2,
+                   help="Frame subsampling stride for fast seeing profile scan (default: 2)")
     a.add_argument("--start-frame", type=int, default=0, help="Starting frame index in video container (default: 0)")
     a.add_argument("--ser-debayer", action=argparse.BooleanOptionalAction, default=True, help="Debayer Bayer SER frames to RGB FITS (default: True)")
     a.add_argument("--force-mono", action="store_true", help="Force extracting video as 1-channel monochrome FITS")
@@ -3610,6 +3809,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--work", required=True)
     a.add_argument("--format", default="auto", choices=["auto", "fits", "raw", "ser", "video", "avi", "mp4"], help="Force format selection")
     a.add_argument("--limit", type=int, default=0, help="Limit number of frames to import (0=all)")
+    a.add_argument("--sample-mode", default="smart-top", choices=["smart-top", "smart-cluster", "window", "head"],
+                   help="Frame sampling strategy for video containers: 'smart-top' (global sharpness scan & top-K extraction, default), 'smart-cluster' (temporal windowed top-K), 'window' (consecutive window starting at --start-frame), 'head' (first N frames)")
+    a.add_argument("--probe-stride", type=int, default=2,
+                   help="Frame subsampling stride for fast seeing profile scan (default: 2)")
     a.add_argument("--start-frame", type=int, default=0, help="Starting frame index in video container (default: 0)")
     a.add_argument("--ser-debayer", action=argparse.BooleanOptionalAction, default=True, help="Debayer Bayer SER frames to RGB FITS (default: True)")
     a.add_argument("--force-mono", action="store_true", help="Force extracting video as 1-channel monochrome FITS")

@@ -1346,6 +1346,109 @@ def test_video_cmd_import_single_file_and_dir():
     print("Video cmd_import single file and directory integration unit test passed")
 
 
+def test_video_two_pass_selection():
+    """Verify smart-top and smart-cluster video selection pick the highest seeing frames across time."""
+    import argparse
+    import cv2
+    import json
+    import tempfile
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp_dir = Path(td)
+        v_path = tmp_dir / "seeing_trend.avi"
+
+        # Generate a 12-frame video where frames 8..11 have sharp high-contrast grid texture,
+        # and frames 0..3 are blurry/smooth
+        fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+        out = cv2.VideoWriter(str(v_path), fourcc, 15.0, (120, 120), isColor=True)
+        for i in range(12):
+            img = np.full((120, 120, 3), 100, dtype=np.uint8)
+            # Center moon disc
+            cv2.circle(img, (60, 60), 40, (180, 180, 180), -1)
+            # Contrast/texture increases with frame index: late frames have high frequency checkered texture
+            if i >= 8:
+                for y in range(40, 80, 4):
+                    for x in range(40, 80, 4):
+                        if (x + y) % 8 == 0:
+                            img[y : y + 2, x : x + 2] = 250
+            elif i >= 4:
+                for y in range(45, 75, 8):
+                    for x in range(45, 75, 8):
+                        img[y : y + 4, x : x + 4] = 220
+            out.write(img)
+        out.release()
+
+        # 1. Test smart-top with limit=4
+        work_top = tmp_dir / "work_top"
+        args_top = argparse.Namespace(
+            input=str(v_path),
+            work=str(work_top),
+            format="video",
+            limit=4,
+            sample_mode="smart-top",
+            probe_stride=1,
+            start_frame=0,
+            ser_debayer=True,
+            force_mono=False,
+            video_debayer="auto",
+            siril=DEFAULT_SIRIL,
+            timeout=60,
+        )
+        cmd_import(args_top)
+
+        rcpt_top = json.loads((work_top / "import_receipt.json").read_text(encoding="utf-8"))
+        assert rcpt_top["frame_count"] == 4
+        assert "seeing_probe" in rcpt_top["video_metadata"]
+        probe_meta = rcpt_top["video_metadata"]["seeing_probe"]
+        assert probe_meta["sample_mode"] == "smart-top"
+        assert probe_meta["chosen_frame_count"] == 4
+
+        # Read SRC_FRM from extracted FITS headers: smart-top should pick from frames 8..11!
+        extracted_frms = []
+        for i in range(1, 5):
+            fit_f = work_top / f"moon_{i:05d}.fit"
+            assert fit_f.exists()
+            with fits.open(fit_f) as hdul:
+                extracted_frms.append(hdul[0].header["SRC_FRM"])
+
+        print(f"Smart-top picked source frames: {extracted_frms}")
+        assert set(extracted_frms) == {8, 9, 10, 11}, f"Expected top frames {8,9,10,11}, got {extracted_frms}"
+
+        # 2. Test smart-cluster with limit=4
+        work_cluster = tmp_dir / "work_cluster"
+        args_cluster = argparse.Namespace(
+            input=str(v_path),
+            work=str(work_cluster),
+            format="video",
+            limit=4,
+            sample_mode="smart-cluster",
+            probe_stride=1,
+            start_frame=0,
+            ser_debayer=True,
+            force_mono=False,
+            video_debayer="auto",
+            siril=DEFAULT_SIRIL,
+            timeout=60,
+        )
+        cmd_import(args_cluster)
+
+        rcpt_cluster = json.loads((work_cluster / "import_receipt.json").read_text(encoding="utf-8"))
+        assert rcpt_cluster["frame_count"] == 4
+        cluster_frms = []
+        for i in range(1, 5):
+            fit_f = work_cluster / f"moon_{i:05d}.fit"
+            with fits.open(fit_f) as hdul:
+                cluster_frms.append(hdul[0].header["SRC_FRM"])
+
+        print(f"Smart-cluster picked source frames: {cluster_frms}")
+        # Cluster should span multiple time windows, not just 8..11
+        assert min(cluster_frms) < 8, f"Cluster should span earlier windows too: {cluster_frms}"
+
+    print("Video two-pass seeing probe and smart selection unit test passed")
+
+
+
 def test_video_8bit_stack_policy():
     """Verify that 8-bit video automatically triggers 'stack sum' stacking policy."""
     import argparse
@@ -1419,6 +1522,7 @@ def main() -> int:
         ("test_ser_cmd_import_single_file_and_dir", test_ser_cmd_import_single_file_and_dir),
         ("test_video_unpack_synthetic_avi", test_video_unpack_synthetic_avi),
         ("test_video_cmd_import_single_file_and_dir", test_video_cmd_import_single_file_and_dir),
+        ("test_video_two_pass_selection", test_video_two_pass_selection),
         ("test_video_8bit_stack_policy", test_video_8bit_stack_policy),
         ("test_extinction_gradient_synthetic", test_extinction_gradient_synthetic),
         ("test_extinction_gradient_flat_bypass", test_extinction_gradient_flat_bypass),

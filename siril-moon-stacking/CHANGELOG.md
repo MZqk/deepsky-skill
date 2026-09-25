@@ -2,6 +2,13 @@
 
 本文件记录 `siril-moon-stacking` 的独立版本变更。
 
+## [1.0.9] - 2026-09-25
+
+- **修复视频 Bayer 解码两处色彩正确性缺陷（Color Fidelity Fixes）**：
+  - **补齐去马赛克分支缺失的 `BGR→RGB` 转换**：OpenCV `cv2.demosaicing()` 的输出为 **BGR** 通道序（以同目录 `.mp4` 彩色预览为 ground truth 做相关性验证：dem 通道1→G=0.975、通道2→R=0.911、通道0→B），但该分支此前直接 `transpose` 写入 FITS，导致 R/B 通道倒置；RGB 直通分支已有转换而 Bayer 分支遗漏。现已补上 `rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)`，与全链路「FITS RGB 序」契约一致。
+  - **修复自动 Bayer 图案选型会锁定 R/B 镜像错图案**：原逻辑仅凭「网格伪影最小」metric 选型，但一个 Bayer 图案与其 R↔B 镜像（如 `GRBG` vs `GBRG`）网格 metric 完全相同（实测均 7.93），会静默选错致 R/B 颠倒。现改为：① 在最亮 128×128 月面块上测量（原用画面中心，可能为空天而丧失 CFA 信息）；② 增加物理 R/B 消歧——月球整体偏暖（R/G > B/G），若解出蓝主导则切换至镜像图案。Seestar S30 真实样本实测由误判的 `GBRG` 正确翻转为 `GRBG`（ground truth R/G=1.439）。
+  - 全套 28 项单元测试 100% 通过。
+
 ## [1.0.8] - 2026-09-25
 
 - **月面物理日光反照率影调重塑与锐化过头（Crunchy Texture）彻底根治**：
