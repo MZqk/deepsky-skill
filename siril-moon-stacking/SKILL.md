@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: siril-moon-stacking
-  version: "1.0.10"
+  version: "1.0.11"
   displayName: Siril Moon Stacking
   summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
   tags: [astronomy, lunar, siril, lucky-imaging]
@@ -114,8 +114,12 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb
     * **切片模式安全旁路**：在 `--mosaic-mode tile` 下自动旁路全月轮拟合，回退至 Header `FOCALLEN` 或安全配置；支持 `--focal`、`--pixel-size`、`--aperture` 用户显式覆盖。
   * **ADC 亚像素通道对齐**：校准 R/B 相对 G 的空间偏移，消除边缘红蓝伪彩色彩边；
   * **物理 Airy PSF + Split Bregman 去卷积**：还原光学低通弥散，消灭亮缘黑环暗斑；
+  * **物理反照率自适应中间调解析拉伸 (Smart Auto-Midtone, 默认 `--midtone auto`)**：
+    * **物理原理**：基于月面玄武岩月海反照率中位数与高光截止点，通过 Siril 原生 MTF 方程 $y = \frac{(m-1)x}{(2m-1)x-m}$ 解析反解最优中间调参数 $m_{\text{auto}}$；
+    * **全月相与曝光自适应**：不论满月高照度、弦月大阴影，亦或欠曝/过曝连拍，均能全自动将月面反照率锚定在目视最舒适的深影调区间，彻底消除 `--midtone` 人工盲猜；
   * **高光保护自适应拉伸**：中值自适应保留高光动态余量，绝无死白溢出；
   * **物理感知自适应温润锐化 (Adaptive Organic Sharpening, 默认 `--sharp-mode auto` / 平衡温润模型 B 方案)**：
+    * **径向傅里叶功率谱视宁度截止频率感知 (Radial PSD Seeing Cutoff)**：通过 2D-FFT 径向平均功率谱计算月面有效信号降至残噪基底的临界空间截止频率 $k_{\text{cutoff}}$；平静视宁度释放第 1 层微弱微反差，气流抖动时自动锁定第 1 层为 1.00 并向第 2、3 层转移能量，杜绝毛刺噪点；
     * **平坦月海残噪感知**：利用 Donoho MAD 估计平坦玄武岩熔岩平原的高频噪声基底 $\sigma_{noise}$，信噪比较低时自动抑制高频放大，彻底消除平原沙砾噪点；
     * **反卷积与小波能量守恒折让**：检测到 Airy 物理反卷积已激活时，小波重构各层增益严格收敛至温润微调区间（增益收缩至 $2\%\sim 5\%$，实测 `1.02, 1.04, 1.05, 1.02`），彻底消灭环形山边缘甜甜圈白圈与人工浮雕描边；
     * **反卷积解耦温和 CLAHE**：消除旧版 $\ge 0.25$ 的死板强硬下限，反卷积激活时 CLAHE 自适应打折 60%（`clip = 0.06 ~ 0.18`，实测降至温润的 `0.13`），从根本杜绝局部微反差过拉造成的石膏白垩感；

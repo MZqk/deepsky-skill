@@ -1560,6 +1560,72 @@ def test_nonstandard_video_diagnostics():
     print("Non-standard video decoding diagnostics & recovery guidance unit test passed")
 
 
+def test_adaptive_midtone_analytical_solution():
+    """Verify that _estimate_adaptive_midtone analytically solves MTF mapping accurately."""
+    from moon_stack import _estimate_adaptive_midtone
+
+    # Synthetic lunar surface with known distribution
+    rng = np.random.default_rng(101)
+    vals = rng.normal(0.35, 0.08, size=(100, 100)).astype(np.float32)
+    vals = np.clip(vals, 0.05, 0.95)
+
+    res = _estimate_adaptive_midtone(vals, hi_val=1.0, target_mare_lum=0.50)
+    m = res["midtone"]
+    x_med = res["median_raw"]
+    y_mapped = ((m - 1.0) * x_med) / ((2.0 * m - 1.0) * x_med - m)
+    assert abs(y_mapped - res["target"]) < 0.02, f"MTF mapping error: y_mapped={y_mapped}, expected target={res['target']}"
+
+    # Dark / crescent moon test: x_med = 0.15
+    dark_vals = np.clip(rng.normal(0.15, 0.04, size=(100, 100)), 0.02, 0.90).astype(np.float32)
+    res_dark = _estimate_adaptive_midtone(dark_vals, hi_val=1.0, target_mare_lum=0.50)
+    m_dark = res_dark["midtone"]
+    y_dark = ((m_dark - 1.0) * res_dark["median_raw"]) / ((2.0 * m_dark - 1.0) * res_dark["median_raw"] - m_dark)
+    assert abs(y_dark - res_dark["target"]) < 0.02, f"Dark MTF mapping error: y_dark={y_dark}, expected target={res_dark['target']}"
+    print("Adaptive midtone analytical solution unit test passed")
+
+
+def test_lunar_limb_circle_fits_linear_raw():
+    """Verify that _fit_lunar_limb_circle works with un-stretched linear FITS with pedestal."""
+    from moon_stack import _fit_lunar_limb_circle
+
+    H, W = 512, 512
+    pedestal = 0.0040
+    data = np.full((H, W), pedestal, dtype=np.float32)
+    yy, xx = np.mgrid[:H, :W]
+    r = np.sqrt((xx - 256.0)**2 + (yy - 256.0)**2)
+
+    moon_signal = 0.0080
+    edge_t = np.clip((r - 160.0) / 4.0, 0.0, 1.0)
+    data += moon_signal * (1.0 - edge_t)
+
+    rng = np.random.default_rng(42)
+    data += rng.normal(0, 0.0001, size=(H, W)).astype(np.float32)
+
+    fit_res = _fit_lunar_limb_circle(data)
+    assert fit_res is not None, "Limb circle fitting failed on linear raw data!"
+    xc, yc, R, res_std = fit_res
+    assert abs(xc - 256.0) < 3.0, f"xc error: {xc} vs 256.0"
+    assert abs(yc - 256.0) < 3.0, f"yc error: {yc} vs 256.0"
+    assert abs(R - 162.0) < 4.0, f"R error: {R} vs 162.0"
+    print(f"Limb circle fit on linear raw: center=({xc:.1f}, {yc:.1f}), R={R:.1f} (std={res_std:.2f}) unit test passed")
+
+
+def test_radial_psd_seeing_cutoff():
+    """Verify that _estimate_seeing_cutoff discriminates between sharp and blurred textures."""
+    import cv2
+    from moon_stack import _estimate_seeing_cutoff
+
+    rng = np.random.default_rng(42)
+    base = rng.normal(0.5, 0.1, size=(256, 256)).astype(np.float32)
+    sharp_cutoff = _estimate_seeing_cutoff(base, patch_size=256)
+
+    blurred = cv2.GaussianBlur(base, (15, 15), 5.0)
+    blurred_cutoff = _estimate_seeing_cutoff(blurred, patch_size=256)
+
+    assert sharp_cutoff > blurred_cutoff, f"Expected sharp ({sharp_cutoff}) > blurred ({blurred_cutoff})"
+    print(f"Radial PSD seeing cutoff: sharp={sharp_cutoff:.2f}, blurred={blurred_cutoff:.2f} unit test passed")
+
+
 def main() -> int:
     tests = [
         ("test_subpixel_shifts", test_subpixel_shifts),
@@ -1570,6 +1636,9 @@ def main() -> int:
         ("test_pedestal_estimation", test_pedestal_estimation),
         ("test_gray_world_channel_balance", test_gray_world_channel_balance),
         ("test_adaptive_sharpening_math", test_adaptive_sharpening_math),
+        ("test_adaptive_midtone_analytical_solution", test_adaptive_midtone_analytical_solution),
+        ("test_lunar_limb_circle_fits_linear_raw", test_lunar_limb_circle_fits_linear_raw),
+        ("test_radial_psd_seeing_cutoff", test_radial_psd_seeing_cutoff),
         ("test_anti_ringing_damping_math", test_anti_ringing_damping_math),
         ("test_dark_halo_ratio_metric", test_dark_halo_ratio_metric),
         ("test_anti_brittle_metrics_math", test_anti_brittle_metrics_math),

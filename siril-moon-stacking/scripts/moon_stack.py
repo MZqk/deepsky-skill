@@ -2002,7 +2002,7 @@ def _estimate_pedestal(plane: np.ndarray) -> float:
 
         if is_sky:
             safe_ceiling = min_corner + 2.0 * min_std
-            return float(min(safe_ceiling, p_high * 0.50))
+            return float(min(safe_ceiling, p_high * 0.95) if safe_ceiling < p_high else min_corner)
 
     # Close-up / full-frame moon without dark sky corners: return low percentile
     return max(0.0, p_low)
@@ -2018,13 +2018,16 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
     """
     lum_2d = np.ascontiguousarray(lum_2d, dtype=np.float32)
     H, W = lum_2d.shape
-    p999 = float(np.percentile(lum_2d, 99.95))
+
+    ped = _estimate_pedestal(lum_2d)
+    lum_net = np.maximum(0.0, lum_2d - ped)
+    p999 = float(np.percentile(lum_net, 99.95))
     if p999 <= 1e-5:
         return None
 
     import cv2
 
-    core_mask = (lum_2d > 0.25 * p999).astype(np.uint8)
+    core_mask = (lum_net > 0.20 * p999).astype(np.uint8)
     M = cv2.moments(core_mask)
     if M["m00"] == 0:
         return None
@@ -2035,6 +2038,7 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
     r_samples = np.arange(min(H, W) * 0.15, max(H, W) * 0.85, 1.0, dtype=np.float32)
 
     limb_points = []
+    thresh_grad = -0.015 * p999
     for theta in dense_angles:
         xs = cx_init + r_samples * np.cos(theta)
         ys = cy_init + r_samples * np.sin(theta)
@@ -2045,12 +2049,12 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
         ys_val = ys[valid].astype(np.float32).reshape(-1, 1)
         r_curr = r_samples[valid]
 
-        vals = cv2.remap(lum_2d, xs_val, ys_val, cv2.INTER_LINEAR).flatten()
+        vals = cv2.remap(lum_net, xs_val, ys_val, cv2.INTER_LINEAR).flatten()
         grad = np.diff(vals)
         if grad.size == 0:
             continue
         min_idx = int(np.argmin(grad))
-        if vals[min_idx] > 0.05 * p999 and grad[min_idx] < -0.005:
+        if vals[min_idx] > 0.03 * p999 and grad[min_idx] < thresh_grad:
             edge_x = cx_init + float(r_curr[min_idx]) * np.cos(theta)
             edge_y = cy_init + float(r_curr[min_idx]) * np.sin(theta)
             limb_points.append([edge_x, edge_y])
@@ -2063,7 +2067,7 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
 
     best_inliers = []
     rng = np.random.default_rng(42)
-    for _ in range(200):
+    for _ in range(300):
         sample_idx = rng.choice(N, 3, replace=False)
         p = pts[sample_idx]
         A = np.column_stack([2.0 * p[:, 0], 2.0 * p[:, 1], np.ones(3)])
@@ -2076,7 +2080,7 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
                 continue
             R_cand = np.sqrt(R_sq)
             dists = np.abs(np.sqrt((pts[:, 0] - xc_cand)**2 + (pts[:, 1] - yc_cand)**2) - R_cand)
-            inliers = np.where(dists < 2.0)[0]
+            inliers = np.where(dists < 3.0)[0]
             if len(inliers) > len(best_inliers):
                 best_inliers = inliers
         except np.linalg.LinAlgError:
@@ -2101,7 +2105,7 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
     dists = np.sqrt((x - xc)**2 + (y - yc)**2)
     res_std = float(np.std(dists - R))
 
-    if not (0.15 * min(H, W) < R < 2.5 * max(H, W)) or res_std > 5.0:
+    if not (0.15 * min(H, W) < R < 3.0 * max(H, W)) or res_std > 5.0:
         return None
 
     return xc, yc, R, res_std
@@ -2561,7 +2565,7 @@ def _calculate_channel_balance(
     bg_r: float,
     bg_g: float,
     bg_b: float,
-    mid_val: float = 0.13,
+    mid_val: float | None = None,
     wb_mode: str = "gray-world",
     glare_mode: str = "auto",
     extinction_comp: str = "auto",
@@ -2597,6 +2601,7 @@ def _calculate_channel_balance(
     p999_lum_legacy = float(np.percentile(lum_legacy, 99.95))
     hi_lum_legacy = max(p999_lum_legacy * 1.10, bg_lum_legacy + 0.01)
 
+    initial_mid = float(mid_val) if mid_val is not None else 0.42
     res = {
         "bg_r": bg_r, "hi_r": hi_r_raw,
         "bg_g": bg_g, "hi_g": hi_g_raw,
@@ -2612,6 +2617,8 @@ def _calculate_channel_balance(
         "moon_pixels": 0,
         "wb_locked": False,
         "stretch_locked": False,
+        "mid_val": initial_mid,
+        "mid_info": {"midtone": initial_mid, "median_raw": initial_mid, "target": 0.50},
     }
 
     if wb_mode != "gray-world":
@@ -2721,8 +2728,19 @@ def _calculate_channel_balance(
 
     if not is_stretch_locked:
         p999_clean = float(np.percentile(lum_clean, 99.95))
-        # Provide +25% headroom to absorb subsequent deconvolution & wavelet peak energy without clipping
-        hi_unified = max(p999_clean * 1.25, 0.01)
+        # Provide +15% headroom to absorb subsequent deconvolution & wavelet peak energy without clipping
+        hi_unified = max(p999_clean * 1.15, 1e-4)
+
+    # Determine midtone stretch (locked profile > user override > adaptive)
+    if locked_profile and "histogram" in locked_profile and "midtone" in locked_profile["histogram"] and mid_val is None:
+        effective_mid = float(locked_profile["histogram"]["midtone"])
+        mid_info = {"midtone": effective_mid, "median_raw": effective_mid, "target": 0.50, "locked": True}
+    elif mid_val is not None:
+        effective_mid = float(mid_val)
+        mid_info = {"midtone": effective_mid, "median_raw": effective_mid, "target": 0.50, "locked": False}
+    else:
+        mid_info = _estimate_adaptive_midtone(lum_clean, hi_val=hi_unified)
+        effective_mid = mid_info["midtone"]
 
     res.update({
         "bg_r": 0.0, "hi_r": hi_unified,
@@ -2737,6 +2755,8 @@ def _calculate_channel_balance(
         "k_b": k_b,
         "wb_locked": is_wb_locked,
         "stretch_locked": is_stretch_locked,
+        "mid_val": effective_mid,
+        "mid_info": mid_info,
     })
     return res
 
@@ -3063,6 +3083,119 @@ def _measure_chalky_saturation_index(lum_data: np.ndarray) -> float:
     return float(chalky_count / float(valid_count))
 
 
+def _estimate_adaptive_midtone(
+    lum_net: np.ndarray,
+    moon_mask: np.ndarray | None = None,
+    hi_val: float | None = None,
+    target_mare_lum: float = 0.50,
+) -> dict:
+    """Analytically solve the optimal Siril MTF midtone stretch parameter.
+
+    In astrophotography, the optimal visual median of the lunar surface
+    is approximately 0.48 to 0.52 (natural albedo perception).
+    By setting target_mare_lum = 0.50, the median of the lunar surface
+    maps precisely to 0.50, organically handling crescent, gibbous, and full moon
+    as well as under- and over-exposed sequences.
+
+    Returns dict containing:
+      - midtone: optimal m parameter in [0.10, 0.65]
+      - median_raw: normalized median of lunar surface
+      - contrast_ratio: dynamic contrast of terrain
+      - target: target mapping value
+    """
+    lum_2d = lum_net.astype(np.float32)
+    p999 = float(np.percentile(lum_2d, 99.95))
+    if hi_val is None or hi_val <= 1e-6:
+        hi_val = max(p999 * 1.15, 1e-4)
+
+    if moon_mask is None:
+        moon_mask = (lum_2d > 0.05 * p999) & (lum_2d < 0.95 * p999)
+
+    valid_vals = lum_2d[moon_mask]
+    if valid_vals.size < 200:
+        return {"midtone": 0.42, "median_raw": 0.42, "contrast_ratio": 2.5, "target": target_mare_lum}
+
+    x_med = float(np.median(valid_vals))
+    x_norm = float(np.clip(x_med / hi_val, 0.01, 0.95))
+
+    p10 = float(np.percentile(valid_vals, 10))
+    p90 = float(np.percentile(valid_vals, 90))
+    contrast_ratio = float((p90 - p10) / max(p10, 1e-4))
+
+    # Dynamically tune target_mare_lum slightly based on contrast
+    y_target = float(np.clip(target_mare_lum, 0.40, 0.60))
+    if contrast_ratio < 2.0:
+        y_target = max(0.46, y_target - 0.03)
+
+    denom = x_norm * (1.0 - 2.0 * y_target) + y_target
+    if abs(denom) < 1e-6:
+        m_opt = x_norm
+    else:
+        m_opt = (x_norm * (1.0 - y_target)) / denom
+
+    m_opt = float(np.clip(round(m_opt, 3), 0.10, 0.65))
+    return {
+        "midtone": m_opt,
+        "median_raw": round(x_norm, 3),
+        "contrast_ratio": round(contrast_ratio, 2),
+        "target": round(y_target, 3),
+    }
+
+
+def _estimate_seeing_cutoff(lum_2d: np.ndarray, patch_size: int = 512) -> float:
+    """Estimate atmospheric seeing spatial cutoff frequency using 2D-FFT Radial PSD.
+
+    Returns the normalized spatial cutoff frequency k_cutoff in [0.0, 1.0] (relative to Nyquist),
+    where lunar surface signal drops to the high-frequency sensor noise floor.
+    """
+    lum = lum_2d.astype(np.float32)
+    H, W = lum.shape
+    if H < 128 or W < 128:
+        return 0.50
+
+    actual_patch = min(patch_size, H, W)
+    actual_patch = (actual_patch // 2) * 2
+    if actual_patch < 64:
+        return 0.50
+
+    x0, y0, x1, y1 = _locate_high_contrast_roi(lum, roi_size=actual_patch)
+    patch = lum[y0:y1, x0:x1]
+    if patch.shape[0] < 32 or patch.shape[1] < 32:
+        return 0.50
+
+    hann_2d = np.outer(np.hanning(patch.shape[0]), np.hanning(patch.shape[1]))
+    patch_w = (patch - np.mean(patch)) * hann_2d
+
+    F = np.fft.fftshift(np.fft.fft2(patch_w))
+    psd = np.abs(F) ** 2
+
+    pH, pW = psd.shape
+    cy, cx = pH // 2, pW // 2
+    y, x = np.ogrid[:pH, :pW]
+    r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2).astype(int)
+
+    r_max = min(cx, cy)
+    if r_max < 16:
+        return 0.50
+
+    radial_prof = np.zeros(r_max, dtype=np.float64)
+    for radius in range(r_max):
+        mask = (r == radius)
+        if np.any(mask):
+            radial_prof[radius] = np.mean(psd[mask])
+
+    noise_floor = float(np.median(radial_prof[int(r_max * 0.85):]))
+    snr_prof = radial_prof / max(noise_floor, 1e-12)
+
+    cutoff_idx = np.where(snr_prof < 2.0)[0]
+    if len(cutoff_idx) > 0 and cutoff_idx[0] > 5:
+        k_cutoff = float(cutoff_idx[0]) / float(r_max)
+    else:
+        k_cutoff = 1.0
+
+    return float(np.clip(round(k_cutoff, 3), 0.15, 1.00))
+
+
 def _measure_gradient_kurtosis(lum_data: np.ndarray) -> float:
     """Measure the Gradient Kurtosis Metric (GKM) to quantify brittle / crunchy texture.
 
@@ -3084,11 +3217,16 @@ def _measure_gradient_kurtosis(lum_data: np.ndarray) -> float:
     if np.count_nonzero(valid_mask) < 200:
         return 0.0
 
-    # Erode valid_mask by 5px to eliminate the celestial limb edge step
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+    H, W = lum.shape
+    # Erode valid_mask by 25-50px to strictly eliminate the celestial limb edge step
+    er_radius = max(5, min(51, int(min(H, W) * 0.025) | 1))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (er_radius, er_radius))
     interior_mask = cv2.erode(valid_mask.astype(np.uint8), kernel).astype(bool)
     if np.count_nonzero(interior_mask) < 100:
-        interior_mask = valid_mask
+        kernel_small = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        interior_mask = cv2.erode(valid_mask.astype(np.uint8), kernel_small).astype(bool)
+        if np.count_nonzero(interior_mask) < 50:
+            interior_mask = valid_mask
 
     gx = cv2.Sobel(norm, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(norm, cv2.CV_32F, 0, 1, ksize=3)
@@ -3126,16 +3264,19 @@ def _estimate_adaptive_sharpening(
     by jointly analyzing:
       1. Lunar dynamic contrast ratio (p90 - p10) / p10
       2. Residual high-frequency noise floor (sigma_noise via Donoho MAD in flat maria)
-      3. Deconvolution status (applies MTF discount factor if Airy PSF deconvolution was run)
-      4. Interpolation filter properties (Bicubic vs Bilinear)
-      5. Anti-redundancy defense: automatically bypasses USM unsharp mask when
+      3. Seeing cutoff frequency via 2D-FFT radial PSD
+      4. Deconvolution status (applies MTF discount factor if Airy PSF deconvolution was run)
+      5. Interpolation filter properties (Bicubic vs Bilinear)
+      6. Anti-redundancy defense: automatically bypasses USM unsharp mask when
          multi-scale wavelets or deconvolution are active, eliminating artificial halos.
-      6. Edge undershoot anti-ringing damping factor calculation.
+      7. Edge undershoot anti-ringing damping factor calculation.
     """
     lum_2d = lum_data.astype(np.float32)
     p999 = float(np.percentile(lum_2d, 99.95))
     moon_mask = (lum_2d > 0.05 * p999) & (lum_2d < 0.95 * p999)
     valid_pixels = lum_2d[moon_mask]
+
+    seeing_cutoff = _estimate_seeing_cutoff(lum_2d)
 
     if valid_pixels.size < 500:
         contrast_ratio = 3.5
@@ -3183,9 +3324,15 @@ def _estimate_adaptive_sharpening(
     else:  # "auto" -> Scheme B: Balanced Natural Baseline
         deconv_discount = 0.55 if has_deconv else 1.0
         noise_penalty = float(np.clip(1.0 - (sigma_noise / max(p999 * 0.005, 1e-6)), 0.4, 1.0))
-        # Keep Layer 1 gain at 1.00 when deconvolution is active or noise floor is detectable
-        # to strictly avoid crunch / salt-and-pepper shot noise amplification
-        l1_base = 0.00 if (has_deconv or sigma_noise > 0.0006) else (0.02 if interp_used == "cu" else 0.04)
+        # Dynamic seeing-aware Layer 1 gain:
+        # If deconvolution is active, physical MTF restoration already restored Nyquist band.
+        # If seeing is poor (k_cutoff < 0.42) or noise floor is high, suppress L1 strictly to 1.00.
+        # If seeing is crisp (k_cutoff >= 0.42) without deconv and clean sensor, allow subtle micro-contrast.
+        if has_deconv or sigma_noise > 0.0006 or seeing_cutoff < 0.42:
+            l1_base = 0.00
+        else:
+            l1_base = 0.02 if interp_used == "cu" else 0.04
+
         w1 = 1.0 + l1_base * deconv_discount * noise_penalty
         w2 = 1.0 + 0.05 * deconv_discount * noise_penalty
         w3 = 1.0 + 0.07 * deconv_discount * noise_penalty
@@ -3239,6 +3386,7 @@ def _estimate_adaptive_sharpening(
         "unsharp_amount": unsharp_amt,
         "contrast_ratio": contrast_ratio,
         "sigma_noise": sigma_noise,
+        "seeing_cutoff": seeing_cutoff,
         "noise_penalty": noise_penalty if sharp_mode == "auto" else 1.0,
         "deconv_discount": deconv_discount if sharp_mode == "auto" else 1.0,
         "anti_ringing": anti_ringing,
@@ -3320,7 +3468,8 @@ def cmd_postprocess(args) -> None:
     mineral_mode = getattr(args, "mineral_mode", "lrgb")
     wb_mode = getattr(args, "white_balance", "gray-world")
     is_rgb = (d.ndim == 3 and d.shape[0] >= 3)
-    mid_val = getattr(args, "midtone", 0.42)
+    user_mid_arg = getattr(args, "midtone", None)
+    user_mid = float(user_mid_arg) if user_mid_arg is not None else None
 
     sat_base = float(getattr(args, "sat_base", 0.3))
     sat_fe = float(getattr(args, "sat_fe", 0.8))
@@ -3375,7 +3524,7 @@ def cmd_postprocess(args) -> None:
         extinction_comp = getattr(args, "extinction_comp", "auto")
         wb = _calculate_channel_balance(
             d, bg_r, bg_g, bg_b,
-            mid_val=mid_val,
+            mid_val=user_mid,
             wb_mode=wb_mode,
             glare_mode=glare_mode,
             extinction_comp=extinction_comp,
@@ -3383,6 +3532,8 @@ def cmd_postprocess(args) -> None:
             lock_wb=lock_wb,
             lock_stretch=lock_stretch,
         )
+        mid_val = wb.get("mid_val", 0.42)
+        mid_info = wb.get("mid_info", {})
         if "glare_meta" in wb and wb["glare_meta"].get("active"):
             gm = wb["glare_meta"]
             log(f"lunar limb glare suppression active: center=({gm['center_x']:.1f}, {gm['center_y']:.1f}), R={gm['radius']:.1f}px (res_std={gm['residual_std']:.2f}px, falloff={gm['delta']:.1f}px)")
@@ -3395,9 +3546,11 @@ def cmd_postprocess(args) -> None:
         elif wb["moon_pixels"] >= 200 and wb_mode == "gray-world":
             log(f"neutral Gray-World balance applied: R/G={wb['ratio_r']:.3f}, B/G={wb['ratio_b']:.3f} ({wb['moon_pixels']} lunar surface pixels sampled)")
         if wb.get("stretch_locked"):
-            log(f"calibrated channels (LOCKED hi_unified={wb['hi_lum']:.5f}, midtone={mid_val})")
+            log(f"calibrated channels (LOCKED hi_unified={wb['hi_lum']:.5f}, midtone={mid_val:.3f})")
+        elif user_mid is None:
+            log(f"calibrated channels with adaptive midtone: m={mid_val:.3f} (median={mid_info.get('median_raw', 0.5):.3f}, target={mid_info.get('target', 0.5):.2f})")
         else:
-            log(f"calibrated channels (bg=[{wb['bg_r']:.5f}, {wb['bg_g']:.5f}, {wb['bg_b']:.5f}], hi=[{wb['hi_r']:.5f}, {wb['hi_g']:.5f}, {wb['hi_b']:.5f}], midtone={mid_val})")
+            log(f"calibrated channels (bg=[{wb['bg_r']:.5f}, {wb['bg_g']:.5f}, {wb['bg_b']:.5f}], hi=[{wb['hi_r']:.5f}, {wb['hi_g']:.5f}, {wb['hi_b']:.5f}], midtone={mid_val:.3f})")
         lum_for_sharp = wb["lum_data"]
     else:
         plane = d if d.ndim == 2 else d[0]
@@ -3413,6 +3566,17 @@ def cmd_postprocess(args) -> None:
             bg_val = float(hist_prof.get("bg_lum", bg_val))
             log(f"monochrome stretch ceiling LOCKED from profile: bg={bg_val:.5f}, hi={hi_val:.5f}")
         lum_for_sharp = plane
+
+        if locked_profile and "histogram" in locked_profile and "midtone" in locked_profile["histogram"] and user_mid is None:
+            mid_val = float(locked_profile["histogram"]["midtone"])
+            log(f"monochrome midtone LOCKED from profile: m={mid_val:.3f}")
+        elif user_mid is not None:
+            mid_val = user_mid
+            log(f"monochrome midtone specified: m={mid_val:.3f}")
+        else:
+            mid_res = _estimate_adaptive_midtone(np.maximum(0.0, plane - bg_val), hi_val=hi_val - bg_val)
+            mid_val = mid_res["midtone"]
+            log(f"monochrome adaptive midtone solved: m={mid_val:.3f} (median={mid_res['median_raw']:.3f})")
 
     # Dynamic Organic Sharpening Parameter Generation
     has_deconv = (deconv_method in ("sb", "wiener", "rl"))
@@ -3438,7 +3602,7 @@ def cmd_postprocess(args) -> None:
     clahe_lines = sharp_info["clahe_lines"]
     unsharp_lines = sharp_info["unsharp_lines"]
 
-    log(f"adaptive organic sharpening: mode='{sharp_mode}', contrast_ratio={sharp_info['contrast_ratio']:.2f}, mare_noise={sharp_info['sigma_noise']:.6f}")
+    log(f"adaptive organic sharpening: mode='{sharp_mode}', contrast_ratio={sharp_info['contrast_ratio']:.2f}, seeing_cutoff={sharp_info.get('seeing_cutoff', 1.0):.2f}, mare_noise={sharp_info['sigma_noise']:.6f}")
     log(f"  - wavelet: {wrecons_cmd} (deconv discount={sharp_info['deconv_discount']:.2f}x, noise penalty={sharp_info['noise_penalty']:.2f})")
     if clahe_lines:
         log(f"  - CLAHE: {sharp_info['clahe_clip']:.2f} clip (dynamic contrast-aware)")
@@ -4080,7 +4244,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--master", default="moon_master.fit")
     a.add_argument("--deconv", default="sb", choices=["sb", "wiener", "rl", "none"], help="Deconvolution method (sb=Split Bregman, wiener, rl, none)")
     a.add_argument("--no-adc", action="store_true", help="Disable Atmospheric Dispersion Correction (RGB channel alignment)")
-    a.add_argument("--midtone", type=float, default=0.42, help="MTF midtone stretch value for natural lunar albedo dynamics (default: 0.42)")
+    a.add_argument("--midtone", type=float, default=None, help="MTF midtone stretch value for natural lunar albedo dynamics (default: None for auto albedo-adaptive estimation)")
     a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
     a.add_argument("--clahe-clip", type=float, default=None, help="CLAHE clip limit (default: auto dynamic, set <=0 to bypass CLAHE)")
     a.add_argument("--sharp-mode", default="auto", choices=["auto", "mellow", "mild", "crisp", "none"],
@@ -4169,7 +4333,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Stacking method: 'auto' (sum for 8-bit video/SER, rej w for 16-bit+), 'sum', or 'rej'")
     a.add_argument("--deconv", default="sb", choices=["sb", "wiener", "rl", "none"])
     a.add_argument("--no-adc", action="store_true")
-    a.add_argument("--midtone", type=float, default=0.42)
+    a.add_argument("--midtone", type=float, default=None, help="MTF midtone stretch value (default: None for auto albedo-adaptive estimation)")
     a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
     a.add_argument("--clahe-clip", type=float, default=None, help="CLAHE clip limit (default: auto dynamic, set <=0 to bypass CLAHE)")
     a.add_argument("--sharp-mode", default="auto", choices=["auto", "mellow", "mild", "crisp", "none"],
