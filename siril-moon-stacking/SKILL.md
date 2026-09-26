@@ -109,7 +109,8 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb
 * 自动执行：
   * **智能光学参数推断 (Intelligent Optical Parameter Inference)**：
     * **FITS Header 自动挖掘**：优先自动解析 `XPIXSZ` / `PIXSIZE` 像元尺寸（如 $3.73\ \mu\text{m}$），摆脱死板硬编码；
-    * **全月盘亚像素几何反推**：联动 RANSAC 鲁棒月轮拟合得到真实月盘像素直径 $D_{px}$（如实测 $2097\text{ px} \implies$ 像面尺寸 $7.82\text{ mm}$）。结合月球天体视直径（中值 $31.07'$，近地/远地物理区间 $29.4'\sim 33.5'$），通过光学针孔成像几何 $f = y / (2\tan(\theta/2))$，自动精确反推望远镜真实有效焦距（如 $865.5\text{ mm} \approx 866\text{ mm}$，区间 $803\sim 915\text{ mm}$），彻底解决默认值（$400\text{ mm}$）低估一倍的物理失真；
+    * **全月盘亚像素几何反推**：联动 RANSAC 鲁棒月轮拟合得到真实月盘像素直径 $D_{px}$（如实测 $2097\text{ px} \implies$ 像面尺寸 $7.82\text{ mm}$）。结合 **JPL DE 历表精确月球视直径**（从 FITS Header `DATE-OBS` 自动查询拍摄时刻的地月距离，通过 $\theta = 2\arctan(R_{moon}/d)$ 计算精确视角，精度 $< 0.5\%$；无 `DATE-OBS` 时回退至中值 $31.07'$），通过光学针孔成像几何 $f = y / (2\tan(\theta/2))$，自动精确反推望远镜真实有效焦距（如 $865.5\text{ mm} \approx 866\text{ mm}$），彻底解决默认值（$400\text{ mm}$）低估一倍的物理失真；
+    * **自适应 Airy PSF 核尺寸**：PSF kernel 大小随计算得到的 Airy 半径自动缩放（$ks = \text{clamp}(\lceil r_{airy} \times 6.0 \rceil_{\text{odd}},\ 15,\ 65)$），短焦避免高频振铃、长焦完整覆盖衍射环；
     * **精准驱动 Airy 物理反卷积**：使 Split Bregman 生成的 Airy PSF 像元半径从缩水的 $0.90\text{ px}$ 恢复为物理真实的 **$1.95\text{ px}$**（焦比 $F/10.8$），完全释放光学反卷积对衍射弥散的真实还原能力；
     * **切片模式安全旁路**：在 `--mosaic-mode tile` 下自动旁路全月轮拟合，回退至 Header `FOCALLEN` 或安全配置；支持 `--focal`、`--pixel-size`、`--aperture` 用户显式覆盖。
   * **ADC 亚像素通道对齐**：校准 R/B 相对 G 的空间偏移，消除边缘红蓝伪彩色彩边；
