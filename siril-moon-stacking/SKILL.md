@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: siril-moon-stacking
-  version: "1.0.11"
+  version: "1.0.12"
   displayName: Siril Moon Stacking
   summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
   tags: [astronomy, lunar, siril, lucky-imaging]
@@ -82,7 +82,7 @@ python scripts/moon_stack.py register --work /path/to/work
 python scripts/moon_stack.py register --work /path/to/work --select-mode utility --utility-alpha 2.0 --utility-beta 1.0
 ```
 * **选帧模式一览**：
-  * `otsu`（**默认推荐**）：Otsu 自适应双峰聚类，自动判定当晚平静视宁度临界断崖；
+  * `otsu`（**默认推荐**）：Otsu 自适应双峰聚类，自动判定当晚平静视宁度临界断崖；内置**超稳视宁度相对散布感知（Spread-Aware）**，当全序列极差 $<6\%$ 时自动扩容保留至 75% 优质帧，兼顾极致信噪比与抗抖动；
   * `utility` / `mtf-snr`：**MTF-SNR 联合效用模型**，求导最大化 $U(k) = \bar{Q}(k)^\alpha \cdot \sqrt{k/N}^\beta$，严格平衡清晰度衰减与降噪增益；
   * `relative`：按参考帧质量相对阈值筛选（`--quality-threshold 0.75`）；
   * `percent`：固定/经验分级百分比（`--keep-percent <val>`）。
@@ -122,12 +122,12 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb
   * **物理感知自适应温润锐化 (Adaptive Organic Sharpening, 默认 `--sharp-mode auto` / 平衡温润模型 B 方案)**：
     * **径向傅里叶功率谱视宁度截止频率感知 (Radial PSD Seeing Cutoff)**：通过 2D-FFT 径向平均功率谱计算月面有效信号降至残噪基底的临界空间截止频率 $k_{\text{cutoff}}$；平静视宁度释放第 1 层微弱微反差，气流抖动时自动锁定第 1 层为 1.00 并向第 2、3 层转移能量，杜绝毛刺噪点；
     * **平坦月海残噪感知**：利用 Donoho MAD 估计平坦玄武岩熔岩平原的高频噪声基底 $\sigma_{noise}$，信噪比较低时自动抑制高频放大，彻底消除平原沙砾噪点；
-    * **反卷积与小波能量守恒折让**：检测到 Airy 物理反卷积已激活时，小波重构各层增益在物理阻尼掩模保护下收敛至黄金微调区间（增益收缩至 $2\%\sim 6\%$，实测 `1.01, 1.04, 1.06, 1.03`），既充分释放环形山台地与月溪的清晰微反差，又彻底消灭暗环甜甜圈与人工浮雕描边；
-    * **反卷积解耦温和 CLAHE**：消除旧版 $\ge 0.25$ 的死板强硬下限，反卷积激活时 CLAHE 自适应打折 60%（`clip = 0.06 ~ 0.18`，实测降至温润的 `0.13`），从根本杜绝局部微反差过拉造成的石膏白垩感；
+    * **反卷积与小波能量守恒折让**：检测到 Airy 物理反卷积已激活时，小波重构各层增益在物理阻尼掩模保护下收敛至黄金微调区间（增益收敛至 $2\%\sim 6\%$，实测 `1.02, 1.04, 1.06, 1.03`），既充分释放环形山台地与月溪的清晰微反差，又彻底消灭暗环甜甜圈与人工浮雕描边；
+    * **彻底解耦 CLAHE 局部硬反差**：反卷积激活或 auto 模式下 CLAHE 彻底旁路（`clip = 0.0`），坚决杜绝局部微反差过拉造成的石膏白垩感、生硬刻痕与死黑阴影；
     * **算法互斥防御（USM 自动旁路）**：在小波与反卷积激活时，传统的单尺度反锐化掩模自动归零（`unsharp = 0`），从源头切断阶跃边缘下冲（Undershoot）与人工白边；
     * **语义化预设分级**：
-      * `--sharp-mode auto`（现代平衡温润基准，默认推荐）：Airy 反卷积 + 2~5% 小波轻调 + 0.13 微反差均衡，兼顾极限分辨率与温润无伪影；
-      * `--sharp-mode mellow`（目视纯镜感）：Airy 反卷积 + 1~3% 极弱小波 + 彻底关闭 CLAHE，呈现高级大口径目视镜感；
+      * `--sharp-mode auto`（现代平衡温润基准，默认推荐）：Airy 反卷积 + 黄金小波微调保底（1.02/1.04/1.06/1.03）+ 彻底旁路 CLAHE，呈现纯物理柔和纯镜感与丰富微反差；
+      * `--sharp-mode mellow`（目视超柔镜感）：Airy 反卷积 + 1~2% 极弱小波 + 彻底关闭 CLAHE，呈现高级大口径目视镜感；
       * `--sharp-mode mild`（温和轻调）、`--sharp-mode crisp`（高反差雕塑感）、`--sharp-mode none`（旁路锐化纯物理母版）或手动参数覆盖；
   * **安全黑点噪声抑制 (Safe Noise Ceiling Pedestal)**：
     * 采用四角安全噪声上限（$\text{median} + 2.0\sigma$），防止深空暗背景被非线性拉伸曲线与 CLAHE 局部直方图抬升，保证外围真空深空呈现纯净深邃的零噪黑底；

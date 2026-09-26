@@ -1561,18 +1561,29 @@ def _select_frames_by_quality(
             meta["threshold_rel"] = 1.0
             meta["reason"] = "uniform sharpness distribution"
         else:
-            from skimage.filters import threshold_otsu
+            spread_rel = float((sharpnesses.max() - sharpnesses.min()) / max(ref_sharpness, 1e-6))
+            if len(valid_items) >= 5 and spread_rel < 0.06:
+                # Ultra-calm seeing window: entire sequence is uniformly high quality (spread < 6%).
+                # Avoid aggressive bimodal cutting; expand selection to 75% for optimal SNR.
+                target_k = min(len(valid_items), max(3, int(round(total_count * 0.75))))
+                otsu_kept = valid_items[:target_k]
+                meta["threshold"] = float(valid_items[target_k - 1]["sharpness"])
+                meta["threshold_rel"] = round(meta["threshold"] / ref_sharpness, 4)
+                meta["reason"] = f"ultra-calm seeing window detected (spread={spread_rel:.3f} < 0.06), expanded to 75% frames for optimal SNR"
+                kept_indices = {it["index"] for it in otsu_kept}
+            else:
+                from skimage.filters import threshold_otsu
 
-            th = float(threshold_otsu(sharpnesses))
-            meta["threshold"] = th
-            meta["threshold_rel"] = round(th / ref_sharpness, 4)
-            otsu_kept = [it for it in valid_items if it["sharpness"] >= th]
-            # Safety bounds: keep at least 3 frames (or all if < 3) and at least 10%
-            min_k = min(len(valid_items), max(3, int(round(total_count * 0.10))))
-            if len(otsu_kept) < min_k:
-                otsu_kept = valid_items[:min_k]
-                meta["safety_clamped"] = "min_k"
-            kept_indices = {it["index"] for it in otsu_kept}
+                th = float(threshold_otsu(sharpnesses))
+                meta["threshold"] = th
+                meta["threshold_rel"] = round(th / ref_sharpness, 4)
+                otsu_kept = [it for it in valid_items if it["sharpness"] >= th]
+                # Safety bounds: keep at least 3 frames (or all if < 3) and at least 10%
+                min_k = min(len(valid_items), max(3, int(round(total_count * 0.10))))
+                if len(otsu_kept) < min_k:
+                    otsu_kept = valid_items[:min_k]
+                    meta["safety_clamped"] = "min_k"
+                kept_indices = {it["index"] for it in otsu_kept}
 
     elif select_mode == "utility":
         # MTF-SNR joint utility optimization
@@ -3359,9 +3370,9 @@ def _estimate_adaptive_sharpening(
         unsharp_amt = 0.0
         deconv_discount = 1.0
         noise_penalty = 1.0
-    else:  # "auto" -> Scheme B: Balanced Natural Baseline
-        deconv_discount = 0.65 if has_deconv else 1.0
-        noise_penalty = float(np.clip(1.0 - (sigma_noise / max(p999 * 0.005, 1e-6)), 0.4, 1.0))
+    else:  # "auto" -> Scheme B: Balanced Natural Baseline (Soft Gentle & High Detail)
+        deconv_discount = 0.80 if has_deconv else 1.0
+        noise_penalty = float(np.clip(1.0 - (sigma_noise / max(p999 * 0.005, 1e-6)), 0.45, 1.0))
         # Dynamic seeing-aware Layer 1 gain:
         # If seeing is poor or noise floor is high, suppress L1 strictly to 1.00.
         # If seeing is clean and sensor noise is low, allow subtle micro-contrast even with deconv.
@@ -3372,10 +3383,21 @@ def _estimate_adaptive_sharpening(
         else:
             l1_base = 0.035 if interp_used == "cu" else 0.05
 
-        w1 = 1.0 + l1_base * deconv_discount * noise_penalty
-        w2 = 1.0 + 0.08 * deconv_discount * noise_penalty
-        w3 = 1.0 + 0.11 * deconv_discount * noise_penalty
-        w4 = 1.0 + 0.05 * deconv_discount * noise_penalty
+        effective_factor = deconv_discount * noise_penalty
+        w1 = 1.0 + l1_base * effective_factor
+        w2 = 1.0 + 0.08 * effective_factor
+        w3 = 1.0 + 0.11 * effective_factor
+        w4 = 1.0 + 0.05 * effective_factor
+
+        # Gentle floor clamping for calm seeing & clean background:
+        # Benchmarking Moon3_gentle_work aesthetic ([1.02, 1.04, 1.06, 1.03])
+        # Ensures that clean, high-resolution masters don't get overly suppressed into a flat image
+        if seeing_cutoff >= 0.60 and sigma_noise < 0.0001:
+            w1 = max(w1, 1.02)
+            w2 = max(w2, 1.04)
+            w3 = max(w3, 1.06)
+            w4 = max(w4, 1.03)
+
         w_coeffs = [round(w1, 2), round(w2, 2), round(w3, 2), round(w4, 2), 1.00, 1.00]
         if has_deconv or sigma_noise > 0.0006:
             # When deconvolution is active, physical MTF restoration renders CLAHE redundant;
@@ -4305,7 +4327,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Color balance mode: 'gray-world' (neutral lunar albedo baseline, default) or 'legacy' (per-channel percentile stretch)")
     a.add_argument("--sat-fe", type=float, default=0.8, help="Mineral saturation boost for Fe-rich terrain (orange-yellow hue 1, default: 0.8)")
     a.add_argument("--sat-ti", type=float, default=0.8, help="Mineral saturation boost for Ti-rich basalt (cyan-blue hues 3 & 4, default: 0.8)")
-    a.add_argument("--sat-base", type=float, default=0.3, help="Foundation base saturation boost across all hues (default: 0.3)")
+    a.add_argument("--sat-base", type=float, default=0.35, help="Foundation base saturation boost across all hues (default: 0.35)")
     a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
     a.add_argument("--glare-suppress", default="auto", choices=["auto", "mild", "aggressive", "off"],
                    help="Lunar limb forward scattering glare suppression mode: 'auto' (4.5px falloff, default), 'mild' (8.0px), 'aggressive' (2.5px), 'off' (bypass)")
@@ -4313,8 +4335,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Atmospheric extinction gradient compensation: 'auto' (adaptive threshold, default), 'mild' (50% strength), 'aggressive', 'off' (bypass)")
     a.add_argument("--mineral-style", default="deep-cine", choices=["deep-cine", "natural"],
                    help="Mineral moon aesthetic style: 'deep-cine' (deep matte basalt tone, bilateral chroma smoothing, terracotta/cobalt pure boost, shadow/ray rolloff, default) or 'natural' (classic subtle saturation)")
-    a.add_argument("--mineral-fe-boost", type=float, default=4.5, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 4.5)")
-    a.add_argument("--mineral-ti-boost", type=float, default=5.5, help="Deep-cine saturation boost for Ti-rich basalt (azure denim blue, default: 5.5)")
+    a.add_argument("--mineral-fe-boost", type=float, default=5.2, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 5.2)")
+    a.add_argument("--mineral-ti-boost", type=float, default=6.5, help="Deep-cine saturation boost for Ti-rich basalt (azure denim blue, default: 6.5)")
     a.add_argument("--mineral-gamma", type=float, default=1.00, help="Deep-cine filmic luminance sculpting gamma (default: 1.00)")
     a.add_argument("--rotate", type=int, default=0, choices=[0, 90, 180, 270], help="Rotate output images clockwise (default: 0, 180 for standard north-up lunar orientation)")
     a.add_argument("--square-crop", action=argparse.BooleanOptionalAction, default=True, help="Automatically export 1:1 square close-up master (default: True)")
@@ -4394,7 +4416,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Color balance mode: 'gray-world' (neutral lunar albedo baseline, default) or 'legacy' (per-channel percentile stretch)")
     a.add_argument("--sat-fe", type=float, default=0.8, help="Mineral saturation boost for Fe-rich terrain (orange-yellow hue 1, default: 0.8)")
     a.add_argument("--sat-ti", type=float, default=0.8, help="Mineral saturation boost for Ti-rich basalt (cyan-blue hues 3 & 4, default: 0.8)")
-    a.add_argument("--sat-base", type=float, default=0.3, help="Foundation base saturation boost across all hues (default: 0.3)")
+    a.add_argument("--sat-base", type=float, default=0.35, help="Foundation base saturation boost across all hues (default: 0.35)")
     a.add_argument("--sat-bg-factor", type=float, default=1.2, help="Background noise saturation suppression threshold factor (default: 1.2)")
     a.add_argument("--glare-suppress", default="auto", choices=["auto", "mild", "aggressive", "off"],
                    help="Lunar limb forward scattering glare suppression mode: 'auto' (4.5px falloff, default), 'mild' (8.0px), 'aggressive' (2.5px), 'off' (bypass)")
@@ -4402,8 +4424,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Atmospheric extinction gradient compensation: 'auto' (adaptive threshold, default), 'mild' (50% strength), 'aggressive', 'off' (bypass)")
     a.add_argument("--mineral-style", default="deep-cine", choices=["deep-cine", "natural"],
                    help="Mineral moon aesthetic style: 'deep-cine' (deep matte basalt tone, bilateral chroma smoothing, terracotta/cobalt pure boost, shadow/ray rolloff, default) or 'natural' (classic subtle saturation)")
-    a.add_argument("--mineral-fe-boost", type=float, default=4.5, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 4.5)")
-    a.add_argument("--mineral-ti-boost", type=float, default=5.5, help="Deep-cine saturation boost for Ti-rich basalt (azure denim blue, default: 5.5)")
+    a.add_argument("--mineral-fe-boost", type=float, default=5.2, help="Deep-cine saturation boost for Fe-rich terrain (terracotta peach, default: 5.2)")
+    a.add_argument("--mineral-ti-boost", type=float, default=6.5, help="Deep-cine saturation boost for Ti-rich basalt (azure denim blue, default: 6.5)")
     a.add_argument("--mineral-gamma", type=float, default=1.00, help="Deep-cine filmic luminance sculpting gamma (default: 1.00)")
     a.add_argument("--rotate", type=int, default=0, choices=[0, 90, 180, 270], help="Rotate output images clockwise (default: 0, 180 for standard north-up lunar orientation)")
     a.add_argument("--square-crop", action=argparse.BooleanOptionalAction, default=True, help="Automatically export 1:1 square close-up master (default: True)")
