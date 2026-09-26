@@ -2766,8 +2766,8 @@ def _calculate_channel_balance(
 
     if not is_stretch_locked:
         p999_clean = float(np.percentile(lum_clean, 99.95))
-        # Provide +15% headroom to absorb subsequent deconvolution & wavelet peak energy without clipping
-        hi_unified = max(p999_clean * 1.15, 1e-4)
+        # Provide +8% headroom to absorb subsequent deconvolution & wavelet peak energy without clipping
+        hi_unified = max(p999_clean * 1.08, 1e-4)
 
     # Determine midtone stretch (locked profile > user override > adaptive)
     if locked_profile and "histogram" in locked_profile and "midtone" in locked_profile["histogram"] and mid_val is None:
@@ -3125,15 +3125,15 @@ def _estimate_adaptive_midtone(
     lum_net: np.ndarray,
     moon_mask: np.ndarray | None = None,
     hi_val: float | None = None,
-    target_mare_lum: float = 0.50,
+    target_mare_lum: float = 0.54,
 ) -> dict:
     """Analytically solve the optimal Siril MTF midtone stretch parameter.
 
     In astrophotography, the optimal visual median of the lunar surface
-    is approximately 0.48 to 0.52 (natural albedo perception).
-    By setting target_mare_lum = 0.50, the median of the lunar surface
-    maps precisely to 0.50, organically handling crescent, gibbous, and full moon
-    as well as under- and over-exposed sequences.
+    is approximately 0.50 to 0.55 (natural luminous albedo perception).
+    By setting target_mare_lum = 0.54, the median of the lunar surface
+    maps precisely to 0.54 (or >=0.50 for low-contrast full moon), organically
+    handling crescent, gibbous, and full moon as well as under- and over-exposed sequences.
 
     Returns dict containing:
       - midtone: optimal m parameter in [0.10, 0.65]
@@ -3144,7 +3144,7 @@ def _estimate_adaptive_midtone(
     lum_2d = lum_net.astype(np.float32)
     p999 = float(np.percentile(lum_2d, 99.95))
     if hi_val is None or hi_val <= 1e-6:
-        hi_val = max(p999 * 1.15, 1e-4)
+        hi_val = max(p999 * 1.08, 1e-4)
 
     if moon_mask is None:
         moon_mask = (lum_2d > 0.05 * p999) & (lum_2d < 0.95 * p999)
@@ -3163,7 +3163,7 @@ def _estimate_adaptive_midtone(
     # Dynamically tune target_mare_lum slightly based on contrast
     y_target = float(np.clip(target_mare_lum, 0.40, 0.60))
     if contrast_ratio < 2.0:
-        y_target = max(0.46, y_target - 0.03)
+        y_target = max(0.50, y_target - 0.015)
 
     denom = x_norm * (1.0 - 2.0 * y_target) + y_target
     if abs(denom) < 1e-6:
@@ -3348,7 +3348,7 @@ def _estimate_adaptive_sharpening(
         deconv_discount = 1.0
         noise_penalty = 1.0
     elif sharp_mode == "mild":
-        w_coeffs = [1.01, 1.03, 1.04, 1.02, 1.00, 1.00]
+        w_coeffs = [1.01, 1.04, 1.06, 1.03, 1.00, 1.00]
         clahe_clip = 0.08
         unsharp_amt = 0.0
         deconv_discount = 1.0
@@ -3360,21 +3360,22 @@ def _estimate_adaptive_sharpening(
         deconv_discount = 1.0
         noise_penalty = 1.0
     else:  # "auto" -> Scheme B: Balanced Natural Baseline
-        deconv_discount = 0.55 if has_deconv else 1.0
+        deconv_discount = 0.65 if has_deconv else 1.0
         noise_penalty = float(np.clip(1.0 - (sigma_noise / max(p999 * 0.005, 1e-6)), 0.4, 1.0))
         # Dynamic seeing-aware Layer 1 gain:
-        # If deconvolution is active, physical MTF restoration already restored Nyquist band.
-        # If seeing is poor (k_cutoff < 0.42) or noise floor is high, suppress L1 strictly to 1.00.
-        # If seeing is crisp (k_cutoff >= 0.42) without deconv and clean sensor, allow subtle micro-contrast.
-        if has_deconv or sigma_noise > 0.0006 or seeing_cutoff < 0.42:
+        # If seeing is poor or noise floor is high, suppress L1 strictly to 1.00.
+        # If seeing is clean and sensor noise is low, allow subtle micro-contrast even with deconv.
+        if sigma_noise > 0.0006 or seeing_cutoff < 0.42:
             l1_base = 0.00
+        elif has_deconv:
+            l1_base = 0.025 if interp_used == "cu" else 0.035
         else:
-            l1_base = 0.02 if interp_used == "cu" else 0.04
+            l1_base = 0.035 if interp_used == "cu" else 0.05
 
         w1 = 1.0 + l1_base * deconv_discount * noise_penalty
-        w2 = 1.0 + 0.05 * deconv_discount * noise_penalty
-        w3 = 1.0 + 0.07 * deconv_discount * noise_penalty
-        w4 = 1.0 + 0.03 * deconv_discount * noise_penalty
+        w2 = 1.0 + 0.08 * deconv_discount * noise_penalty
+        w3 = 1.0 + 0.11 * deconv_discount * noise_penalty
+        w4 = 1.0 + 0.05 * deconv_discount * noise_penalty
         w_coeffs = [round(w1, 2), round(w2, 2), round(w3, 2), round(w4, 2), 1.00, 1.00]
         if has_deconv or sigma_noise > 0.0006:
             # When deconvolution is active, physical MTF restoration renders CLAHE redundant;

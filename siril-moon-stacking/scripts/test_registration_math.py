@@ -408,8 +408,8 @@ def test_adaptive_sharpening_math() -> None:
     res_deconv = _estimate_adaptive_sharpening(img, has_deconv=True, interp_used="cu", sharp_mode="auto")
     print(f"Adaptive deconv=True: wrecons={res_deconv['wrecons_cmd']}, clahe={res_deconv['clahe_clip']}, unsharp={res_deconv['unsharp_amount']}")
 
-    if res_deconv["deconv_discount"] != 0.55:
-        failures.append(f"Expected deconv discount 0.55, got {res_deconv['deconv_discount']}")
+    if res_deconv["deconv_discount"] != 0.65:
+        failures.append(f"Expected deconv discount 0.65, got {res_deconv['deconv_discount']}")
     if res_deconv["unsharp_amount"] != 0.0 or res_deconv["unsharp_lines"]:
         failures.append("USM unsharp mask should be automatically bypassed in auto mode")
     if res_deconv["clahe_clip"] != 0.0 or res_deconv["clahe_lines"]:
