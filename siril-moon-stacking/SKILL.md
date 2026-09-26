@@ -191,15 +191,16 @@ python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb
       * *暗部滚降 (Shadow Rolloff)*：晨昏线月坑与深阴影区色度自然归零，呈现立体纯炭黑与冷石灰色；
       * *高光保护 (Highlight Protection)*：哥白尼/第谷辐射纹与撞击坑边缘色度收敛，保持冷银白纯净质感；
       * *亮轮锁止 (Limb Edge Zeroing)*：月轮物理边界外侧 $14\text{px}$ 内色度平滑归零，杜绝边缘黄环紫边；
-    * **双轨并行成片输出**：同时产出电影级深影调成片 `moon_mineral.jpg` 与经典自然轻盈版 `moon_mineral_natural.jpg`，满足多元化审美需求；支持 `--mineral-style natural` 直接回退。
+    * **风格定制与回退支持**：默认产出电影级深影调成片 `moon_mineral.jpg`；亦支持 `--mineral-style natural` 直接回退至经典自然轻盈饱和度拉伸风格；
     * **参数支持**：`--mineral-fe-boost 6.8`, `--mineral-ti-boost 10.2`, `--mineral-gamma 1.09`。
 * 自动生成产物：
   * `moon_master.fit`：32 位未锐化母版；
   * `moon_lum.fit`：32 位物理明度母版（仅 LRGB 模式）；
   * `moon_natural.tif`：16 位小波细节母版；
   * `moon_natural.jpg`：高清晰度自然写实影调成果图（冷硬微反差与温润质感）；
+  * `moon_natural_square.jpg`：1:1 自然写实方形特写社交成果图；
   * `moon_mineral.jpg`：电影级深影调地质彩月成果图（Deep-Cine 哑光玄武岩油润深影调）；
-  * `moon_mineral_natural.jpg`：经典自然轻盈矿物月备份成果图；
+  * `moon_mineral_square.jpg`：1:1 地质彩月方形特写社交成果图；
   * `lunar_profile.json`：校准 Profile 档案（记录通道增益 $k_r, k_b$、直方图截断 $bg, hi$、矿物月色彩系数，可供其他面板锁入）；
   * `mosaic_tile_info.json`：切片元数据清单（记录尺寸、位深、物理比例、Profile 锁定状态与产品路径，供 `siril-mosaic` 马赛克拼接技能直接消费）。
 

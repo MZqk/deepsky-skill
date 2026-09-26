@@ -3909,11 +3909,6 @@ def cmd_postprocess(args) -> None:
                 gamma=gamma,
             )
 
-            # Backup default Siril mineral output as moon_mineral_natural.jpg
-            legacy_mineral_path = work / "moon_mineral.jpg"
-            if legacy_mineral_path.exists():
-                shutil.copy2(legacy_mineral_path, work / "moon_mineral_natural.jpg")
-
             # Write deep-cine mineral JPG
             cv2.imwrite(str(work / "moon_mineral.jpg"), deep_mineral_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             log(f"deep-cine mineral moon rendered: Fe terracotta red (x{fe_boost:.1f}) + Ti cobalt blue (x{ti_boost:.1f}), bilateral chroma smoothing, shadow/ray rolloff")
@@ -3991,7 +3986,6 @@ def cmd_postprocess(args) -> None:
         work / "moon_natural.tif",
         work / "moon_natural.jpg",
         work / "moon_mineral.jpg",
-        work / "moon_mineral_natural.jpg",
     ]
 
     # 1. Apply orientation rotation if requested
@@ -4042,10 +4036,10 @@ def cmd_postprocess(args) -> None:
     log(f"  - Natural JPG:         {work / 'moon_natural.jpg'}")
     if (work / "moon_mineral.jpg").exists():
         log(f"  - Mineral Moon JPG:    {work / 'moon_mineral.jpg'}")
-        if (work / "moon_mineral_natural.jpg").exists():
-            log(f"  - Natural Mineral JPG: {work / 'moon_mineral_natural.jpg'}")
     if (work / "moon_natural_square.jpg").exists():
-        log(f"  - Square Close-up JPG: {work / 'moon_natural_square.jpg'}")
+        log(f"  - Natural Square JPG:  {work / 'moon_natural_square.jpg'}")
+    if (work / "moon_mineral_square.jpg").exists():
+        log(f"  - Mineral Square JPG:  {work / 'moon_mineral_square.jpg'}")
 
 
 # ------------------------------------------------------------------- 5. verify
