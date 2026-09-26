@@ -611,7 +611,11 @@ def _analyze_starfield(gray):
                 'star_coverage_pct': 0,
             }
 
-        threshold = max(np.percentile(positive, 80), 0.01)
+        # 阈值用稳健的噪声尺度（median + 3·MAD）而非绝对下限 0.01。
+        # 绝对下限隐含"图已归一化且背景接近 0"的假设，对背景被抬高的图会失效。
+        _med = float(np.median(positive))
+        _mad = float(np.median(np.abs(positive - _med))) * 1.4826
+        threshold = max(float(np.percentile(positive, 80)), _med + 3.0 * max(_mad, 1e-9))
         star_mask = tophat > threshold
         star_mask = binary_dilation(star_mask, structure=disk(1))
 

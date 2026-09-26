@@ -2,30 +2,35 @@
 """
 Deep-Sky Post-Processing Pipeline (深空天文后期全流程管线)
 
-参照 Siril + SetiAstroSuitePro 专业流程:
+参照 Siril + SetiAstroSuitePro 专业流程。
+以下编号与运行时打印的 [Phase N] 标签一致:
 
   ── 线性阶段 (Siril Linear Phase) ──
-  Phase 1:  裁切 (可选)
-  Phase 2:  背景提取 (DBE/ABE)
-  Phase 3:  颜色校准 (PCC/白平衡)
-  Phase 4:  初步降噪 (GXP Silentium-like)
-  Phase 5:  去星 (StarNet/SyqonStarless, 在线性数据上)  ← 关键差异
-  Phase 6:  拉伸 (自动百分位拉伸, 线性→非线性)
+  自动裁边 (可选, 非编号阶段)
+  Phase 1:  背景提取 (DBE/ABE)
+  Phase 2:  颜色校准 (PCC/白平衡)
+  Phase 3:  初步降噪 (GXP Silentium-like)
+  Phase 4:  去星 (StarNet/SyqonStarless, 在线性数据上)  ← 关键差异
+  Phase 5:  拉伸 (亮度通道拉伸, 线性→非线性)
 
-  ── 星点独立处理 (Star Processing, 并行) ──
-  Phase S1: 星点拉伸 (Star Stretch)
-  Phase S2: 星点去紫 (SCNR)
-  Phase S3: 星点曲线微调 (Curves)
+  ── 星点独立处理 (Star Processing, 与星云解耦) ──
+  Star S1:  星点拉伸 (Star Stretch)
+  Star S2:  星点去紫 (SCNR)
+  Star S3:  星点曲线微调 (Curves) + 缩星
 
   ── 非线性阶段 (Non-Linear Phase) ──
-  Phase 7:  星云细节增强 (HDR/Clarity)
-  Phase 8:  锐化 (Revela-like)
-  Phase 9:  颜色调整 (Vectra-like)
+  Phase 6:  星云细节增强 (HDR/Clarity)
+  Phase 7:  信号蒙版锐化 (Revela-like)
+  Phase 8:  颜色调整 (Vectra-like)
+  Phase 8b: 目标区域局部对比度和纹理增强
+  Phase 8c: 外部无星层正向结构增强 (需 --external-starless)
+  Phase 8d: 轻微缩星
 
   ── 最终阶段 ──
-  Phase 10: 星点合成 (StarComposer)
-  Phase 11: 最终降噪 (SCUNet, 必须最后执行)  ← 新增
-  Phase 12: 最终输出
+  Phase 9:  星点合成 (StarComposer)
+  Phase 9a: AI 风格定调 (非生成式 profile)
+  Phase 10: 最终降噪 (必须最后执行)
+  Phase 11: 参考图全局定调 (可选)
 
 流程依据 (Siril 2026 标准流程):
   - 去星在拉伸前: 线性数据上星点未膨胀，AI检测更精确
@@ -62,12 +67,24 @@ from fits_io import (
     read_capture_metadata,
     build_physical_priors,
 )
-from gradient_removal import remove_gradient
-from stretch import auto_stretch, arcsinh_stretch, masked_stretch, deep_stretch, apply_luminance_stretch
+from target_rules import (
+    is_star_poi_target,
+    is_emission_nebula_target,
+    is_reflection_nebula_target,
+    is_m42_target,
+    resolve_target_type,
+)
+from gradient_removal import (
+    remove_gradient,
+    normalize_background_subtracted,
+)
+from stretch import (auto_stretch, arcsinh_stretch, masked_stretch, deep_stretch,
+                     apply_luminance_stretch, is_stretch_collapsed)
 from denoise import denoise_luminance_chroma
 from sharpen import multiscale_sharpen, adaptive_signal_sharpen
 from star_tools import (separate_stars, reduce_stars, combine_starless_stars,
                         mild_star_reduce_full, detect_stars, estimate_fwhm)
+from stellar_recompose import is_stars_layer_empty
 from enhance import (hdr_multiscale_compress, protected_hdr_compress, apply_curves,
                      local_nebula_enhance, positive_starless_detail_enhance)
 from color_tools import (auto_color_calibrate, emission_nebula_calibrate,
@@ -110,7 +127,7 @@ STRENGTH_PRESETS = {
         'star_threshold': 0.88,
         'stretch_factor': 25.0,          # arcsinh factor (luminance-only)
         # 星点处理
-        'star_stretch_factor': 8.0,
+        'star_stretch_factor': 88.0,
         'star_scnr_strength': 0.15,
         'star_reduction': 0.2,
         'star_curves_midtones': 1.05,
@@ -131,7 +148,7 @@ STRENGTH_PRESETS = {
         'pre_denoise_chroma': 0.07,
         'star_threshold': 0.85,
         'stretch_factor': 45.0,
-        'star_stretch_factor': 12.0,
+        'star_stretch_factor': 132.0,
         'star_scnr_strength': 0.25,
         'star_reduction': 0.3,
         'star_curves_midtones': 1.1,
@@ -152,7 +169,7 @@ STRENGTH_PRESETS = {
         'star_threshold': 0.78,     # very_dense 星场降低阈值
         'stretch_factor': 120.0,
         'target_bg': 0.06,          # lower background for deeper space
-        'star_stretch_factor': 24.0,
+        'star_stretch_factor': 264.0,
         'star_scnr_strength': 0.0,  # 无绿噪
         'star_reduction': 0.40,     # very_dense 强缩星
         'star_curves_midtones': 1.1,
@@ -177,7 +194,7 @@ STRENGTH_PRESETS = {
         'star_threshold': 0.78,      # very_dense 星场降低阈值
         'stretch_factor': 120.0,
         'target_bg': 0.06,           # lower background
-        'star_stretch_factor': 18.0,
+        'star_stretch_factor': 198.0,
         'star_scnr_strength': 0.0,
         'star_reduction': 0.40,      # very_dense 星场强缩星
         'star_curves_midtones': 1.05,
@@ -199,7 +216,7 @@ STRENGTH_PRESETS = {
         'pre_denoise_chroma': 0.10,
         'star_threshold': 0.82,
         'stretch_factor': 80.0,
-        'star_stretch_factor': 18.0,
+        'star_stretch_factor': 198.0,
         'star_scnr_strength': 0.35,
         'star_reduction': 0.4,
         'star_curves_midtones': 1.2,
@@ -712,74 +729,33 @@ def build_config_from_analysis(report, base_preset='medium', target_type=None):
     return cfg
 
 
-def _is_star_poi_target(target_type, target_name):
-    """
-    判断目标是否为"星点即主体"类型，需要禁用去星/缩星。
-
-    包括：球状星团、疏散星团、M45 昴星团。
-    """
-    if target_type in ('globular_cluster', 'open_cluster'):
-        return True
-    if target_name:
-        name_upper = target_name.upper()
-        if name_upper in ('M45', 'PLEIADES', 'PLEIADES CLUSTER'):
-            return True
-    return False
-
-
-def _is_emission_nebula_target(target_type, target_name):
-    """判断目标是否为发射星云（包括 M42 等典型发射星云）。"""
-    if target_type == 'emission_nebula':
-        return True
-    if target_name:
-        name_upper = target_name.upper()
-        # 典型发射星云名称清单（可扩展）
-        emission_names = (
-            'M42', 'ORION NEBULA', 'NGC7000', 'NORTH AMERICA NEBULA',
-            'M16', 'EAGLE NEBULA', 'M8', 'LAGOON NEBULA', 'NGC2237',
-            'ROSETTE NEBULA', 'NGC6888', 'CRESCENT NEBULA',
-        )
-        if any(name in name_upper for name in emission_names):
-            return True
-    return False
-
-
-def _is_reflection_nebula_target(target_type, target_name):
-    """判断目标是否为反射星云。"""
-    if target_type == 'reflection_nebula':
-        return True
-    if target_name:
-        name_upper = target_name.upper()
-        reflection_names = (
-            'M45', 'PLEIADES', 'NGC7023', 'IRIS NEBULA',
-            'IC2118', 'WITCH HEAD NEBULA',
-        )
-        if any(name in name_upper for name in reflection_names):
-            return True
-    return False
-
-
-def _is_m42_target(target_name):
-    """判断是否为 M42 猎户座大星云（需要核心保护）。"""
-    if not target_name:
-        return False
-    name_upper = target_name.upper()
-    return name_upper in ('M42', 'ORION NEBULA', 'GREAT ORION NEBULA')
-
-
 def apply_target_aware_safety_rules(cfg, steps, target_type, target_name):
     """
     根据天体类型应用安全规则，修改 cfg 和 steps。
 
     这是将 references/target_awareness.md 中的领域知识落实到代码的关键函数。
     返回 (modified_cfg, modified_steps, safety_log)。
+
+    拉伸因子采用"单一归属"：优先级为 M42 > 发射星云 > 反射星云 > 暗星云，
+    由第一个命中的规则独占乘法，避免同一目标被连续缩放（历史上 M42 曾被
+    M42 规则 ×0.75 与发射星云规则 ×0.85 叠加成 ×0.6375）。
+    非拉伸调整（锐化/HDR/降噪/饱和）不受此约束，仍按规则叠加，因此 M42
+    在独占拉伸的同时依然获得发射星云的锐化 ×0.7 保护。
+    谓词实现见 target_rules 模块（名称统一经 normalize_target_name 规范化）。
     """
     cfg = dict(cfg)
     steps = list(steps)
     log = []
 
-    # ── 规则 1: 星点即主体 → 绝对禁止去星/缩星 ──
-    if _is_star_poi_target(target_type, target_name):
+    star_poi = is_star_poi_target(target_type, target_name)
+    m42 = is_m42_target(target_name)
+    emission = is_emission_nebula_target(target_type, target_name)
+    reflection = is_reflection_nebula_target(target_type, target_name)
+    resolved_type = resolve_target_type(target_type, target_name)
+    stretch_owned = False
+
+    # ── 规则 1: 星点即主体 → 绝对禁止去星/缩星，降噪与饱和保守 ──
+    if star_poi:
         banned = []
         for step in ('star_remove', 'star_reduce', 'star_process', 'star_combine'):
             if step in steps:
@@ -789,16 +765,27 @@ def apply_target_aware_safety_rules(cfg, steps, target_type, target_name):
             log.append(
                 f"🛡️ 星团安全: 禁用 {', '.join(banned)} — 星点即目标主体"
             )
-        # 球状星团降噪保守
+        # 降噪保守：亮度与色彩通道按同一比例收紧
+        # (analyze.py 中 chroma:lum 恒为 3:1)
         cfg['pre_denoise_lum'] = min(cfg.get('pre_denoise_lum', 0.02), 0.01)
         cfg['final_denoise_lum'] = min(cfg.get('final_denoise_lum', 0.015), 0.005)
-        log.append("🛡️ 星团安全: 降噪强度限制为保守级别")
+        cfg['pre_denoise_chroma'] = min(cfg.get('pre_denoise_chroma', 0.04), 0.03)
+        cfg['final_denoise_chroma'] = min(
+            cfg.get('final_denoise_chroma', 0.03), 0.015
+        )
+        log.append(
+            "🛡️ 星团安全: 降噪限制为保守级别 (L≤0.01/0.005, C≤0.03/0.015)"
+        )
+        # 饱和度微调：密集恒星主体不宜强化色彩
+        cfg['saturation'] = min(cfg.get('saturation', 1.2), 1.25)
+        log.append("🛡️ 星团安全: 饱和度上限 1.25")
 
-    # ── 规则 2: M42 核心保护 ──
-    if _is_m42_target(target_name):
+    # ── 规则 2: M42 核心保护（拉伸优先级最高，独占拉伸乘法）──
+    if m42:
         # 降低拉伸因子防止核心过曝
         old_stretch = cfg.get('stretch_factor', 45.0)
         cfg['stretch_factor'] = old_stretch * 0.75
+        stretch_owned = True
         cfg['hdr_strength'] = min(cfg.get('hdr_strength', 0.35) + 0.15, 0.7)
         cfg['target_bg'] = max(cfg.get('target_bg', 0.08), 0.10)
         log.append(
@@ -807,15 +794,17 @@ def apply_target_aware_safety_rules(cfg, steps, target_type, target_name):
         )
 
     # ── 规则 3: 发射星云参数修正 ──
-    if _is_emission_nebula_target(target_type, target_name):
-        # 发射星云拉伸保守
-        old_stretch = cfg.get('stretch_factor', 45.0)
-        if old_stretch > 30:
-            cfg['stretch_factor'] = old_stretch * 0.85
-            log.append(
-                f"🛡️ 发射星云: stretch {old_stretch:.1f}→{cfg['stretch_factor']:.1f} (×0.85)"
-            )
-        # 锐化保守
+    if emission:
+        # 发射星云拉伸保守；若更高优先级规则已接管拉伸则让位
+        if not stretch_owned:
+            old_stretch = cfg.get('stretch_factor', 45.0)
+            if old_stretch > 30:
+                cfg['stretch_factor'] = old_stretch * 0.85
+                stretch_owned = True
+                log.append(
+                    f"🛡️ 发射星云: stretch {old_stretch:.1f}→{cfg['stretch_factor']:.1f} (×0.85)"
+                )
+        # 锐化保守（M42 同样保留此项）
         old_sharpen = cfg.get('sharpen_amount', 1.3)
         if old_sharpen > 0.7:
             cfg['sharpen_amount'] = old_sharpen * 0.7
@@ -831,9 +820,11 @@ def apply_target_aware_safety_rules(cfg, steps, target_type, target_name):
             )
 
     # ── 规则 4: 反射星云参数修正 ──
-    if _is_reflection_nebula_target(target_type, target_name):
+    if reflection:
         old_stretch = cfg.get('stretch_factor', 45.0)
-        cfg['stretch_factor'] = old_stretch * 1.20
+        if not stretch_owned:
+            cfg['stretch_factor'] = old_stretch * 1.20
+            stretch_owned = True
         cfg['hdr_strength'] = max(cfg.get('hdr_strength', 0.5) - 0.1, 0.15)
         # 降噪稍强（暗弱信号噪声高）
         cfg['pre_denoise_lum'] = min(cfg.get('pre_denoise_lum', 0.02) * 1.15, 0.06)
@@ -843,7 +834,7 @@ def apply_target_aware_safety_rules(cfg, steps, target_type, target_name):
         )
 
     # ── 规则 5: 星系参数修正 ──
-    if target_type == 'galaxy':
+    if resolved_type == 'galaxy':
         old_hdr = cfg.get('hdr_strength', 0.5)
         cfg['hdr_strength'] = min(old_hdr + 0.15, 0.75)
         old_sharpen = cfg.get('sharpen_amount', 1.3)
@@ -855,7 +846,7 @@ def apply_target_aware_safety_rules(cfg, steps, target_type, target_name):
         )
 
     # ── 规则 6: 行星状星云 ──
-    if target_type == 'planetary_nebula':
+    if resolved_type == 'planetary_nebula':
         old_hdr = cfg.get('hdr_strength', 0.5)
         cfg['hdr_strength'] = min(old_hdr + 0.15, 0.8)
         old_sharpen = cfg.get('sharpen_amount', 1.3)
@@ -864,10 +855,11 @@ def apply_target_aware_safety_rules(cfg, steps, target_type, target_name):
             f"🛡️ 行星状星云: HDR+0.15, sharpen 增强"
         )
 
-    # ── 规则 7: 暗星云 ──
-    if target_type == 'dark_nebula':
+    # ── 规则 7: 暗星云（拉伸优先级最低，仅在无人接管时生效）──
+    if resolved_type == 'dark_nebula' and not stretch_owned:
         old_stretch = cfg.get('stretch_factor', 45.0)
         cfg['stretch_factor'] = old_stretch * 1.15
+        stretch_owned = True
         log.append(
             f"🛡️ 暗星云: stretch {old_stretch:.1f}→{cfg['stretch_factor']:.1f} (+15%) "
             f"— 提亮背景以剪影方式呈现暗结构"
@@ -1185,6 +1177,9 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     hdr_report = None
     sharpen_report = None
     reference_grade_report = None
+    stretch_recovery = None
+    star_layer_empty = False
+    star_combine_skipped = None
     external_starless_linear = None
     if external_full is not None:
         external_starless_linear = external_full
@@ -1248,17 +1243,18 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             current, method=dbe_method,
             degree=dbe_degree if dbe_degree else 2
         )
-        current = np.clip(current, 0, None)
-        # 百分位归一化：避免单通道热像素主导归一化
-        p_low = np.percentile(current[current > 0], cfg['dbe_pctl_low']) if np.any(current > 0) else 0
-        p_high = np.percentile(current, cfg['dbe_pctl_high'])
-        span = p_high - p_low
-        if span > 1e-8:
-            current = np.clip((current - p_low) / span, 0, 1)
-        elif current.max() > 0:
-            current = current / current.max()
+
+        # ── 归一化 ──
+        # 黑点取背景稳健中心、白点锚定真实峰值、并保留 pedestal。
+        # 细节与踩过的坑见 normalize_background_subtracted 的 docstring。
+        current = normalize_background_subtracted(
+            current, pctl_high=cfg['dbe_pctl_high']
+        )
         save_current('01_dbe.tif')
-        print(f"  ✓ 光害梯度已去除 (归一化: p{cfg['dbe_pctl_low']}→p{cfg['dbe_pctl_high']})")
+        # 注意：黑点已改为背景稳健中心、白点锚定峰值，不再使用 dbe_pctl_low /
+        # dbe_pctl_high 作为黑/白点（dbe_pctl_high 仅作为白点的下界保留）。
+        print(f"  ✓ 光害梯度已去除 (归一化: 黑点=背景中心, 白点=峰值, "
+              f"p{cfg['dbe_pctl_high']} 为白点下界)")
 
         # CP1: DBE 后强制四角均匀度检查
         _gray_dbe = np.mean(current, axis=2) if current.ndim == 3 else current
@@ -1285,9 +1281,14 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     )
     dark_median = float(np.median(gray))
     dark_p99 = float(np.percentile(gray, 99.0))
+    dark_peak = float(np.max(gray))
     nonzero_fraction = float(np.mean(gray > 0))
+    # 峰值低才是"欠曝"的本质特征。仅看中位数/p99 会把高动态范围天体误判成
+    # 极暗数据：线性数据归一化到峰值后，亮核很小的星系（如 M31）在分位上
+    # 确实很低（p99≈0.011），但峰值接近 1.0，说明曝光充分、只是动态范围大。
     is_very_dark = (
         nonzero_fraction >= 0.05
+        and dark_peak < 0.5
         and (
             (dark_median < 0.001 and dark_p99 < 0.02)
             or (dark_median < 0.01 and dark_p99 < 0.08)
@@ -1315,9 +1316,11 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             current = remove_green_noise(current, strength=0.12)
             print("  ✓ 仅轻绿噪去除(0.12)")
         else:
-            print("\n[Phase 2] 颜色校准 (PCC-like)...")
-            current = auto_color_calibrate(current)
-            print("  ✓ 背景中性化 + 白平衡 + 绿噪去除")
+            print("\n[Phase 2] 颜色校准 (加性黑点 + 星采样白平衡)...")
+            current, color_calibration_report = auto_color_calibrate(
+                current, return_report=True
+            )
+            print("  ✓ 背景中性化(加性) + 星采样白平衡 + 绿噪去除")
         save_current('02_color.tif')
 
     # Phase 3: 初步降噪 (线性数据)
@@ -1400,6 +1403,9 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 )
         save_artifact('04_starless_linear.tif', starless)
         save_artifact('04_stars_linear.tif', stars)
+        star_layer_empty = bool(stars is None or is_stars_layer_empty(stars))
+        if star_layer_empty:
+            print("  ⚠️ 星点层为空（去星回退），后续星点合成将显式跳过")
         try:
             gray_linear = np.mean(current[..., :3], axis=2) if current.ndim == 3 else current
             fwhm_est = 4.0
@@ -1421,6 +1427,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     # Phase 5: 拉伸 (线性→非线性, 对去星图像)
     stretch_target = starless if starless is not None else current
     if 'stretch' in steps:
+        _pre_stretch_input = stretch_target.copy()
         # 1. 自适应确定拉伸方法
         effective_method = stretch_method
         if effective_method == 'auto':
@@ -1502,7 +1509,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             sp_val = cfg.get('ghs_sp', -1)
             b_val = resolve_ghs_b(cfg)
             prot_val = cfg.get('ghs_protect_strength', 0.5)
-            if target_name and 'M42' in str(target_name).upper():
+            if is_m42_target(target_name):
                 prot_val = max(prot_val, 0.75)
             stretch_target = apply_luminance_stretch(
                 stretch_target,
@@ -1536,6 +1543,39 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 **method_kwargs
             )
             print(f"  ✓ {effective_method} stretch kwargs={method_kwargs}")
+
+        # 3. 塌缩守卫：拉伸应当展宽色调范围。若输出被挤进一条很窄的亮度带，
+        #    或核心/背景对比度被压塌，说明该方法在当前数据上失准（常见于
+        #    黑点估计被极亮核心带偏），退回到保守的 masked 拉伸重试。
+        collapsed, pre_health, post_health = is_stretch_collapsed(
+            _pre_stretch_input, stretch_target
+        )
+        if collapsed:
+            print(
+                f"  ⚠️ 检测到拉伸塌缩: span={post_health['span']:.4f} "
+                f"core_ratio={post_health['core_ratio']:.2f} "
+                f"(拉伸前 core_ratio={pre_health['core_ratio']:.2f})，改用保守 masked 拉伸"
+            )
+            recovered = apply_luminance_stretch(
+                _pre_stretch_input,
+                method='masked',
+                factor=cfg['stretch_factor'],
+                target_bg=cfg.get('target_bg', 0.08),
+            )
+            still_collapsed, _, recovered_health = is_stretch_collapsed(
+                _pre_stretch_input, recovered
+            )
+            if not still_collapsed:
+                stretch_target = recovered
+                resolved_stretch_method = 'masked'
+                stretch_recovery = 'masked'
+                print(
+                    f"  ✓ 已恢复: span={recovered_health['span']:.4f} "
+                    f"core_ratio={recovered_health['core_ratio']:.2f}"
+                )
+            else:
+                stretch_recovery = 'failed'
+                print("  ⚠️ 保守 masked 拉伸仍塌缩，保留原输出并标记 stretch_recovery=failed")
 
         current = stretch_target
         save_current('05_stretched_starless.tif')
@@ -1740,9 +1780,10 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         save_current('08_color.tif')
         print("  ✓ 背景保护曲线完成")
 
-    # Phase 8b: 中央眉月星云局部对比度和纹理增强
+    # Phase 8b: 目标区域局部对比度和纹理增强
     if 'local_enhance' in steps:
-        print("\n[Phase 8b] 中央眉月星云局部对比度和纹理增强...")
+        target_label = target_name or effective_target_type or '目标区域'
+        print(f"\n[Phase 8b] {target_label} 局部对比度和纹理增强...")
         parsed_center = (
             parse_point(local_center) if isinstance(local_center, str)
             else local_center
@@ -1809,7 +1850,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         save_current('08c_external_detail.tif')
         print(f"  ✓ 仅正向细节 strength={external_detail_strength}")
 
-    # Phase 8c: 轻微缩星并恢复蓝白星色
+    # Phase 8d: 轻微缩星并恢复蓝白星色
     if 'star_reduce' in steps:
         print("\n[Phase 8d] 轻微缩星...")
         if linear_star_mask_val is None:
@@ -1835,7 +1876,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     # ══════════════════════════════════════════════════════════════
 
     # Phase 9: 星点合成 (StarComposer)
-    if 'star_combine' in steps and processed_stars is not None:
+    if 'star_combine' in steps and processed_stars is not None and not star_layer_empty:
         print("\n─ 最终阶段 ─")
         print("[Phase 9] 星点合成 (StarComposer)...")
         current = combine_starless_stars(
@@ -1845,6 +1886,13 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         save_current('09_star_combined.tif')
         print(f"  ✓ 星点强度={cfg['star_combine_strength']}")
     else:
+        if 'star_combine' in steps and star_layer_empty:
+            star_combine_skipped = {
+                "reason": "empty_stars_layer",
+                "detail": "星点层全零（去星回退），合成会是空操作，已显式跳过",
+            }
+            print("\n─ 最终阶段 ─")
+            print("[Phase 9] 跳过星点合成：星点层为空（记录原因，不做静默空操作）")
         current = current_nl
 
     if 'style' in steps:
@@ -1977,6 +2025,16 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 "等待 AI 或人工视觉审查回填"
             ),
         })
+    if stretch_recovery == 'failed':
+        warnings.append({
+            "code": "STRETCH_COLLAPSE",
+            "message": "拉伸输出色调范围异常收窄且保守回退无效，需人工检查黑点/白点设置",
+        })
+    if star_combine_skipped is not None:
+        warnings.append({
+            "code": "STAR_COMBINE_SKIPPED",
+            "message": star_combine_skipped["detail"],
+        })
     status = quality_status
     if recognize and not recognition_ok and status == "success":
         status = "partial_success"
@@ -2016,6 +2074,8 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         "hdr": hdr_report,
         "sharpen": sharpen_report,
         "memory": memory_report,
+        "stretch_recovery": stretch_recovery,
+        "star_combine_skipped": star_combine_skipped,
         "star_removal": (
             star_report if 'star_report' in locals() else None
         ),
@@ -2061,6 +2121,8 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 'hdr': hdr_report,
                 'sharpen': sharpen_report,
                 'memory': memory_report,
+                'stretch_recovery': stretch_recovery,
+                'star_combine_skipped': star_combine_skipped,
                 'star_removal': (
                     star_report if 'star_report' in locals() else None
                 ),

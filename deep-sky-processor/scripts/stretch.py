@@ -448,6 +448,41 @@ def masked_ghs_stretch(image, sp=0.01, b=8.0, protect_strength=0.5,
     return np.clip(result, 0, 1)
 
 
+def luminance_range_health(image):
+    """Summarise the tonal distribution used to judge whether a stretch worked."""
+    gray = np.asarray(image, dtype=np.float32)
+    if gray.ndim == 3:
+        gray = np.mean(gray, axis=2)
+    p50 = float(np.median(gray))
+    p99 = float(np.percentile(gray, 99.0))
+    p999 = float(np.percentile(gray, 99.9))
+    return {
+        'p50': p50,
+        'p99': p99,
+        'p999': p999,
+        'span': p99 - p50,
+        'core_ratio': p999 / max(p50, 1e-9),
+    }
+
+
+def is_stretch_collapsed(before, after, min_span=0.02, min_core_frac=0.5):
+    """Detect a stretch that compressed the tonal range instead of expanding it.
+
+    病态输出（例如 masked_ghs 在黑点估计失准时）会把几乎所有像素挤进一条很窄的
+    亮度带里 —— 用 `p99 - p50` 判断最直接。
+
+    注意 core_ratio = p999/p50 只在 p50 明显为正时才有意义：线性深空图的背景
+    常被 DBE clip 到 0，此时 p50≈1e-3，比值被 epsilon 主导（实测拉伸前算出
+    574，拉伸后 8.9），照此判定会误报。因此仅在参考 p50 足够大时才启用该判据。
+    """
+    hb = luminance_range_health(before)
+    ha = luminance_range_health(after)
+    collapsed = ha['span'] < max(min_span, hb['span'] * 0.25)
+    if not collapsed and hb['p50'] > 0.01:
+        collapsed = ha['core_ratio'] < hb['core_ratio'] * min_core_frac
+    return bool(collapsed), hb, ha
+
+
 def apply_luminance_stretch(image, method='arcsinh', **kwargs):
     """
     亮度通道拉伸，保留原始色彩比例。
@@ -502,9 +537,15 @@ def apply_luminance_stretch(image, method='arcsinh', **kwargs):
 
     L_stretched = stretch_func(L, **kwargs)
 
-    lab[..., 0] = np.clip(L_stretched * 100.0, 0, 100)
-    result = lab2rgb(lab)
-    return np.clip(result, 0, 1)
+    # 用亮度增益作用于 RGB，逐像素精确保留通道比例。
+    #
+    # 不能只替换 Lab 的 L 通道：Lab 的 a/b 是**绝对**色度，亮度抬高后色度不变
+    # 等于稀释饱和度。实测核心像素 (0.295,0.260,0.242) 的 L 从 28.9 拉伸到 86.5、
+    # a/b 原样保留后，R/G 从 1.137 掉到 1.055；整幅 M31 的核心 R/G 由 1.49
+    # 塌到 1.02，画面变成灰调。按增益缩放 RGB 则与参考实现一致，色彩比例不变。
+    gain = L_stretched / np.maximum(L, 1e-6)
+    result = image * gain[..., None]
+    return np.clip(result, 0, 1).astype(np.float32)
 
 
 def main():

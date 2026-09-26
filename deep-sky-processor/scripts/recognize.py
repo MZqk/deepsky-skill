@@ -399,7 +399,10 @@ def analyze_starfield(gray):
         positive = response[response > 0]
         if positive.size < 5:
             return {"count": 0, "density": "sparse", "coverage": 0.0, "density_per_mpix": 0.0}
-        threshold = max(float(np.percentile(positive, 85)), 0.02)
+        # 噪声相对阈值（median + 3·MAD），替代会随归一化方式失效的绝对下限 0.02
+        _med = float(np.median(positive))
+        _mad = float(np.median(np.abs(positive - _med))) * 1.4826
+        threshold = max(float(np.percentile(positive, 85)), _med + 3.0 * max(_mad, 1e-9))
         mask = binary_dilation(response > threshold, structure=disk(1))
         _labeled, count = cc_label(mask)
         coverage = float(np.mean(mask))

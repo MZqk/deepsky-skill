@@ -355,17 +355,20 @@ def _read_fits(filepath, force_linear=False):
     读取 FITS 文件，返回 float32 数组、header 和缩放信息。
 
     归一化策略（force_linear=False 时）：
-      1. 应用 BSCALE/BZERO 标定
+      1. BSCALE/BZERO 由 astropy 在 fits.open() 阶段按 FITS 标准自动应用
       2. 取数据绝对值最大值作为 scale
       3. data = data / scale（保留负值，不做截断）
 
     与旧版不同：
       - 不再使用 p0.1-p99.9 百分位裁剪，避免丢失原始线性范围和测光信息
+      - 不再手动叠加 BSCALE/BZERO（会导致 BZERO 被应用两次）
       - 返回 scale_info，供输出时恢复原始范围
     """
     from astropy.io import fits
 
-    hdul = fits.open(filepath, memmap=False)
+    # do_not_scale_image_data=False 显式钉住"astropy 负责应用 BSCALE/BZERO"
+    # 这一不变量；若改为 True，下方的归一化会读到未标定的原始整数。
+    hdul = fits.open(filepath, memmap=False, do_not_scale_image_data=False)
 
     # 查找包含图像数据的 HDU
     data = None
@@ -385,14 +388,19 @@ def _read_fits(filepath, force_linear=False):
 
     print(f"[FITS] HDU#{target_hdu}  shape={data.shape}  dtype={data.dtype}")
 
-    # BSCALE/BZERO 标定 (现代文件通常 BSCALE=1, BZERO=0)
+    # BSCALE/BZERO 已在 fits.open() 阶段由 astropy 按 FITS 标准自动应用，
+    # 包括 BZERO=2**(BITPIX-1) 的伪无符号 uint16 约定（BZERO=32768）。
+    # 这里只读取 header 原值用于溯源，绝不能再叠加一次 —— 否则 BZERO 被应用两次，
+    # 会给整幅图加一个 50% 量程的亮底座并压缩有效对比度。
     bscale = float(header.get('BSCALE', 1.0))
     bzero = float(header.get('BZERO', 0.0))
     if bscale != 1.0 or bzero != 0.0:
-        print(f"[FITS] Applying BSCALE={bscale} BZERO={bzero}")
-        data = data.astype(np.float64) * bscale + bzero
+        print(
+            f"[FITS] header BSCALE={bscale} BZERO={bzero} "
+            f"已由 astropy 自动应用（仅记录，不重复叠加）"
+        )
 
-    # 记录原始统计（在 NaN 处理前）
+    # 记录原始统计（在 NaN 处理前；此处已是标定后的物理量级）
     data_min = float(np.min(data))
     data_max = float(np.max(data))
     data_absmax = max(abs(data_min), abs(data_max), 1e-12)
@@ -564,40 +572,13 @@ def normalize_target_name(name):
         return ""
     name = str(name).strip()
 
-    # 常见俗名到标准星表编号的映射
-    synonyms = {
-        "ORION NEBULA": "M42",
-        "ORION_NEBULA": "M42",
-        "ANDROMEDA GALAXY": "M31",
-        "ANDROMEDA_GALAXY": "M31",
-        "TRIANGULUM GALAXY": "M33",
-        "TRIANGULUM_GALAXY": "M33",
-        "WHIRLPOOL GALAXY": "M51",
-        "WHIRLPOOL_GALAXY": "M51",
-        "EAGLE NEBULA": "M16",
-        "EAGLE_NEBULA": "M16",
-        "CRAB NEBULA": "M1",
-        "CRAB_NEBULA": "M1",
-        "LAGOON NEBULA": "M8",
-        "LAGOON_NEBULA": "M8",
-        "DUMBBELL NEBULA": "M27",
-        "DUMBBELL_NEBULA": "M27",
-        "RING NEBULA": "M57",
-        "RING_NEBULA": "M57",
-        "PLEIADES": "M45",
-        "NORTH AMERICA NEBULA": "NGC7000",
-        "NORTH_AMERICA_NEBULA": "NGC7000",
-        "IRIS NEBULA": "NGC7023",
-        "IRIS_NEBULA": "NGC7023",
-        "CRESCENT NEBULA": "NGC6888",
-        "CRESCENT_NEBULA": "NGC6888",
-        "HORSEHEAD NEBULA": "IC434",
-        "HORSEHEAD_NEBULA": "IC434",
-    }
-
     upper_name = name.upper()
-    if upper_name in synonyms:
-        return synonyms[upper_name]
+    # 1) 显式俗名表优先（可覆盖自动派生表中的歧义项）
+    if upper_name in TARGET_NAME_SYNONYMS:
+        return TARGET_NAME_SYNONYMS[upper_name]
+    # 2) 由 LOCAL_CELESTIAL_DB 标准名派生的反向表
+    if upper_name in DERIVED_TARGET_SYNONYMS:
+        return DERIVED_TARGET_SYNONYMS[upper_name]
 
     # 去除非标准分隔符并提取 M/NGC/IC/B/LDN/SH2 编号
     pattern = re.compile(r'^(M|NGC|IC|B|LDN|SH2|CED|SH-2|VDB)\s*[-_]?\s*(\d+)$', re.IGNORECASE)
@@ -698,6 +679,56 @@ LOCAL_CELESTIAL_DB = {
     "B33": ("dark_nebula", "Horsehead Nebula"),
     "B142": ("dark_nebula", "Barnard's E"),
     "LDN1622": ("dark_nebula", "Boogeyman Nebula"),
+}
+
+# 显式俗名 -> 星表编号。优先于自动派生表，用于消解 LOCAL_CELESTIAL_DB 中的
+# 歧义（例如 IC434 与 B33 的标准名同为 "Horsehead Nebula"，此处钉到 IC434），
+# 以及收录不在库中的常用别称（如 "GREAT ORION NEBULA"、"PLEIADES CLUSTER"）。
+TARGET_NAME_SYNONYMS = {
+    "ORION NEBULA": "M42",
+    "ORION_NEBULA": "M42",
+    "GREAT ORION NEBULA": "M42",
+    "GREAT_ORION_NEBULA": "M42",
+    "ANDROMEDA GALAXY": "M31",
+    "ANDROMEDA_GALAXY": "M31",
+    "TRIANGULUM GALAXY": "M33",
+    "TRIANGULUM_GALAXY": "M33",
+    "WHIRLPOOL GALAXY": "M51",
+    "WHIRLPOOL_GALAXY": "M51",
+    "EAGLE NEBULA": "M16",
+    "EAGLE_NEBULA": "M16",
+    "CRAB NEBULA": "M1",
+    "CRAB_NEBULA": "M1",
+    "LAGOON NEBULA": "M8",
+    "LAGOON_NEBULA": "M8",
+    "DUMBBELL NEBULA": "M27",
+    "DUMBBELL_NEBULA": "M27",
+    "RING NEBULA": "M57",
+    "RING_NEBULA": "M57",
+    "PLEIADES": "M45",
+    "PLEIADES CLUSTER": "M45",
+    "PLEIADES_CLUSTER": "M45",
+    "ROSETTE NEBULA": "NGC2237",
+    "ROSETTE_NEBULA": "NGC2237",
+    "WITCH HEAD NEBULA": "IC2118",
+    "WITCH_HEAD_NEBULA": "IC2118",
+    "NORTH AMERICA NEBULA": "NGC7000",
+    "NORTH_AMERICA_NEBULA": "NGC7000",
+    "IRIS NEBULA": "NGC7023",
+    "IRIS_NEBULA": "NGC7023",
+    "CRESCENT NEBULA": "NGC6888",
+    "CRESCENT_NEBULA": "NGC6888",
+    "HORSEHEAD NEBULA": "IC434",
+    "HORSEHEAD_NEBULA": "IC434",
+}
+
+# 由 LOCAL_CELESTIAL_DB 的标准名自动派生，保证库中每个天体的俗名都能解析回
+# 其星表编号（如 "Rosette Nebula" -> NGC2237、"Witch Head Nebula" -> IC2118）。
+# 显式表 TARGET_NAME_SYNONYMS 优先，故已在其中的条目此处不再重复收录。
+DERIVED_TARGET_SYNONYMS = {
+    standard_name.upper(): catalog_id
+    for catalog_id, (_target_type, standard_name) in LOCAL_CELESTIAL_DB.items()
+    if standard_name.upper() not in TARGET_NAME_SYNONYMS
 }
 
 # Simbad 类别标识到标准目标类型的映射

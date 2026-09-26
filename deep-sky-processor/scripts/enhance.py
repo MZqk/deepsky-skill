@@ -206,7 +206,7 @@ def local_contrast_enhance(image, radius=20, strength=0.3):
 def local_nebula_enhance(image, center_y, center_x, radius=500, strength=0.25,
                          star_mask=None):
     """
-    对指定区域（如眉月星云中央）做局部对比度和纹理增强。
+    对指定区域（如目标星云中央）做局部对比度和纹理增强。
 
     原理：
       1. 创建以 (center_x, center_y) 为中心的径向软蒙版

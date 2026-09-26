@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: deep-sky-processor
-  version: "0.1.1"
+  version: "0.1.9"
   displayName: Deep Sky Processor
   summary: 在真实性约束和分阶段审查下处理深空图像，交付自然版与增强版成片。
   tags: [astronomy, astrophotography, image-processing, fits]
@@ -238,15 +238,19 @@ AI 自动风格选择规则（`--style auto` 时）：
 
 | 目标类型 | 自动规则 |
 |---|---|
-| 球状星团 / 疏散星团 | 自动禁用 `star_remove`、`star_reduce`、`star_process`；降噪限制为保守级别 |
-| M45 昴星团 | 同上（星点即主体，禁止去星/缩星） |
-| M42 猎户座大星云 | 拉伸 ×0.75、HDR +0.15、target_bg ≥0.10，防止核心过曝 |
-| 发射星云 | 拉伸 ×0.85、锐化 ×0.7、HDR 若过低则 +0.1 |
+| 球状星团 / 疏散星团 | 自动禁用 `star_remove`、`star_reduce`、`star_process`、`star_combine`；降噪限制为保守级别（亮度 ≤0.01/0.005，色彩 ≤0.03/0.015）；饱和度上限 1.25 |
+| M45 昴星团 | 同上（星点即主体，禁止去星/缩星），另保留反射星云的拉伸/HDR 调校 |
+| M42 猎户座大星云 | 拉伸 ×0.75（**独占**，不再叠加发射星云的 ×0.85）、HDR +0.15、target_bg ≥0.10；锐化 ×0.7 仍生效 |
+| 发射星云（非 M42） | 拉伸 ×0.85、锐化 ×0.7、HDR 若过低则 +0.1 |
 | 反射星云 | 拉伸 +20%、HDR -0.1、降噪 +15% |
 | 星系 | HDR +0.15、锐化增强 |
 | 行星状星云 | HDR +0.15、锐化增强 |
 | 暗星云 | 拉伸 +15% |
 | 发射星云 + 无梯度 | 自动跳过 DBE（诊断报告驱动） |
+
+拉伸因子采用**单一归属**：优先级为 M42 > 发射星云 > 反射星云 > 暗星云，只乘一次；非拉伸修正（锐化/HDR/降噪/饱和）仍按规则叠加。
+
+名称判定统一走 `scripts/target_rules.py`，唯一事实源为 `fits_io.LOCAL_CELESTIAL_DB`，因此 `M 42`、`NGC 6888`、`ngc-6888`、`Crescent Nebula` 等价，且为精确匹配（`M8` 不会误匹配 `M81`）。只给 `--target-name` 也能激活星系/行星状/暗星云规则。
 
 ### Round 3: 审查和定稿
 
@@ -440,10 +444,24 @@ python scripts/star_tools.py separate input.jpg starless.tif --legacy
 - 原始线性范围和测光信息丢失
 
 **新版行为**：
-- 应用 BSCALE/BZERO 标定后，使用绝对值最大值归一化：`data = data / max(|min|, |max|)`
+- BSCALE/BZERO 由 astropy 在 `fits.open()` 阶段按 FITS 标准自动应用（含 `BZERO=2**(BITPIX-1)` 的伪无符号 uint16 约定），**管线不再手动叠加**；header 原值仅记录在 `scale_info`/`meta` 中供溯源
+- 使用绝对值最大值归一化：`data = data / max(|min|, |max|)`
 - 保留负值（噪声可以有负值）
 - 完整动态范围进入管线，不做任何截断
 - 归一化因子 `data_scale` 记录在 meta 中，供输出时恢复
+
+### DBE 阶段的归一化（v0.1.5 起）
+
+黑点取**背景稳健中心**（逐通道 DBE 后背景以 0 为中心、噪声对称），
+白点**锚定真实峰值**，并保留一个 3σ 的 pedestal 让背景噪声完整通过。
+
+- 旧的 `p99.7` 白点对「亮核很小、暗晕很大」的天体是灾难：该分位落在很暗的外缘
+  （实测 M31 的 p99.7 比峰值低 36.6 倍），等于把整幅图放大 ~37 倍 ——
+  噪声被放大到与星点可比，星点检测会把噪声当成星。
+- 旧的黑点是「正值像素的 p0.3」，等于在 `clip(0)` 之后再抬一次黑位，
+  会把噪声底整个裁掉（实测 28~44% 画面变纯 0）。
+- 配置项 `dbe_pctl_low` 已不再作为黑点使用（保留仅为兼容既有配置）；
+  `dbe_pctl_high` 仅作为白点的下界保留。
 
 ### 输出：float32 替代 uint16
 旧版将 `[0,1]` float 乘以 65535 转 uint16，导致：

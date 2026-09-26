@@ -31,6 +31,17 @@ def validate_stars_layer(stars):
     }
 
 
+def is_stars_layer_empty(stars, min_signal=1e-6):
+    """Return True when the star layer carries no signal at all.
+
+    去星失败回退时管线会产出一个全零的星点层。它仍然通过 validate_stars_layer
+    （全零层 background=0、nonzero=0），于是下游合成变成静默的空操作。
+    这里显式识别这种情况，让调用方可以记录原因而不是假装做了合成。
+    """
+    source = ensure_rgb_float32(stars)
+    return bool(float(np.max(np.abs(source))) <= float(min_signal))
+
+
 def process_stars_layer(stars, params):
     validation = validate_stars_layer(stars)
     layer = ensure_rgb_float32(stars)

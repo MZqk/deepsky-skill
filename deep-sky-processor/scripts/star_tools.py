@@ -42,6 +42,14 @@ except ImportError:
     warnings.warn("OpenCV 不可用，星点修复将回退到高斯模糊", RuntimeWarning)
 
 
+# ── 星点检测阈值常量 ──
+# 全部锚定"背景噪声"，**绝不锚定画面里最亮的星**：
+# 一旦锚定最亮星，检测结果就取决于画面里最亮的那个天体（如 M31 的核），
+# 暗星会被整体滤掉。详见 detect_stars_multiscale 内的注释。
+_DETECT_TOPHAT_SIGMA_MULTIPLIER = 7.0  # × 背景 tophat 正值部分的稳健噪声水平
+_DETECT_PEAK_SIGMAS = 5.0              # 峰值下限 = background + 5σ
+
+
 # ══════════════════════════════════════════════════════════════
 # FWHM 估计
 # ══════════════════════════════════════════════════════════════
@@ -225,11 +233,12 @@ def _analyze_connected_components(labeled, image_gray, fwhm, star_threshold):
     min_area = max(1, int(np.pi * (0.3 * fwhm) ** 2))
     max_area = int(np.pi * (4.0 * fwhm) ** 2)
     background = float(np.percentile(image_gray, 50.0))
-    bright_reference = float(np.percentile(image_gray, 99.9))
-    abs_peak_thresh = background + (
-        max(bright_reference - background, 1e-8)
-        * float(star_threshold) * 0.18
-    )
+    # 峰值阈值同样必须锚定噪声，不能锚定画面里最亮的东西。
+    # 旧式 `background + (p99.9 - background) * star_threshold * 0.18` 在 M31 上
+    # 算出 0.0114，而全图 p99 只有 0.0111 —— 等于只放行最亮 ~1% 的像素，
+    # 暗星全被判成 noise。
+    noise = _robust_noise_scale(image_gray)
+    abs_peak_thresh = background + _DETECT_PEAK_SIGMAS * max(noise, 1e-9)
 
     kept_mask = np.zeros((h, w), dtype=bool)
     components = []
@@ -435,26 +444,36 @@ def detect_stars_multiscale(image, fwhm=None, star_threshold=0.85,
     # 2. 多尺度 Top-hat 检测
     scale_results = _multiscale_tophat(img_gray, fwhm, n_scales=n_scales)
 
+    # 用图像自身的暗区估计各尺度 tophat 的**噪声水平**，作为唯一阈值基准。
+    #
+    # 旧实现用 `max(median + 4·MAD of positive, min(p97 of positive, 0.85·factor·max))`：
+    # 三项全是**相对画面内容**的统计量 ——
+    #   · `p97 of positive` 在稀疏星场里几乎等于最大值（合成测试里只剩 1 颗星被检出）
+    #   · `0.85·factor·max` 直接锚定最亮星，M31 上算出 0.0985，
+    #     把 3.12% 的候选集压到 0.044%（检出 115 个，真实约 1985 个）
+    # 只要阈值锚定"画面里有什么"，检测结果就取决于最亮的那个天体。
+    # 改为在背景掩膜内取 median + 4·MAD：无噪声的合成图会得到 ≈0（全部星点通过），
+    # 真实星场则得到与噪声成正比的稳健阈值。
+    background_mask = img_gray <= np.percentile(img_gray, 30.0)
+    if int(np.count_nonzero(background_mask)) < 100:
+        background_mask = np.ones_like(img_gray, dtype=bool)
+
     combined_response = np.zeros((h, w), dtype=np.float32)
     for scale_idx, tophat, radius in scale_results:
-        # 阈值：每个尺度使用略微不同的阈值
-        # 小星（scale 0）阈值更严格，大星/星芒（scale 3）更宽松
+        # 大尺度（星芒）略放宽，小尺度（暗星）略收紧
         scale_thresh_factor = max(0.62, 1.0 - scale_idx * 0.11)
-        positive = tophat[tophat > 0]
-        if positive.size:
+        background_values = tophat[background_mask]
+        # 只用正值部分估噪声：white_tophat 恒非负，且对纯噪声**大多数像素恰好为 0**
+        # （opening 取局部极大，必然 ≥ 原值），因此对含零的整段取 median/MAD 会
+        # 直接塌成 0 —— 合成测试图上阈值归零，整幅图连成一个连通域。
+        positive = background_values[background_values > 0]
+        if positive.size >= 50:
             median = float(np.median(positive))
             mad = float(np.median(np.abs(positive - median))) * 1.4826
-            robust_threshold = median + 4.0 * max(mad, 1e-9)
-            percentile_threshold = float(np.percentile(positive, 97.0))
+            noise_level = median + 4.0 * max(mad, 1e-9)
         else:
-            robust_threshold = percentile_threshold = 0.0
-        relative_threshold = (
-            float(star_threshold) * scale_thresh_factor * float(tophat.max())
-        )
-        th_abs = max(
-            robust_threshold,
-            min(percentile_threshold, relative_threshold),
-        )
+            noise_level = 0.0
+        th_abs = noise_level * _DETECT_TOPHAT_SIGMA_MULTIPLIER * scale_thresh_factor
         mask = tophat > th_abs
         combined_response = np.maximum(combined_response, mask.astype(np.float32) * tophat)
 
@@ -472,21 +491,18 @@ def detect_stars_multiscale(image, fwhm=None, star_threshold=0.85,
         details = {
             'fwhm': fwhm, 'n_scales': n_scales,
             'confidence': 0.0, 'reason': 'no_response',
+            'n_components_total': 0, 'n_components_kept': 0,
             'components': [], 'scale_info': []
         }
         if return_details:
             return star_mask, confidence, details
         return star_mask, confidence
 
-    response_values = combined_response[combined_response > 0]
-    response_floor = (
-        float(np.percentile(response_values, 20.0))
-        if response_values.size else 0.0
-    )
-    binary_mask = combined_response > max(
-        response_floor,
-        float(star_threshold) * float(combined_response.max()) * 0.12,
-    )
+    # 各尺度的阈值已在上面按"背景噪声"锚定，这里不再叠加第二道相对阈值。
+    # 旧实现还有一道 `star_threshold * combined_response.max() * 0.12`，
+    # 是相对最亮星的：M31 上它把 3.12% 的候选集压到 0.044%（检出 115 个，
+    # 而局部极大法在同一张图上有约 1985 个）。
+    binary_mask = combined_response > 0
     # Top-hat response often leaves only the PSF core. Expand by a small,
     # FWHM-bounded radius before component analysis so ordinary faint stars
     # are not misclassified as one-pixel hot pixels.
@@ -553,9 +569,13 @@ def _image_from_uint8(image_uint8):
 
 def inpaint_telea(image, star_mask, radius=None):
     """
-    OpenCV Telea 快速行进法修复（FMM-based）。
+    快速行进法修复（FMM-based）。
 
     适合：小星点、孤立亮斑。速度快。
+
+    注意：OpenCV 的 INPAINT_TELEA 在 32F 下数值不稳定（实测会输出
+    [-1.41, 1.37] 的越界值），因此本函数在 float 通路上实际调用
+    INPAINT_NS。保留函数名是为了不破坏既有调用点与报告字段。
     """
     if not HAS_OPENCV:
         raise RuntimeError("OpenCV 不可用，无法使用 Telea 修复")
@@ -570,17 +590,18 @@ def inpaint_telea(image, star_mask, radius=None):
         radius = max(3, int(np.ceil(star_mask.sum() ** 0.5 * 0.3)))
         radius = min(radius, 15)
 
-    # 针对极暗线性天文数据自适应放大至 [0, 1] 范围以保留 uint8 精度
-    img_max = float(image.max())
-    scaled_img = image / img_max if img_max > 1e-9 else image.copy()
-
-    img_u8 = (np.clip(scaled_img, 0, 1) * 255).astype(np.uint8)
+    # cv2.inpaint 原生支持 32F 输入，直接用 float 即可。
+    #
+    # 旧实现先把图像按自身峰值缩放到 [0,1] 再量化成 uint8，对线性深空数据
+    # 是灾难性的：背景 0.0017 相对峰值 0.97 只占 0.45/255，四舍五入后整片
+    # 背景直接归零 —— 实测修复后 93.7% 的像素变成纯 0，去星必然失败。
+    #
+    # 但 OpenCV 的 INPAINT_TELEA 在 32F 下数值不稳定：同样一张图会输出
+    # [-1.41, 1.37] 的越界值（背景 0.0017、星点 0.95 的对比下），
+    # 而 INPAINT_NS 在 32F 下能精确插值回背景电平。因此 float 通路统一走 NS。
     mask_u8 = _mask_to_uint8(star_mask)
-    inpainted_u8 = cv2.inpaint(img_u8, mask_u8, radius, cv2.INPAINT_TELEA)
-    inpainted_f = inpainted_u8.astype(np.float32) / 255.0
-    
-    # 逆缩放还原
-    return inpainted_f * img_max
+    source = np.clip(image, 0, 1).astype(np.float32)
+    return np.clip(cv2.inpaint(source, mask_u8, radius, cv2.INPAINT_NS), 0, 1)
 
 
 def inpaint_ns(image, star_mask, radius=None):
@@ -603,17 +624,10 @@ def inpaint_ns(image, star_mask, radius=None):
         radius = max(3, int(np.ceil(star_mask.sum() ** 0.5 * 0.3)))
         radius = min(radius, 15)
 
-    # 自适应范围放大
-    img_max = float(image.max())
-    scaled_img = image / img_max if img_max > 1e-9 else image.copy()
-
-    img_u8 = (np.clip(scaled_img, 0, 1) * 255).astype(np.uint8)
+    # 同 inpaint_telea：直接用 32F，不要量化到 uint8
     mask_u8 = _mask_to_uint8(star_mask)
-    inpainted_u8 = cv2.inpaint(img_u8, mask_u8, radius, cv2.INPAINT_NS)
-    inpainted_f = inpainted_u8.astype(np.float32) / 255.0
-    
-    # 逆缩放还原
-    return inpainted_f * img_max
+    source = np.clip(image, 0, 1).astype(np.float32)
+    return np.clip(cv2.inpaint(source, mask_u8, radius, cv2.INPAINT_NS), 0, 1)
 
 
 def _inpaint_fallback(image, star_mask, radius=5):
@@ -690,11 +704,44 @@ def remove_stars_median(image, star_mask, filter_size=15):
         return np.where(star_mask > 0.5, filtered, image)
 
 
+# 去星会把星点自身的光通量从平滑图中移除，导致延展结构亮度出现约 8% 的
+# 系统性下降。这是去星的预期结果而非误伤，衡量误伤时需扣除该基线。
+_STAR_REMOVAL_BASELINE_CHANGE = 0.10
+
+
+def _robust_noise_scale(gray):
+    """稳健背景噪声尺度（MAD × 1.4826），用于给各判据提供绝对锚点。
+
+    必须排除恰好为 0 的像素：DBE 之后大片背景会被 clip 到 0，
+    直接对整幅图取 MAD 会退化成 0，使所有"相对噪声"阈值失效。
+    """
+    positive = gray[gray > 0]
+    if positive.size < 100:
+        return 0.0
+    lower = positive[positive <= float(np.percentile(positive, 50))]
+    if lower.size < 100:
+        return 0.0
+    median = float(np.median(lower))
+    return float(np.median(np.abs(lower - median))) * 1.4826
+
+
 def estimate_star_removal_quality(original, starless):
     """
-    评估星点分离质量（扩展版）。
+    评估星点分离质量。
 
-    新增：检测去星后残留的结构伪影（修复过度平滑、边界痕迹）。
+    三个子指标都必须是有**绝对锚点**的测量值，否则会退化成常数或恒等于满分/零分：
+
+      - residual_star_fraction：残留星点应当是"亮且紧凑"的点状结构。
+        旧版用 `max(阈值, 0.1)` 这个绝对亮度下限，任何亮于 0.1 的像素都算残留星，
+        于是星系/星云本体被当成残留星 —— 恒等操作（完全没去星）也会报出残留。
+      - nebula_damage_ratio：误伤应在**有真实信号的星云主体**上衡量。
+        旧版除以最暗 30% 像素的均值，而该值等于噪声底（实测约 1e-4），
+        任何微小扰动都会让比值冲到 ≈1.0，与真实误伤程度无关。
+      - high_grad_ratio：应衡量去星**新引入**的硬边。
+        旧版判据是 `梯度 > p95(梯度) * 0.5`，用图像自身的分布定阈值，
+        对任何图像都必然命中约 10~20% 的像素，等于恒定扣满该项惩罚。
+        新版改为"去星后梯度显著超过原图同一位置"，并用绝对噪声尺度锚定：
+        原图在星点处本就有大梯度，好的修复只会让它变小。
     """
     original = np.asarray(original, dtype=np.float32)
     starless = np.asarray(starless, dtype=np.float32)
@@ -707,37 +754,56 @@ def estimate_star_removal_quality(original, starless):
         sl_gray = starless
 
     bg_level = float(np.percentile(sl_gray, 10))
+    noise_scale = _robust_noise_scale(sl_gray)
+    # 噪声为 0 时（例如全黑输入）给一个极小下限，避免零阈值把整幅图判为残留
+    gate = max(noise_scale, 1e-6)
 
-    # 残留星检测
-    residual_thresh = bg_level + 3 * float(np.std(sl_gray[sl_gray < np.percentile(sl_gray, 50)]))
-    residual_mask = sl_gray > max(residual_thresh, 0.1)
+    # ── 残留星点：亮且紧凑 ──
+    # 高通响应只保留点状结构；同时要求像素显著高于背景，延展的星系/星云被排除。
+    local_bg = gaussian_filter(sl_gray, sigma=4.0)
+    highpass = sl_gray - local_bg
+    residual_mask = (highpass > 5.0 * gate) & (sl_gray > bg_level + 10.0 * gate)
     residual_fraction = float(np.mean(residual_mask))
 
-    # 星云误伤检测
-    dark_orig = orig_gray < np.percentile(orig_gray, 30)
-    if np.sum(dark_orig) > 100:
-        orig_dark_mean = float(np.mean(orig_gray[dark_orig]))
-        sl_dark_mean = float(np.mean(sl_gray[dark_orig]))
-        damage_ratio = abs(orig_dark_mean - sl_dark_mean) / max(orig_dark_mean, 1e-8)
+    # ── 星云误伤：只在延展结构上比较，且必须排除星点 ──
+    # 关键：星点本身就是画面最亮的部分，若直接按原始亮度取"主体"掩膜，
+    # 掩膜会包含星点，于是"把星去掉"这件事本身就被算成误伤（实测报 0.17）。
+    # 用重平滑（sigma=8）压掉点状结构后再取掩膜与比较，剩下的才是星系/星云本体。
+    orig_smooth = gaussian_filter(orig_gray, sigma=8.0)
+    sl_smooth = gaussian_filter(sl_gray, sigma=8.0)
+    signal_level = float(np.percentile(orig_smooth, 75))
+    if signal_level > 1e-6:
+        nebula_mask = orig_smooth >= signal_level
+        if int(np.count_nonzero(nebula_mask)) > 100:
+            orig_ref = float(np.median(orig_smooth[nebula_mask]))
+            sl_ref = float(np.median(sl_smooth[nebula_mask]))
+            raw_change = abs(orig_ref - sl_ref) / max(orig_ref, 1e-8)
+        else:
+            raw_change = 0.0
     else:
-        damage_ratio = 0.0
+        raw_change = 0.0
 
-    # 新增：修复伪影检测（边界处的梯度异常）
-    # 去星后的梯度应在星点区域平滑，但如果修复质量差，边界会有硬边
-    grad_y = sobel(sl_gray, axis=0)
-    grad_x = sobel(sl_gray, axis=1)
-    grad_mag = np.sqrt(grad_y ** 2 + grad_x ** 2)
-    # 高梯度像素比例（去星后不应有过多的高梯度）
-    high_grad_ratio = float(np.mean(grad_mag > np.percentile(grad_mag, 95) * 0.5))
+    # 去星必然会把星点自身的光通量从平滑图里拿掉（实测占延展结构亮度的 ~8%），
+    # 这部分是去星的**预期结果**，不是误伤。只统计超出该基线的结构性改变。
+    damage_ratio = max(0.0, raw_change - _STAR_REMOVAL_BASELINE_CHANGE)
+
+    # ── 修复伪影：去星新引入的硬边 ──
+    grad_orig = np.sqrt(sobel(orig_gray, axis=0) ** 2 + sobel(orig_gray, axis=1) ** 2)
+    grad_sl = np.sqrt(sobel(sl_gray, axis=0) ** 2 + sobel(sl_gray, axis=1) ** 2)
+    edge_floor = max(6.0 * gate, 1e-6)
+    high_grad_ratio = float(np.mean(grad_sl > np.maximum(grad_orig * 2.0, edge_floor)))
 
     # 综合评分
-    needs_starnet = residual_fraction > 0.05 or damage_ratio > 0.15
+    # residual 阈值取 2%：星点掩膜通常只占画面 1~5%，若去星完全没生效，
+    # 残留率就是掩膜本身的占比，因此 5% 的老阈值过宽，恒等操作都能蒙混过关。
+    needs_starnet = residual_fraction > 0.02 or damage_ratio > 0.15
 
-    # 修复质量评分（0-1，1 最好）
+    # 修复质量评分（0-1，1 最好）。
+    # 权重按"可接受上限"标定：残留 2.5%、误伤 22%、新硬边 6.7% 分别扣满该项。
     repair_score = 1.0
-    repair_score -= min(residual_fraction * 5.0, 0.5)
-    repair_score -= min(damage_ratio * 2.0, 0.3)
-    repair_score -= min(high_grad_ratio * 2.0, 0.2)
+    repair_score -= min(residual_fraction * 20.0, 0.5)
+    repair_score -= min(damage_ratio * 2.0, 0.45)
+    repair_score -= min(high_grad_ratio * 3.0, 0.2)
     repair_score = max(0.0, min(1.0, repair_score))
 
     report = {
@@ -781,6 +847,12 @@ def _repair_star_mask(image, star_mask, method, inpaint_radius):
 def _safe_star_removal_fallback(image, reason, report=None):
     """Return an unchanged image when star removal is not trustworthy."""
     fallback_report = dict(report or {})
+    # 尽量保留检测阶段实测到的 FWHM —— 调用方用它决定后续星点检测的尺度，
+    # 丢掉它会退回硬编码默认值，把噪声峰当成星点。
+    if fallback_report.get('estimated_fwhm') is None:
+        details = fallback_report.get('detection_details') or {}
+        if details.get('fwhm') is not None:
+            fallback_report['estimated_fwhm'] = details['fwhm']
     fallback_report.update({
         'accepted': False,
         'fallback_applied': True,
@@ -1202,6 +1274,10 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
             star_mask_val = detect_stars(image, star_threshold=star_threshold)
             confidence = None
 
+        # 把检测阶段实测到的 FWHM 带进报告：调用方（pipeline）用它决定后续
+        # 星点检测的尺度，丢失它会退回硬编码默认值并把噪声峰当成星点。
+        detected_fwhm = details.get('fwhm') if use_multiscale else None
+
         n_star_pixels = int(np.sum(star_mask_val > 0.5))
         print(f"[星点分离] 检测到星点像素: {n_star_pixels:,}"
               f"{f' (置信度={confidence:.2f})' if confidence is not None else ''}")
@@ -1215,6 +1291,7 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
             'repair_method': actual_method,
             'repair_radius': inpaint_radius,
             'retry_attempted': False,
+            'estimated_fwhm': detected_fwhm,
         })
         quality_ok = (
             quality['repair_quality_score'] >= min_quality_score
@@ -1240,6 +1317,7 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
                 'repair_radius': retry_radius,
                 'retry_attempted': True,
                 'initial_quality': quality,
+                'estimated_fwhm': detected_fwhm,
             })
             retry_ok = (
                 retry_quality['repair_quality_score'] >= min_quality_score

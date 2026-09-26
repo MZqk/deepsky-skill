@@ -105,6 +105,41 @@ def calculate_metrics(image, manifest_data=None):
             if value < max(float(np.max(channel_p99)) * 0.01, 1e-6)
         ]
 
+        # 背景色偏：在**三通道都还活着**的像素里取最暗的 25% 作为背景样本。
+        #
+        # 两个必须排除的情况：
+        #   1. 恰好为 0 的像素 —— DBE 之后常有超过一半画面被 clip 到 0，
+        #      直接在整幅图上取暗部，样本会全部落在 0 上，色比变成 0/0。
+        #   2. 只有单通道非零的像素 —— 若 G/B 已贴 0 而 R 还剩一点残值，
+        #      按 R/G 计算会得到 1e5 量级的假数值。
+        # 当找不到足够多"三通道都有信号"的背景像素时，说明背景已被压死，
+        # 此时不产出色偏指标（由 BACKGROUND_CRUSHED 门负责报告）。
+        rgb = source[..., :3]
+        gray_bg = rgb.mean(axis=2)
+        alive = np.min(rgb, axis=2) > 0
+        if int(np.count_nonzero(alive)) >= 100:
+            pool = gray_bg[alive]
+            bg_mask = alive & (gray_bg <= float(np.percentile(pool, 25)))
+        else:
+            bg_mask = np.zeros(gray_bg.shape, dtype=bool)
+
+        if int(np.count_nonzero(bg_mask)) >= 100:
+            bg_medians = np.median(rgb[bg_mask], axis=0).astype(np.float64)
+            r_over_g = float(bg_medians[0] / max(bg_medians[1], 1e-9))
+            b_over_g = float(bg_medians[2] / max(bg_medians[1], 1e-9))
+            res["background_channel_medians"] = {
+                "r": round(float(bg_medians[0]), 6),
+                "g": round(float(bg_medians[1]), 6),
+                "b": round(float(bg_medians[2]), 6),
+            }
+            res["background_color_cast"] = {
+                "r_over_g": round(r_over_g, 4),
+                "b_over_g": round(b_over_g, 4),
+            }
+            res["background_color_cast_magnitude"] = round(
+                max(abs(r_over_g - 1.0), abs(b_over_g - 1.0)), 4
+            )
+
     if linear_metrics:
         if linear_metrics.get('estimated_fwhm') is not None:
             res['linear_estimated_fwhm_px'] = round(linear_metrics['estimated_fwhm'], 2)

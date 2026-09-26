@@ -145,7 +145,13 @@ def evaluate_quality_gates(metrics, target_type=None, steps=None):
     steps = set(steps or [])
     gates = []
 
-    def add(code, status, value, threshold, message):
+    def add(code, status, value, threshold, message, escalate=True):
+        """Record a gate.
+
+        escalate=False 表示"只记录不升级"：该门会出现在 gates / warnings 里供审查，
+        但不参与 status 判定。用于诊断性指标，避免历史正常文件突然全部变成
+        review_required。
+        """
         gates.append(
             {
                 "code": code,
@@ -153,6 +159,7 @@ def evaluate_quality_gates(metrics, target_type=None, steps=None):
                 "value": value,
                 "threshold": threshold,
                 "message": message,
+                "escalate": escalate,
             }
         )
 
@@ -203,8 +210,27 @@ def evaluate_quality_gates(metrics, target_type=None, steps=None):
         add("STAR_DOMINANCE", "warning", star_ratio, "<=0.18",
             "星点占比偏高，可能压制主体")
 
-    status = "review_required" if gates else "success"
-    if any(gate["status"] == "failed" for gate in gates):
+    # 背景色偏：只记录，不升级 status（escalate=False）。
+    # 这是诊断性指标 —— 现有 7 道门里没有任何一道看每通道背景色偏，
+    # 导致严重偏色的输出（例如背景 R/G≈3.3）能一路通过。
+    cast = metrics.get("background_color_cast_magnitude")
+    if cast is not None and stage != "linear" and float(cast) > 0.08:
+        add(
+            "BACKGROUND_COLOR_CAST",
+            "warning",
+            {
+                "magnitude": float(cast),
+                **(metrics.get("background_color_cast") or {}),
+            },
+            "max(|R/G-1|,|B/G-1|)<=0.08",
+            "背景通道色偏偏高，可能存在色彩校准失效或通道塌缩；仅记录，不触发人工复核",
+            escalate=False,
+        )
+
+    escalating = [gate for gate in gates if gate.get("escalate", True)]
+    status = "review_required" if escalating else "success"
+    if any(gate["status"] == "failed" and gate.get("escalate", True)
+           for gate in gates):
         status = "review_required"
     return status, gates
 

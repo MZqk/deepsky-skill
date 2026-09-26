@@ -28,80 +28,166 @@ from skimage.io import imread, imsave
 from color_conv import safe_rgb2hsv as rgb2hsv, safe_hsv2rgb as hsv2rgb, safe_rgb2lab as rgb2lab, safe_lab2rgb as lab2rgb
 
 
+def _background_pixels(rgb, gray, bg_percentile):
+    """取亮度最低的一批像素作为背景样本，返回 (N,3) 数组。
+
+    掩膜用 `<=`，并在命中不足时按亮度排序取前 k 个兜底。
+    旧实现用严格 `<`，当大量像素恰好等于分位阈值时（DBE 之后很常见）
+    掩膜会变成空集，导致整步被静默跳过。
+    """
+    threshold = float(np.percentile(gray, bg_percentile))
+    mask = gray <= threshold
+    count = int(np.count_nonzero(mask))
+    if count >= 100:
+        return rgb[mask]
+
+    total = gray.size
+    k = min(total, max(100, int(total * bg_percentile / 100.0)))
+    idx = np.argpartition(gray.ravel(), k - 1)[:k]
+    return rgb.reshape(-1, 3)[idx]
+
+
 def background_neutralize(image, bg_percentile=30, sample_radius=20):
     """
-    背景中性化。
-    原理：采样图像中暗部区域（背景），计算 RGB 各通道在背景中的平均值，
-    调整各通道增益使背景呈现中性灰 (R=G=B)。
-    
-    bg_percentile: 用于确定背景的亮度百分位
+    背景中性化：只扣除**通道之间**的背景差异，让背景呈中性。
+
+    为什么不是"各通道各自减到 0"：
+      DBE 阶段（`normalize_background_subtracted`）已经给背景留了 pedestal，
+      若这里再把每个通道的背景中值整体减掉，等于重复扣黑 —— 实测会把 90%
+      的画面压成纯 0，随后所有"背景亮度分位"类判据全部失效。
+      因此这里只去掉通道差异，保留共同黑位（取各通道最小背景）。
+
+    为什么是加性而非乘性：
+      乘性增益 `bg_mean / max(bg_ch, floor)` 在近零通道上会爆炸
+      （B≈0 时可算出 ~96× 增益），且该增益被无差别地乘到天体本体上，
+      把暖核染成冷核。加性平移不可能放大任何通道。
     """
-    img_gray = np.mean(image, axis=2)
-    bg_threshold = np.percentile(img_gray, bg_percentile)
-    bg_mask = img_gray < bg_threshold
+    source = np.asarray(image, dtype=np.float32)
+    if source.ndim != 3 or source.shape[2] < 3:
+        return source
 
-    if np.sum(bg_mask) < 100:
-        print("[WARN] 背景样本不足，跳过背景中性化")
-        return image
+    rgb = source[..., :3]
+    gray = rgb.mean(axis=2)
+    flat = _background_pixels(rgb, gray, bg_percentile)
 
-    bg_r = np.mean(image[..., 0][bg_mask])
-    bg_g = np.mean(image[..., 1][bg_mask])
-    bg_b = np.mean(image[..., 2][bg_mask])
-    bg_mean = (bg_r + bg_g + bg_b) / 3
+    black_points = np.median(flat, axis=0).astype(np.float64)
+    # 只保留通道差异，共同黑位（pedestal）原样保留
+    common = float(np.min(black_points))
+    offsets = black_points - common
 
-    if bg_mean < 0.001:
-        return image
+    if float(np.max(offsets)) <= 1e-9:
+        print("[背景中性化-加法] 背景已中性，无需调整")
+        return source
 
-    scale_r = bg_mean / max(bg_r, 0.001)
-    scale_g = bg_mean / max(bg_g, 0.001)
-    scale_b = bg_mean / max(bg_b, 0.001)
+    corrected = np.clip(rgb.astype(np.float64) - offsets, 0, None)
+    result = corrected.astype(np.float32)
+    if source.shape[2] > 3:
+        result = np.dstack([result, source[..., 3:]])
 
-    result = image.copy()
-    result[..., 0] *= scale_r
-    result[..., 1] *= scale_g
-    result[..., 2] *= scale_b
-
-    print(f"[背景中性化] R:{scale_r:.3f} G:{scale_g:.3f} B:{scale_b:.3f}")
-    return np.clip(result, 0, 1)
+    print(f"[背景中性化-加法] offsets={offsets.round(6).tolist()} "
+          f"(保留共同黑位 {common:.6f})")
+    return result
 
 
-def white_balance_from_stars(image, method='gray_world'):
+def _reference_star_mask(rgb, sat_limit=0.995):
+    """挑出可用作白平衡参考的恒星像素；样本不可用时返回 None。"""
+    from skimage.morphology import disk, white_tophat
+
+    gray = rgb.mean(axis=2)
+    # 小尺度 top-hat：压制星系/星云等延展结构，只保留紧凑亮源
+    response = white_tophat(gray, disk(3))
+    positive = response[response > 0]
+    if positive.size == 0:
+        return None
+
+    median = float(np.median(positive))
+    mad = float(np.median(np.abs(positive - median))) * 1.4826
+    threshold = max(
+        float(np.percentile(positive, 99.5)),
+        median + 4.0 * max(mad, 1e-9),
+    )
+    mask = response >= threshold
+
+    peak = rgb.max(axis=2)
+    mask &= peak < sat_limit        # 排除过曝星核（已失去颜色信息）
+    mask &= peak > 1e-6
+
+    # 排除落在延展主体（星系盘/星云）上的像素
+    body = gaussian_filter(gray, sigma=15.0)
+    mask &= body <= float(np.percentile(body, 75))
+    return mask
+
+
+def white_balance_from_stars(image, method='stars', max_gain=1.25,
+                             min_star_samples=50, strength=0.35):
     """
-    白平衡调整。
-    原理：
-    - gray_world: 假设整个场景的平均色是中性灰。
-      在深空图像中，大量暗弱恒星的平均颜色接近白色，
-      因此这个假设近似成立。
-    - percentile: 使用亮部的百分位来估计白平衡。
+    基于参考恒星的白平衡（有界、保守、亮度中性）。
+
+    与旧实现的关键差别：
+      - 旧版名为 from_stars，实际用**全图均值**做 gray-world，并硬编码
+        R×0.9 / B×1.1 的偏置。深空画面由星系积分色主导而非恒星主导，
+        gray-world 假设不成立，那两个偏置还会把画面整体推冷。
+      - 新版真正采样恒星像素（见 _reference_star_mask），取样本 RGB 中值，
+        增益取"几何平均 / 通道值"，使参考星校正后三通道相等。
+
+    strength 默认 0.35（保守）而不是 1.0：
+      把参考星强行拉成中性只在"星应当是白的"这一前提成立时才对。低银纬视场
+      （如 M31，受银河尘埃红化）或相机光谱响应偏离 CIE 时该前提不成立 ——
+      实测把 1141 颗场星拉中性会把星系盘从 R/G≈1.55 压到 ≈1.01，
+      抹掉天体本身的暖色。因此默认只施加 35% 的校正量，
+      既能去掉明显的仪器色偏，又不会改写天体固有颜色。
     """
-    if method == 'gray_world':
-        mean_r = np.mean(image[..., 0])
-        mean_g = np.mean(image[..., 1])
-        mean_b = np.mean(image[..., 2])
-        mean_all = (mean_r + mean_g + mean_b) / 3
-        if mean_all < 0.001:
-            return image
+    source = np.asarray(image, dtype=np.float32)
+    if source.ndim != 3 or source.shape[2] < 3:
+        return source
 
-        result = image.copy()
-        result[..., 0] *= mean_all / max(mean_r, 0.001) * 0.9
-        result[..., 1] *= mean_all / max(mean_g, 0.001)
-        result[..., 2] *= mean_all / max(mean_b, 0.001) * 1.1
-        return np.clip(result, 0, 1)
+    rgb = source[..., :3]
 
-    elif method == 'percentile':
-        p_r = np.percentile(image[..., 0], 95)
-        p_g = np.percentile(image[..., 1], 95)
-        p_b = np.percentile(image[..., 2], 95)
-        p_max = max(p_r, p_g, p_b)
-        if p_max < 0.001:
-            return image
-        result = image.copy()
-        result[..., 0] *= p_max / max(p_r, 0.001)
-        result[..., 1] *= p_max / max(p_g, 0.001)
-        result[..., 2] *= p_max / max(p_b, 0.001)
-        return np.clip(result, 0, 1)
+    def _apply(raw_gains, label):
+        gains = 1.0 + float(strength) * (raw_gains - 1.0)
+        print(f"[白平衡-{label}] raw={raw_gains.round(3).tolist()} "
+              f"strength={float(strength):.2f} → gains={gains.round(3).tolist()}")
+        return _apply_gains(source, rgb, gains)
 
-    return image
+    if method == 'percentile':
+        p = np.percentile(rgb.reshape(-1, 3), 95.0, axis=0).astype(np.float64)
+        if float(np.min(p)) <= 1e-6:
+            print("[白平衡-percentile] 存在近零通道，跳过")
+            return source
+        log_p = np.log(p)
+        raw = np.exp(np.clip(log_p.mean() - log_p,
+                             -np.log(max_gain), np.log(max_gain)))
+        return _apply(raw, "percentile")
+
+    if method not in ('stars', 'gray_world'):
+        return source
+
+    mask = _reference_star_mask(rgb)
+    n_samples = 0 if mask is None else int(np.count_nonzero(mask))
+    if n_samples < min_star_samples:
+        print(f"[白平衡-星采样] 星样本不足 (n={n_samples}<{min_star_samples})，"
+              f"跳过（保留加法中性化结果）")
+        return source
+
+    star_rgb = np.median(rgb[mask], axis=0).astype(np.float64)
+    if float(np.min(star_rgb)) <= 1e-6:
+        print("[白平衡-星采样] 参考星存在近零通道，跳过")
+        return source
+
+    # 原始增益 = 几何平均 / 通道值，使参考星三通道在校正后相等（亮度不变）
+    log_star = np.log(star_rgb)
+    raw_gains = np.exp(np.clip(log_star.mean() - log_star,
+                               -np.log(max_gain), np.log(max_gain)))
+    print(f"[白平衡-星采样] n={n_samples} star_rgb={star_rgb.round(5).tolist()}")
+    return _apply(raw_gains, "星采样")
+
+
+def _apply_gains(source, rgb, gains):
+    """按增益缩放 RGB 并夹回 [0,1]（保持与旧版一致的输出契约）。"""
+    result = np.clip(rgb.astype(np.float64) * gains, 0, 1).astype(np.float32)
+    if source.shape[2] > 3:
+        result = np.dstack([result, source[..., 3:]])
+    return result
 
 
 def enhance_saturation(image, factor=1.5, protect_background=True,
@@ -136,17 +222,28 @@ def remove_green_noise(image, strength=0.3):
     原理：绿色噪声来源——拜耳阵列中有两个绿色像素（RGGB），
     导致绿色通道对噪声更敏感。去除方法是在 Lab 色彩空间中将
     a 通道（绿→品红方向）中偏绿的部分向中性色推移。
+
+    修正按亮度加权：Lab 的 a/b 在近零亮度处极不稳定，对线性阶段很暗的
+    背景施加色度修正会把像素推成负值 —— 实测在线性图上直接跑会把 45%
+    的画面变成纯 0。SCNR 的意义本来也只在中高亮区。
     """
-    if image.max() <= 0:
-        return image.copy()
-    lab = rgb2lab(image)
+    source = np.asarray(image, dtype=np.float32)
+    if source.max() <= 0:
+        return source.copy()
+
+    lab = rgb2lab(source)
+    luminance = lab[..., 0]
+    reference = float(np.percentile(luminance, 99.9))
+    if reference <= 1e-6:
+        return source.copy()
+
+    weight = np.clip(luminance / (0.05 * reference), 0.0, 1.0)
     a_channel = lab[..., 1]
 
-    # 只作用于偏绿部分 (a < 0)
-    green_mask = (a_channel < 0).astype(np.float32)
-    a_channel = a_channel * (1.0 - green_mask * strength)
+    # 只作用于偏绿部分 (a < 0)，且随亮度渐入
+    green_mask = (a_channel < 0).astype(np.float32) * weight
+    lab[..., 1] = a_channel * (1.0 - green_mask * float(strength))
 
-    lab[..., 1] = a_channel
     result = lab2rgb(lab)
     return np.clip(result, 0, 1)
 
@@ -166,16 +263,22 @@ def channel_alignment(image, shift_b=0, shift_r=0):
     return np.clip(result, 0, 1)
 
 
-def auto_color_calibrate(image):
+def auto_color_calibrate(image, return_report=False):
     """
-    自动颜色校准：背景中性化 + 白平衡 + 绿色噪声去除。
+    自动颜色校准：加性背景中性化 + 有界星采样白平衡 + 绿色噪声去除。
     适用于无法精确测光的 JPG/PNG 深空图像。
+
+    顺序很重要：先做加性逐通道黑点把背景压到 0 附近，
+    再做全局白平衡 —— 此时增益作用在已中性的背景上，不会重新引入背景色偏。
     """
-    print("[自动色彩校准] 开始...")
+    print("[自动色彩校准] 开始（加法黑点 + 星采样白平衡）...")
     result = background_neutralize(image, bg_percentile=25)
-    result = white_balance_from_stars(result, method='gray_world')
+    result = white_balance_from_stars(result, method='stars')
     result = remove_green_noise(result, strength=0.25)
-    return np.clip(result, 0, 1)
+    result = np.clip(result, 0, 1)
+    if return_report:
+        return result, {"mode": "additive_blackpoint_plus_star_white_balance"}
+    return result
 
 
 def emission_nebula_calibrate(image, background_percentile=1.0,

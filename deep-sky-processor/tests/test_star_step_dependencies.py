@@ -109,6 +109,100 @@ class StarStepDependencyTests(unittest.TestCase):
         self.assertIn("stretch", steps)
         self.assertTrue(log)
 
+    def test_m42_single_stretch_owner_at_medium(self):
+        """M42 的拉伸只能乘一次 ×0.75，不得再叠加发射星云的 ×0.85。"""
+        cfg, _steps, log = pipeline.apply_target_aware_safety_rules(
+            pipeline.STRENGTH_PRESETS["medium"],
+            ["stretch"],
+            "emission_nebula",
+            "M42",
+        )
+        self.assertAlmostEqual(cfg["stretch_factor"], 33.75)   # 45 × 0.75
+        self.assertAlmostEqual(cfg["sharpen_amount"], 0.91)    # 发射星云 ×0.7 仍生效
+        self.assertAlmostEqual(cfg["hdr_strength"], 0.65)
+        self.assertAlmostEqual(cfg["target_bg"], 0.10)
+        self.assertFalse(any("×0.85" in line for line in log))
+
+    def test_spaced_name_triggers_m42_rule(self):
+        """'M 42' 这类带空格的写法必须与 'M42' 等价。"""
+        cfg, _steps, _log = pipeline.apply_target_aware_safety_rules(
+            pipeline.STRENGTH_PRESETS["medium"], ["stretch"], None, "M 42"
+        )
+        self.assertAlmostEqual(cfg["stretch_factor"], 33.75)
+
+    def test_non_m42_emission_uses_085(self):
+        cfg, _steps, log = pipeline.apply_target_aware_safety_rules(
+            pipeline.STRENGTH_PRESETS["medium"],
+            ["stretch"],
+            "emission_nebula",
+            "NGC7000",
+        )
+        self.assertAlmostEqual(cfg["stretch_factor"], 38.25)   # 45 × 0.85
+        self.assertTrue(any("×0.85" in line for line in log))
+
+    def test_m81_does_not_inherit_emission_rules(self):
+        """M81 是星系，不得因名称子串 'M8' 被误判为发射星云。"""
+        cfg, _steps, log = pipeline.apply_target_aware_safety_rules(
+            pipeline.STRENGTH_PRESETS["medium"], ["stretch"], None, "M81"
+        )
+        self.assertAlmostEqual(cfg["stretch_factor"], 45.0)
+        self.assertAlmostEqual(cfg["sharpen_amount"], 1.6)     # 星系增强，而非发射星云 ×0.7
+        self.assertFalse(any("发射星云" in line for line in log))
+
+    def test_cluster_caps_chroma_denoise_and_saturation(self):
+        cfg, _steps, log = pipeline.apply_target_aware_safety_rules(
+            pipeline.STRENGTH_PRESETS["medium"],
+            ["star_remove", "stretch", "star_process", "star_combine"],
+            "globular_cluster",
+            "M13",
+        )
+        self.assertLessEqual(cfg["pre_denoise_lum"], 0.01)
+        self.assertLessEqual(cfg["final_denoise_lum"], 0.005)
+        self.assertLessEqual(cfg["pre_denoise_chroma"], 0.03)
+        self.assertLessEqual(cfg["final_denoise_chroma"], 0.015)
+        self.assertLessEqual(cfg["saturation"], 1.25)
+        self.assertTrue(log)
+
+    def test_cluster_caps_never_raise_existing_values(self):
+        """上限只能收紧，不得把本就保守的预设抬高。"""
+        cfg, _steps, _log = pipeline.apply_target_aware_safety_rules(
+            pipeline.STRENGTH_PRESETS["adaptive"], ["stretch"], "open_cluster", "M45"
+        )
+        self.assertLessEqual(cfg["pre_denoise_chroma"], 0.02)
+        self.assertLessEqual(cfg["final_denoise_chroma"], 0.0075)
+        self.assertLessEqual(cfg["saturation"], 1.25)
+
+    def test_masked_ghs_raises_m42_core_protection(self):
+        image = np.full((48, 64, 3), 0.03, dtype=np.float32)
+        calls = []
+
+        def fake_stretch(data, **kwargs):
+            calls.append(kwargs)
+            return data
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source.png"
+            output = Path(td) / "output.tif"
+            imsave(source, np.clip(image * 255, 0, 255).astype(np.uint8))
+            with patch("pipeline.apply_luminance_stretch", side_effect=fake_stretch):
+                pipeline.run_pipeline(
+                    str(source),
+                    str(output),
+                    steps="stretch",
+                    preset="light",
+                    target_type="emission_nebula",
+                    target_name="M 42",
+                    stretch_method="masked_ghs",
+                    cleanup=True,
+                )
+
+        masked = [c for c in calls if c.get("method") == "masked_ghs"]
+        self.assertTrue(masked, "masked_ghs 拉伸未被调用")
+        self.assertTrue(
+            any(c.get("protect_strength", 0.0) >= 0.75 for c in masked),
+            f"带空格的 'M 42' 未提升核心保护强度: {masked}",
+        )
+
     def test_dense_analysis_prefers_external_starless_and_lower_recombine(self):
         config = pipeline.build_config_from_analysis(
             {

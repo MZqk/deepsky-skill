@@ -423,7 +423,12 @@ def _apply_user_prefs(adapted_params, user_prefs):
 def _tone_curve(luminance, profile):
     black_floor = profile["black_floor"]
     low = float(np.percentile(luminance, 5))
-    floor = min(max(low, 0.0) + black_floor, 0.25)
+    # black_floor 是 L/100 单位的绝对量，但黑位不得越过背景亮度本身。
+    # 曝光充分的图上背景 L/100 只有 ~0.03，直接加 0.018 会把整片背景裁成
+    # 纯 0（实测 p1 掉到 2e-06，重新触发 BACKGROUND_CRUSHED）。
+    # 限制黑位最多吃掉背景亮度的一半，保证背景仍留有层次。
+    background = float(np.percentile(luminance, 25))
+    floor = min(max(low, 0.0) + black_floor, background * 0.5, 0.25)
     toned = np.clip((luminance - floor) / max(1.0 - floor, 1e-6), 0, 1)
 
     toned = np.power(toned, profile["gamma"])
@@ -488,11 +493,20 @@ def apply_professional_style(
     micro = profile["micro_contrast"] * strength
     toned = np.clip(toned + detail * signal_mask * micro, 0, 1)
 
-    lab[..., 0] = (luminance * (1.0 - strength) + toned * strength) * 100.0
+    # 用色调曲线得到的亮度增益作用于 RGB，逐像素保持通道比例。
+    #
+    # 不能只替换 Lab 的 L 通道：a/b 是**绝对**色度，L 被 black_floor 压暗后
+    # 色度不变等于相对放大。实测暗背景的 B/G 由 1.29 一步跳到 3.20（整片
+    # 背景发蓝，触发 BACKGROUND_COLOR_CAST），同时暗部被整体压暗约 7 倍。
+    blended_luminance = luminance * (1.0 - strength) + toned * strength
+    gain = blended_luminance / np.maximum(luminance, 1e-6)
+    graded = np.clip(source * gain[..., None], 0, 1)
+
+    # color_separation：以亮度为轴的保比例饱和度提升（不改变通道比例关系）
     sep = profile["color_separation"] * strength
-    lab[..., 1] *= 1.0 + sep
-    lab[..., 2] *= 1.0 + sep
-    graded = np.clip(lab2rgb(lab), 0, 1)
+    if abs(sep) > 1e-6:
+        neutral = graded.mean(axis=2, keepdims=True)
+        graded = np.clip(neutral + (graded - neutral) * (1.0 + sep), 0, 1)
 
     hsv = rgb2hsv(graded)
     value = hsv[..., 2]

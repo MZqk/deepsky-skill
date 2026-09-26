@@ -297,6 +297,17 @@ color_health == 'good'           → sat=1.2, skip background_neutralize
 color_health == 'mild_cast'      → sat=1.3, background_neutralize + white_balance
 color_health == 'moderate_cast'  → sat=1.5, background_neutralize + white_balance + SCNR
 color_health == 'severe_cast'    → sat=1.4, 全流程校准但饱和保守 (先矫正再增强)
+```
+
+实现语义（v0.1.3 起）：
+
+- `background_neutralize` 是**加性**的：求出背景区每通道中值作为黑点并减去，
+  让背景归零、通道间比例保持。不要改回乘性增益 —— 近零通道上会算出上百倍增益，
+  且会全局乘到天体本体上把暖核染成冷核。
+- `white_balance_from_stars` 真正采样**参考恒星**（高局部对比、未饱和、
+  不在延展主体上），增益取「几何平均 / 通道值」并限幅到 ±25%。
+  它校正的是星点颜色；背景中性由加性黑点负责，两者顺序不可颠倒。
+- 星样本不足时白平衡会优雅跳过，只保留加性中性化的结果。
 
 色彩检查:
   ✓ Hα区域呈深红(非品红/橙红)          → 通过

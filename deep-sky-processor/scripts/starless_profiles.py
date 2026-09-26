@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from target_rules import (
+    STAR_DOMINANT_TYPES,
+    get_special_rule,
+    resolve_target_type,
+)
+
 
 class RejectedStarlessTarget(ValueError):
     pass
@@ -52,8 +58,6 @@ _ALIASES = {
     "dark_cloud": "dark_nebula",
     "milky_way": "wide_field",
 }
-_REJECTED_TYPES = {"globular_cluster", "open_cluster", "star_cluster"}
-_REJECTED_NAMES = {"M45", "PLEIADES", "PLEIADES CLUSTER"}
 
 
 def _profile(name, weights, dark, tone, saturation, max_saturation,
@@ -113,8 +117,14 @@ def normalize_target_type(target_type: str) -> str:
 
 def validate_starless_target(target_type: str, target_name: str | None = None):
     normalized = normalize_target_type(target_type)
-    name = str(target_name or "").strip().upper()
-    if normalized in _REJECTED_TYPES or name in _REJECTED_NAMES:
+    # 名称也参与判定：显式类型可能标错（例如把 M45 标成 reflection_nebula），
+    # 此时按规范化名称解析出的类型仍能拦住"星点即主体"的目标。
+    name_type = resolve_target_type(None, target_name)
+    if (
+        normalized in STAR_DOMINANT_TYPES
+        or name_type in STAR_DOMINANT_TYPES
+        or get_special_rule(target_name).get("star_is_subject")
+    ):
         raise RejectedStarlessTarget(
             f"starless workflow is unsafe for star-dominant target: "
             f"{target_name or target_type}"
