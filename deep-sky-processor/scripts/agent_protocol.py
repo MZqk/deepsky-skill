@@ -14,6 +14,7 @@ from skimage.transform import resize
 
 from fits_io import read_image, write_image
 from quality_metrics import calculate_metrics
+from artifact_gates import evaluate_star_artifact_gates
 
 
 SCHEMA_VERSION = "1.0"
@@ -194,11 +195,98 @@ def evaluate_quality_gates(metrics, target_type=None, steps=None):
         add("BACKGROUND_TOO_BRIGHT", "warning", median, "<=0.30",
             "整体亮度偏高，需要检查背景与核心")
 
+    corner_analysis = metrics.get("corner_analysis")
     corner_ratio = float(metrics.get("corner_uniformity_ratio", 1.0))
-    if corner_ratio > 3.0:
+    raw_corner_ratio = float(metrics.get("raw_corner_uniformity_ratio", corner_ratio))
+
+    if corner_analysis and corner_analysis.get("exemption_applied"):
+        # 触发天体感知豁免：天体物理结构（如发射星云外延/旋臂）显著覆盖角区，且纯背景角平整度达标
+        add(
+            "CORNER_NONUNIFORM",
+            "passed",
+            {
+                "effective_ratio": corner_ratio,
+                "raw_ratio": raw_corner_ratio,
+                "celestial_corners": corner_analysis.get("celestial_dominated_corners"),
+            },
+            "<=3.0",
+            corner_analysis.get("exemption_reason")
+            or "四角纯背景均匀度健康，角区偏高为真实天体物理结构延伸（已自动感知豁免）",
+            escalate=False,
+        )
+    elif corner_ratio > 3.0:
         status = "failed" if "dbe" in steps else "warning"
         add("CORNER_NONUNIFORM", status, corner_ratio, "<=3.0",
             "四角亮度不均匀，可能存在梯度、黑边或 DBE 过减")
+
+    # 风格色调曲线的局部黑位裁切：报的是**成因**（黑位越过局部背景），发生在
+    # style 步骤本身，因此早于并独立于末端才可见的 CORNER_NONUNIFORM。
+    #
+    # 注意：只在触发时 append。本函数末尾用 `escalating = [g for g in gates if
+    # g["escalate"]]` 判定 status，**只看 escalate 标志、不看 status** —— 追加一个
+    # escalate=True 的 passed 门会让所有出图都变成 review_required。
+    # 同理 pipeline 会把所有门禁都收进 warnings，追加 passed 门只会产生噪音。
+    style_diag = metrics.get("style_diagnostics")
+    if style_diag:
+        frac_before = float(style_diag.get("clipped_block_frac_before", 0.0))
+        after = int(style_diag.get("blocks_clipped_after_repair", 0))
+        zeroed = int(style_diag.get("blocks_zeroed_final", 0))
+        shift = float(style_diag.get("repair_shift", 0.0))
+        value = {
+            "clipped_block_frac_before": frac_before,
+            "blocks_clipped_before_repair": style_diag.get("blocks_clipped_before_repair"),
+            "blocks_clipped_after_repair": after,
+            "blocks_zeroed_final": zeroed,
+            "repair_shift": shift,
+            "min_block_median_final": style_diag.get("min_block_median_final"),
+            "n_blocks": style_diag.get("n_blocks"),
+            "block_size": style_diag.get("block_size"),
+            "floor_global": style_diag.get("floor_global"),
+            "floor_min": style_diag.get("floor_min"),
+            "floor_max": style_diag.get("floor_max"),
+        }
+        threshold = (
+            "clipped_block_frac_before<=0.05 且 repair_shift<=0.01 "
+            "且 blocks_zeroed_final==0"
+        )
+        if zeroed > 0 or after > 0:
+            add(
+                "STYLE_LOCAL_BLACK_CLIP",
+                "failed",
+                value,
+                threshold,
+                "风格色调曲线把局部背景裁成纯黑，且自动下移黑位的自愈未完全生效；"
+                "需降低该风格 black_floor 或 style_strength",
+            )
+        elif frac_before > 0.05 or shift > 0.01:
+            add(
+                "STYLE_LOCAL_BLACK_CLIP",
+                "warning",
+                value,
+                threshold,
+                f"风格色调曲线在局部暗背景上过度抬升黑位：自愈前 "
+                f"{style_diag.get('blocks_clipped_before_repair')}/"
+                f"{style_diag.get('n_blocks')} 个区块会被裁到 0，"
+                f"已下移黑位 {shift:.4f} 修复；建议降低该风格 black_floor 或 "
+                f"style_strength",
+                escalate=False,
+            )
+
+    # 去星修补足迹：报的也是**成因**（inpaint 补丁被拉伸放大），在拉伸后即可见，
+    # 早于并独立于末端的 CORNER_NONUNIFORM / DENOISE_PLASTICITY。
+    # 与 STYLE_LOCAL_BLACK_CLIP 同样的 append 纪律：只在触发时 append；
+    # passed / skipped / error 一律不进 gates（否则会让所有出图变 review_required，
+    # 并在 warnings 里制造噪音）。
+    footprint = metrics.get("inpaint_footprint")
+    if footprint and footprint.get("status") in ("warning", "failed"):
+        add(
+            "INPAINT_FOOTPRINT",
+            footprint["status"],
+            footprint.get("value"),
+            footprint.get("threshold"),
+            footprint.get("message"),
+            escalate=(footprint["status"] == "failed"),
+        )
 
     uniform_ratio = float(metrics.get("uniform_5x5_dark_patch_ratio", 0.0))
     if uniform_ratio > 0.35:
@@ -296,6 +384,25 @@ def create_review_bundle(before_path, after_path, output_dir, context=None):
         target_type=(context or {}).get("target_type"),
         steps=(context or {}).get("steps"),
     )
+
+    # 具名星点伪影门禁（STAR_RINGING / STAR_BLOAT / STAR_LAYER_LOSS /
+    # STAR_HOLES / CORE_BURNING）：与标量门禁并存，输出可审计的定位证据。
+    # 数值门禁是审查触发器而非视觉质量的证明；门禁自身异常时降级为
+    # error 记录，绝不阻断 review bundle 生成。
+    try:
+        star_artifact_gates = evaluate_star_artifact_gates(
+            before, after, steps=(context or {}).get("steps"),
+        )
+    except Exception as exc:
+        star_artifact_gates = {
+            "schema": "artifact_gates/1.0",
+            "status": "error",
+            "summary": f"星点门禁执行失败：{exc}",
+            "gates": [],
+        }
+    if star_artifact_gates.get("status") == "review_required":
+        status = "review_required"
+
     payload = {
         "schema_version": SCHEMA_VERSION,
         "status": status,
@@ -312,6 +419,7 @@ def create_review_bundle(before_path, after_path, output_dir, context=None):
             and isinstance(metrics_before[key], (int, float))
         },
         "quality_gates": gates,
+        "star_artifact_gates": star_artifact_gates,
         "critic_checklist": build_critic_checklist(
             (context or {}).get("target_type")
         ),

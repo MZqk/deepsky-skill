@@ -79,20 +79,36 @@ from gradient_removal import (
     normalize_background_subtracted,
 )
 from stretch import (auto_stretch, arcsinh_stretch, masked_stretch, deep_stretch,
-                     apply_luminance_stretch, is_stretch_collapsed)
+                     apply_luminance_stretch, is_stretch_collapsed,
+                     inverse_mtf_stretch, derive_mtf_midtones)
 from denoise import denoise_luminance_chroma
 from sharpen import multiscale_sharpen, adaptive_signal_sharpen
 from star_tools import (separate_stars, reduce_stars, combine_starless_stars,
-                        mild_star_reduce_full, detect_stars, estimate_fwhm)
+                        mild_star_reduce_full, detect_stars, estimate_fwhm,
+                        saturate_stars)
 from stellar_recompose import is_stars_layer_empty
+from stellar_repair import run_stellar_repair
 from enhance import (hdr_multiscale_compress, protected_hdr_compress, apply_curves,
                      local_nebula_enhance, positive_starless_detail_enhance)
 from color_tools import (auto_color_calibrate, emission_nebula_calibrate,
                          enhance_saturation, background_neutralize,
-                         remove_green_noise, stabilize_emission_channels)
+                         remove_green_noise, stabilize_emission_channels,
+                         lock_background_neutrality)
+from color_conv import safe_rgb2hsv as rgb2hsv, safe_hsv2rgb as hsv2rgb
 from style_tools import STYLE_PROFILES, apply_professional_style
-from quality_metrics import calculate_metrics
-from reference_grade import match_reference_grade, optimize_reference_grade
+from quality_metrics import calculate_metrics, analyze_corner_uniformity
+from reference_grade import (match_reference_grade, optimize_reference_grade,
+                             match_signal_color)
+from neural_star_bridge import (
+    detect_neural_starnet_environment,
+    evaluate_neural_bridge_recommendation,
+    export_starless_payload,
+    build_bridge_run_instructions,
+    verify_external_starless,
+    format_bridge_recommendation_card,
+    read_starnet_payload_meta,
+    write_starnet_payload_meta,
+)
 from agent_protocol import (
     SCHEMA_VERSION as AGENT_SCHEMA_VERSION,
     evaluate_quality_gates,
@@ -131,6 +147,7 @@ STRENGTH_PRESETS = {
         'star_scnr_strength': 0.15,
         'star_reduction': 0.2,
         'star_curves_midtones': 1.05,
+        'star_saturation': 1.08,
         'star_combine_strength': 0.8,
         # 非线性阶段
         'hdr_strength': 0.25,
@@ -152,6 +169,7 @@ STRENGTH_PRESETS = {
         'star_scnr_strength': 0.25,
         'star_reduction': 0.3,
         'star_curves_midtones': 1.1,
+        'star_saturation': 1.08,
         'star_combine_strength': 1.0,
         'hdr_strength': 0.5,
         'sharpen_amount': 1.3,
@@ -173,6 +191,7 @@ STRENGTH_PRESETS = {
         'star_scnr_strength': 0.0,  # 无绿噪
         'star_reduction': 0.40,     # very_dense 强缩星
         'star_curves_midtones': 1.1,
+        'star_saturation': 1.08,
         'star_combine_strength': 1.0,
         'hdr_strength': 0.35,       # 发射星云 HDR +0.15 偏移
         'sharpen_amount': 0.6,
@@ -198,6 +217,7 @@ STRENGTH_PRESETS = {
         'star_scnr_strength': 0.0,
         'star_reduction': 0.40,      # very_dense 星场强缩星
         'star_curves_midtones': 1.05,
+        'star_saturation': 1.08,
         'star_combine_strength': 0.85,
         'hdr_strength': 0.35,        # 发射星云 HDR +0.15 偏移
         'sharpen_amount': 0.65,
@@ -220,6 +240,7 @@ STRENGTH_PRESETS = {
         'star_scnr_strength': 0.35,
         'star_reduction': 0.4,
         'star_curves_midtones': 1.2,
+        'star_saturation': 1.08,
         'star_combine_strength': 1.15,
         'hdr_strength': 0.75,
         'sharpen_amount': 2.0,
@@ -229,7 +250,7 @@ STRENGTH_PRESETS = {
     },
 }
 
-ALL_STEPS = ['dbe', 'color', 'pre_denoise', 'star_remove', 'stretch',
+ALL_STEPS = ['dbe', 'color', 'stellar_repair', 'pre_denoise', 'star_remove', 'stretch',
              'star_process', 'enhance', 'sharpen', 'final_color',
              'style', 'star_combine', 'final_denoise', 'local_enhance',
              'external_detail', 'star_reduce']
@@ -277,6 +298,26 @@ def resolve_ghs_b(cfg):
     return float(np.clip(2.0 + 1.5 * np.log1p(factor), 4.0, 12.0))
 
 
+def resolve_ghs_lphp(cfg):
+    """解析显式 GHS LP/HP 锚点；None 表示沿用旧的百分位推导。
+
+    lp 以下与 hp 以上只做等比缩放（切线延伸），用于避免极暗数据拉伸坍缩，
+    并为亮核留出高光 headroom。两者都未设置时返回 (None, None)，行为不变。
+    窗口退化（hp <= lp）时一并回退，避免曲线出现 NaN。
+    """
+    lp = cfg.get('ghs_lp')
+    hp = cfg.get('ghs_hp')
+    lp = None if lp is None else float(np.clip(lp, 0.0, 1.0))
+    hp = None if hp is None else float(np.clip(hp, 0.0, 1.0))
+    if lp is not None and hp is not None and hp <= lp:
+        print(
+            f"  [WARN] ghs_hp({hp:.4f}) <= ghs_lp({lp:.4f})，窗口退化，"
+            "已回退为不启用 LP/HP"
+        )
+        return None, None
+    return lp, hp
+
+
 def parse_crop(crop):
     """Parse x,y,width,height crop syntax."""
     if crop is None:
@@ -285,6 +326,66 @@ def parse_crop(crop):
     if len(values) != 4 or values[2] <= 0 or values[3] <= 0:
         raise ValueError("--crop 必须为 x,y,width,height，且宽高为正数")
     return tuple(values)
+
+
+# 具名星点门禁的输入尺寸上限。artifact_gates 内部要对两张图做星点检测与成对
+# 剖面比对，全分辨率 24MP 上会到几十秒；降采样后仍足够检出胀星/暗坑/振铃。
+GATE_PREVIEW_MAX_SIDE = 1400
+
+
+def downsample_for_gates(image, max_side=GATE_PREVIEW_MAX_SIDE):
+    """把图像统一成「3 通道 + 有界尺寸」，供具名星点门禁成对比较。
+
+    artifact_gates 的成对门禁（STAR_BLOAT / STAR_LAYER_LOSS / STAR_HOLES）要求
+    两图 shape 完全一致；而带 alpha 的输入是 4 通道，会直接 ValueError。
+    故这里统一裁到前 3 通道并按 max_side 降采样。
+
+    始终返回**独立副本**：本函数在 Phase 9 后被用作快照，而 `current` 之后还要
+    经过 style / final_denoise / background lock，若返回视图会被原地改写污染参照。
+    """
+    from skimage.transform import resize
+
+    arr = np.asarray(image, dtype=np.float32)
+    if arr.ndim == 2:
+        arr = np.stack([arr] * 3, axis=-1)
+    arr = arr[..., :3]
+    h, w = arr.shape[:2]
+    if max(h, w) <= max_side:
+        return np.array(arr, dtype=np.float32, copy=True)
+    scale = max_side / max(h, w)
+    target = (max(1, int(round(h * scale))), max(1, int(round(w * scale))), 3)
+    return resize(arr, target, preserve_range=True, anti_aliasing=True).astype(np.float32)
+
+
+def export_starnet_payload_for_domain(current, work_dir, domain='mtf'):
+    """按域导出 StarNet2 载荷并写 sidecar，返回 (payload_path, midtones)。
+
+    domain='mtf'（默认）：先做 MTF 拉伸再量化。极暗数据**必须**用这个——线性直接
+    量化会让弱色通道被压成 0（实测星云区 G 有 93% 像素精确为 0），StarNet2 输出
+    随之丢掉 OIII。实测先拉伸可把 G 的量化级数从 70 抬到 5800，且通道比值
+    全程保持（R/G 3.15→3.17、B/G 0.83→0.84）。
+
+    sidecar 记录实际的 domain 与 midtones，回流侧据此自动逆变换，避免用户
+    手记参数、漏传导致逆变换用错值。
+    """
+    if domain == 'mtf':
+        midtones = derive_mtf_midtones(current)
+        filename = "starnet_payload_stretched.tif"
+    else:
+        midtones = None
+        filename = "starnet_payload_linear.tif"
+
+    payload_path = os.path.join(work_dir, filename)
+    export_starless_payload(
+        current, payload_path, domain=domain, midtones=midtones, shadows=0.0,
+    )
+    arr = np.asarray(current, dtype=np.float32)
+    lum = np.mean(arr[..., :3], axis=2) if arr.ndim == 3 else arr
+    write_starnet_payload_meta(
+        work_dir, domain=domain, midtones=midtones, shadows=0.0,
+        source_median=float(np.median(lum)),
+    )
+    return payload_path, midtones
 
 
 def apply_crop(image, crop):
@@ -840,6 +941,18 @@ def apply_target_aware_safety_rules(cfg, steps, target_type, target_name):
         old_sharpen = cfg.get('sharpen_amount', 1.3)
         if old_sharpen < 1.5:
             cfg['sharpen_amount'] = min(old_sharpen + 0.3, 2.0)
+        # 缩星保守化：星系场的 HII 区/旋臂结有被卷入缩星的风险。
+        # 不照搬"星系场禁用缩星"——本地是 Telea/NS 修复 + 线性星点蒙版，
+        # 与形态学 threshold 法的环状伪影机理不同；改为限制强度上限，
+        # 蒙版保护由 mild_star_reduce_full / reduce_stars 的星点蒙版承担
+        # （连通域过滤已把面积>π(4·FWHM)² 且圆度<0.25 的星云亮核排除在外）。
+        old_reduction = float(cfg.get('star_reduction', 0.3))
+        if old_reduction > 0.25:
+            cfg['star_reduction'] = 0.25
+            log.append(
+                f"🛡️ 星系: star_reduction {old_reduction:.2f}→0.25 "
+                "— HII 区/旋臂结保护"
+            )
         log.append(
             f"🛡️ 星系: HDR {old_hdr:.2f}→{cfg['hdr_strength']:.2f} (+0.15), "
             f"sharpen 增强"
@@ -881,7 +994,8 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                  auto_crop_target=False, auto_crop_padding=2.0,
                  auto_crop_edges=True,
                  analysis_report=None, target_name=None, stretch_method='auto',
-                 use_starnet=False, starnet_path=None, starnet_stride=256,
+                 use_starnet=False, starnet_path=None, starnet_stride=128,
+                 starnet_domain='mtf',
                  starnet_timeout=900,
                  result_json=None, quality_policy='advisory',
                  plate_solve=False, solve_field_path=None,
@@ -890,8 +1004,24 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                  low_memory=False, auto_low_memory=True,
                  low_memory_threshold_mpix=8.0,
                  reference_image=None, reference_auto_search=False,
+                 reference_color_match=False, reference_color_only=False,
                  reference_strength=0.85,
-                 reference_match_orientation=False):
+                 reference_match_orientation=False,
+                 stellar_repair=False,
+                 stellar_repair_mode=None,
+                 stellar_repair_strength=None,
+                 palette='none',
+                 linear_deconv=False,
+                 deconv_iterations=10,
+                 stacking_crop='none',
+                 halo_guard=False,
+                 star_blend_mode='screen',
+                 background_neutralize_lock=True,
+                 export_starnet_payload=False,
+                 export_starnet_payload_domain='mtf',
+                 external_starless_domain='linear',
+                 external_starless_midtones=None,
+                 starnet_recommendation='auto'):
     """执行深空后期处理全流程。"""
     started_at = now_iso()
     capture_metadata = {}
@@ -947,20 +1077,42 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             else:
                 print(f"  [参数覆盖] {key}: {old_value} → {value}")
 
+    if stellar_repair_mode:
+        cfg['stellar_repair_mode'] = stellar_repair_mode
+    if stellar_repair_strength:
+        cfg['stellar_repair_strength_profile'] = stellar_repair_strength
+
     # ── 天体类型安全规则（将 target_awareness.md 落实到代码） ──
+    steps_explicitly_specified = steps is not None
     if steps is None:
         steps = list(EMISSION_STEPS) if preset == 'emission' else list(ALL_STEPS)
         if preset == 'emission' and external_starless:
             steps.insert(steps.index('star_reduce'), 'external_detail')
     else:
-        steps = [s.strip() for s in steps.split(',')]
+        if isinstance(steps, str):
+            steps = [s.strip() for s in steps.split(',')]
+        else:
+            steps = list(steps)
         invalid = [s for s in steps if s not in ALL_STEPS]
         if invalid:
             raise ValueError(
                 f"未知步骤: {', '.join(invalid)}; "
                 f"可选步骤: {', '.join(ALL_STEPS)}"
             )
-        steps, dependency_log = resolve_step_dependencies(steps)
+
+    sr_diag = (analysis_report or {}).get("stellar_repair", {}) if isinstance(analysis_report, dict) else {}
+    stellar_repair_requested = (
+        stellar_repair
+        or (steps_explicitly_specified and 'stellar_repair' in steps)
+        or sr_diag.get("decision") == "apply"
+    )
+    if not stellar_repair_requested and 'stellar_repair' in steps:
+        steps.remove('stellar_repair')
+    elif stellar_repair_requested and 'stellar_repair' not in steps:
+        idx = steps.index('color') + 1 if 'color' in steps else 0
+        steps.insert(idx, 'stellar_repair')
+
+    steps, dependency_log = resolve_step_dependencies(steps)
 
     if steps is not None and 'dependency_log' not in locals():
         dependency_log = []
@@ -1021,6 +1173,8 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         os.makedirs(work_dir, exist_ok=True)
         print(f"[WARN] 默认缓存目录不可写，改用: {work_dir}")
     artifact_paths = {}
+    # 早于 Phase 4 就可能被 append（外部无星图分支），必须在此初始化。
+    warnings = []
 
     print(f"\n{'='*65}")
     print(f"  深空天文后期处理管线 (Siril+SASP 流程)")
@@ -1148,6 +1302,23 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         print(f"[裁切] x={applied_crop[0]} y={applied_crop[1]} "
               f"width={applied_crop[2]} height={applied_crop[3]}")
 
+    stacking_crop_box = None
+    if stacking_crop == 'auto':
+        from border_tools import apply_stacking_border_trim
+        trimmed_img, border_box = apply_stacking_border_trim(img)
+        t, b, l, r = border_box
+        if t > 0 or b > 0 or l > 0 or r > 0:
+            print(f"[叠边裁切] 检测到抖动叠加无效边缘 top={t}, bottom={b}, left={l}, right={r}，执行裁切")
+            img = trimmed_img
+            stacking_crop_box = border_box
+            if alpha_channel is not None:
+                alpha_channel = alpha_channel[t:alpha_channel.shape[0]-b if b>0 else None, l:alpha_channel.shape[1]-r if r>0 else None]
+            if external_full is not None:
+                external_full = external_full[t:external_full.shape[0]-b if b>0 else None, l:external_full.shape[1]-r if r>0 else None]
+            if external_denoised_full is not None:
+                external_denoised_full = external_denoised_full[t:external_denoised_full.shape[0]-b if b>0 else None, l:external_denoised_full.shape[1]-r if r>0 else None]
+
+
     effective_color_mode = color_mode
     effective_target_type = target_type
     if effective_target_type is None and preset == 'emission':
@@ -1180,6 +1351,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     stretch_recovery = None
     star_layer_empty = False
     star_combine_skipped = None
+    neural_bridge_report = None
     external_starless_linear = None
     if external_full is not None:
         external_starless_linear = external_full
@@ -1231,17 +1403,53 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     # 线性阶段 (Linear Phase)
     # ══════════════════════════════════════════════════════════════
 
+    cached_target_info = None
+    if effective_target_type == 'galaxy':
+        try:
+            _, cached_target_info = detect_target_crop(current)
+        except Exception:
+            cached_target_info = None
+
     # Phase 1: 背景提取 (DBE)
     if 'dbe' in steps:
         dbe_method = cfg.get('dbe_method', 'polynomial')
         dbe_degree = cfg.get('dbe_degree', 2)
+        dbe_exclusion_mask = None
+        if effective_target_type == 'galaxy' and cached_target_info is not None:
+            tcx = float(cached_target_info['center'][0])
+            tcy = float(cached_target_info['center'][1])
+            ob_w = float(cached_target_info['object_bbox'][2])
+            ob_h = float(cached_target_info['object_bbox'][3])
+            ex_r = max(ob_w, ob_h) * 2.2
+            yy, xx = np.ogrid[:current.shape[0], :current.shape[1]]
+            dbe_exclusion_mask = ((xx - tcx)**2 + (yy - tcy)**2) <= (ex_r ** 2)
+            print(f"  [DBE] 设定星系目标保护排除区 center=({int(tcx)}, {int(tcy)}), radius={int(ex_r)}px")
+        elif effective_target_type == 'emission_nebula':
+            # 发射星云主体排除区提取
+            # 使用大尺度低通滤波提取主要的 Hα / OIII 弥散发射结构，避免 DBE 多项式曲面拟合把星云自身拟合成穹顶减除
+            ref_ch = current[..., 0] if (current.ndim == 3 and current.shape[2] >= 3) else current
+            ds = max(1, min(ref_ch.shape[:2]) // 270)
+            sub = ref_ch[::ds, ::ds]
+            sub_smooth = gaussian_filter(sub, sigma=15.0)
+            thresh = float(np.percentile(sub_smooth, 35.0))
+            sub_mask = sub_smooth > thresh
+            mask_full = resize(sub_mask.astype(np.float32), ref_ch.shape[:2], order=1, preserve_range=True) > 0.5
+            coverage = float(np.mean(mask_full))
+            if coverage > 0.05:
+                dbe_exclusion_mask = mask_full
+                print(f"  [DBE] 设定发射星云弥散主体保护排除区 (覆盖率: {coverage:.1%})")
+                if coverage > 0.30 and dbe_degree > 1:
+                    dbe_degree = 1
+                    print(f"  [DBE] 大尺度弥散发射星云覆盖度较高 ({coverage:.1%})，自动约束 degree=1 线性梯度倾斜拟合以防中心被凹陷减除")
+
         print("\n─ 线性阶段 ─")
         print(f"[Phase 1] 背景提取 / 梯度去除 (DBE) [{dbe_method}"
               + (f", degree={dbe_degree}" if dbe_method == 'polynomial' else "")
               + "]...")
         current, _ = remove_gradient(
             current, method=dbe_method,
-            degree=dbe_degree if dbe_degree else 2
+            degree=dbe_degree if dbe_degree else 2,
+            exclusion_mask=dbe_exclusion_mask,
         )
 
         # ── 归一化 ──
@@ -1256,21 +1464,20 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         print(f"  ✓ 光害梯度已去除 (归一化: 黑点=背景中心, 白点=峰值, "
               f"p{cfg['dbe_pctl_high']} 为白点下界)")
 
-        # CP1: DBE 后强制四角均匀度检查
-        _gray_dbe = np.mean(current, axis=2) if current.ndim == 3 else current
-        _cs = max(3, min(_gray_dbe.shape[0], _gray_dbe.shape[1]) // 8)
-        _corners_dbe = [
-            float(np.mean(_gray_dbe[:_cs, :_cs])),
-            float(np.mean(_gray_dbe[:_cs, -_cs:])),
-            float(np.mean(_gray_dbe[-_cs:, :_cs])),
-            float(np.mean(_gray_dbe[-_cs:, -_cs:])),
-        ]
-        _min_c = max(min(_corners_dbe), 1e-10)
-        _corner_ratio = max(_corners_dbe) / _min_c
-        _corner_status = '✅' if _corner_ratio < 1.05 else ('⚠️' if _corner_ratio < 3.0 else '❌')
-        print(f"  CP1 四角均匀度: {_corner_status} ratio={_corner_ratio:.2f}x "
+        # CP1: DBE 后强制四角均匀度检查 (天体感知)
+        _corner_info = analyze_corner_uniformity(current)
+        _corner_ratio = _corner_info["effective_uniformity_ratio"]
+        _corners_dbe = _corner_info["raw_means"]
+        _ex_applied = _corner_info["exemption_applied"]
+        if _ex_applied:
+            _corner_status = '✅'
+            _desc = f" (天体感知: {_corner_info['celestial_dominated_corners']} 覆盖天体结构已豁免)"
+        else:
+            _corner_status = '✅' if _corner_ratio < 1.05 else ('⚠️' if _corner_ratio < 3.0 else '❌')
+            _desc = ""
+        print(f"  CP1 四角均匀度: {_corner_status} ratio={_corner_ratio:.2f}x{_desc} "
               f"corners={[round(c, 5) for c in _corners_dbe]}")
-        if _corner_ratio >= 3.0:
+        if not _ex_applied and _corner_ratio >= 3.0:
             print("  ⚠️ DBE 后四角不均匀度 > 3.0x — 可能需要调整 DBE 参数（degree/method）或检查天体是否靠边")
 
     # 联合中位数、P99 和有效像素比例判断，避免少量亮星或黑边误判。
@@ -1307,6 +1514,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             print("\n[Phase 2] 发射星云校色 (暗部基线 + 星色软校准)...")
             current, color_calibration_report = emission_nebula_calibrate(
                 current,
+                star_balance_strength=cfg.get('star_balance_strength', 0.45),
                 oiii_blue_injection=cfg.get('oiii_blue_injection', 0.0),
                 return_report=True,
             )
@@ -1322,6 +1530,70 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             )
             print("  ✓ 背景中性化(加性) + 星采样白平衡 + 绿噪去除")
         save_current('02_color.tif')
+
+    # Phase 2b: 线性星点色差与 PSF 形变修复 (RGB 亚像素对齐 + 亮星紫晕抑制 + PSF 形变)
+    stellar_repair_report = None
+    if 'stellar_repair' in steps:
+        print("\n[Phase 2b] 线性星点像差/色差诊断与受控修复...")
+        if not is_linear_input:
+            print("  ⚠️ 非线性输入禁止执行 stellar_repair，已跳过")
+        else:
+            sr_mode = str(cfg.get('stellar_repair_mode', 'auto'))
+            sr_strength = str(cfg.get('stellar_repair_strength_profile', 'balanced'))
+            channel_sem = "broadband_rgb" if current.ndim == 3 and current.shape[2] == 3 else "monochrome"
+            if effective_color_mode == 'emission' and current.ndim == 3:
+                channel_sem = "narrowband_or_mapped_color"
+
+            current, stellar_repair_report = run_stellar_repair(
+                current,
+                is_linear=is_linear_input,
+                channel_semantics=channel_sem,
+                mode=sr_mode,
+                strength_profile=sr_strength,
+                max_runtime_seconds=300.0,
+                max_workers=4,
+                execute_repairs=True,
+                include_preview_image=True,
+            )
+            sr_preview = (stellar_repair_report or {}).pop('_preview_image', None)
+            if sr_preview is not None:
+                save_artifact('02b_stellar_repair_preview.tif', sr_preview)
+            if (stellar_repair_report or {}).get('applied'):
+                save_current('02b_stellar_repaired.tif')
+                print(
+                    f"  ✓ 修复已生效: "
+                    f"{len(stellar_repair_report.get('operations', []))} 项操作成功通过门禁"
+                )
+            else:
+                print(
+                    f"  ✓ 诊断完成: 无需修复或未达硬门禁 "
+                    f"(status={stellar_repair_report.get('status')})"
+                )
+            if keep_intermediates and stellar_repair_report:
+                sr_report_path = os.path.join(work_dir, '02b_stellar_repair_report.json')
+                with open(sr_report_path, 'w', encoding='utf-8') as handle:
+                    json.dump(stellar_repair_report, handle, indent=2, ensure_ascii=False)
+                artifact_paths['02b_stellar_repair_report.json'] = sr_report_path
+
+    # Phase 2c: 线性域物理反卷积与 PSF 锐化 (Richardson-Lucy)
+    if linear_deconv:
+        print("\n[Phase 2c] 线性域物理反卷积与 PSF 锐化 (Richardson-Lucy)...")
+        if not is_linear_input:
+            print("  ⚠️ 非线性输入跳过线性反卷积")
+        else:
+            from deconvolution import richardson_lucy_linear
+            fwhm_deconv = 3.6
+            try:
+                gray_src = np.mean(current, axis=2) if current.ndim == 3 else current
+                fwhm_est, _, n_used, _ = estimate_fwhm(gray_src)
+                if n_used >= 3 and fwhm_est > 1.5:
+                    fwhm_deconv = fwhm_est
+            except Exception:
+                pass
+            print(f"  [反卷积] 采用实测 PSF FWHM={fwhm_deconv:.2f}px, 迭代={deconv_iterations}轮")
+            current = richardson_lucy_linear(current, fwhm=fwhm_deconv, iterations=deconv_iterations)
+            save_current('02c_linear_deconv.tif')
+            print("  ✓ 线性反卷积完成，星点与星云高频结构已物理聚焦")
 
     # Phase 3: 初步降噪 (线性数据)
     if 'pre_denoise' in steps:
@@ -1343,17 +1615,19 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             )
             print("  ✓ L=0.002/C=0.005 (极轻度)")
         else:
-            print("\n[Phase 3] 初步降噪 (GXP Silentium-like)...")
+            denoise_backend = cfg.get('denoise_method', 'bilateral')
+            print(f"\n[Phase 3] 初步降噪 ({'À Trous Wavelet (Starlet)' if denoise_backend in ('atrous', 'starlet') else 'GXP Silentium-like'})...")
             if current.ndim == 2:
                 current = np.stack([current] * 3, axis=-1)
             current = tiled(
                 lambda tile: denoise_luminance_chroma(
                     tile, lum_strength=cfg['pre_denoise_lum'],
-                    chroma_strength=cfg['pre_denoise_chroma']
+                    chroma_strength=cfg['pre_denoise_chroma'],
+                    method=denoise_backend
                 ),
                 current,
             )
-            print(f"  ✓ L={cfg['pre_denoise_lum']}/C={cfg['pre_denoise_chroma']}")
+            print(f"  ✓ L={cfg['pre_denoise_lum']}/C={cfg['pre_denoise_chroma']}  方法={denoise_backend}")
         save_current('03_pre_denoise.tif')
 
     # Phase 4: 去星 (在线性数据上！)
@@ -1362,6 +1636,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     star_removal_fallback = False
     valid_starless_layer = False
     linear_star_mask_val = None
+    external_starless_diagnostics = None
     if 'star_remove' in steps:
         print("\n[Phase 4] 去星 (StarNet-like, 线性数据)...")
         if (
@@ -1375,10 +1650,62 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             )
         if external_starless:
             starless = external_starless_linear
+
+            # ── 域解析：显式 flag > sidecar > linear ──
+            # 极暗数据必须走「先 MTF 拉伸 → StarNet2 → 逆 MTF 回线性」，否则 16-bit
+            # 量化会把弱色通道压成 0（实测星云区 G 有 93% 像素精确为 0），拉伸后
+            # 整片星云变纯红。sidecar 让走完整桥接流程的用户无需手记 midtones。
+            resolved_domain = external_starless_domain
+            resolved_midtones = external_starless_midtones
+            if resolved_domain == 'linear':
+                meta = read_starnet_payload_meta(
+                    os.path.dirname(os.path.abspath(external_starless)),
+                    work_dir,
+                )
+                if meta and meta.get('domain') == 'mtf':
+                    resolved_domain = 'mtf'
+                    if resolved_midtones is None:
+                        resolved_midtones = meta.get('midtones')
+                    print("  ℹ️ sidecar 声明外部无星层为 MTF 域，自动按 mtf 逆变换解析")
+            if resolved_domain not in ('linear', 'mtf'):
+                raise ValueError(
+                    f"未知的外部无星层域: {resolved_domain!r}（只接受 'linear' 或 'mtf'）"
+                )
+
+            if resolved_domain == 'mtf':
+                m_val = (float(resolved_midtones) if resolved_midtones is not None
+                         else derive_mtf_midtones(current))
+                starless = inverse_mtf_stretch(starless, midtones=m_val, shadows=0.0)
+                print(f"  ✓ 外部无星层 MTF 逆变换回线性域 (midtones={m_val:g})")
+
+            # 校验必须在**同域**之后做：否则 stars_energy 与后续相减都无意义
+            verification = verify_external_starless(current, starless)
+            if not verification.get("valid"):
+                raise ValueError(f"外部无星图真实性校验失败: {verification.get('error')}")
+            if not verification.get("stars_extracted_successfully"):
+                warnings.append("外部无星图未剥离出显著星点能量，可能与原图完全一致或过度减损")
+            scale_info = verification.get("scale_consistency") or {}
+            if scale_info.get("status") == "warn":
+                warnings.append(scale_info.get("message") or "外部无星层尺度偏离")
             stars = np.clip(current - starless, 0, 1)
             valid_starless_layer = True
-            print(f"  ✓ 使用外部无星图: {external_starless}")
+            external_starless_diagnostics = {
+                "domain": resolved_domain,
+                "midtones": (None if resolved_domain == 'linear'
+                             else float(resolved_midtones) if resolved_midtones is not None
+                             else float(m_val)),
+                "channel_integrity": verification.get("channel_integrity"),
+                "scale_consistency": scale_info or None,
+            }
+            print(f"  ✓ 使用外部无星图: {external_starless} (域={resolved_domain}, 星点能量均值={verification.get('stars_energy_mean'):.6f})")
         else:
+            galaxy_center = None
+            if effective_target_type == 'galaxy' and cached_target_info is not None:
+                tcx = float(cached_target_info['center'][0])
+                tcy = float(cached_target_info['center'][1])
+                galaxy_center = (tcy, tcx)
+                print(f"  [去星] 传入星系中心坐标以保护核球连通域: center=({int(tcx)}, {int(tcy)})")
+
             star_method = 'starnet' if use_starnet else 'inpaint'
             starless, stars, star_mask, star_report = separate_stars(
                 current, method=star_method,
@@ -1387,7 +1714,9 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 return_report=True,
                 starnet_path=starnet_path,
                 starnet_stride=starnet_stride,
+                starnet_domain=starnet_domain,
                 starnet_timeout=starnet_timeout,
+                galaxy_center=galaxy_center,
             )
             if star_report.get('fallback_applied'):
                 star_removal_fallback = True
@@ -1424,6 +1753,106 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             print(f"  [WARN] 无法计算线性阶段星点指标: {e_metric}")
         print(f"  ✓ 阈值={cfg['star_threshold']} (线性数据)")
 
+        if (halo_guard or (effective_target_type == 'emission_nebula' and stars is not None)) and starless is not None and not star_removal_fallback:
+            print("  [星晕平整] 检查并平整亮星周围残余彩色晕轮 (Halo Guard)...")
+            from star_tools import apply_star_halo_guard
+            fwhm_for_halo = fwhm_est if 'fwhm_est' in locals() and fwhm_est else 3.5
+            starless = apply_star_halo_guard(starless, stars=stars, fwhm=fwhm_for_halo)
+            save_artifact('04_starless_linear.tif', starless)
+            print("  ✓ 亮星星晕守卫完成，背景亮度 L 严格保全")
+
+        # ── 外部神经网络去星桥接建议与载荷导出 (Neural Star Bridge) ──
+        env_info = detect_neural_starnet_environment(custom_path=starnet_path)
+        star_density_val = None
+        if analysis_report and 'starfield' in analysis_report:
+            star_density_val = analysis_report['starfield'].get('star_density')
+        star_area_ratio_val = linear_star_metrics.get('star_area_ratio') if linear_star_metrics else None
+
+        bridge_rec = evaluate_neural_bridge_recommendation(
+            image_shape=current.shape,
+            star_density=star_density_val,
+            star_area_ratio=star_area_ratio_val,
+            star_removal_quality=star_report if 'star_report' in locals() else None,
+            target_type=effective_target_type,
+            env_info=env_info,
+        )
+
+        should_export_payload = bool(export_starnet_payload)
+        payload_exported_path = None
+        payload_midtones = None
+        if should_export_payload:
+            payload_exported_path, payload_midtones = export_starnet_payload_for_domain(
+                current, work_dir, domain=export_starnet_payload_domain,
+            )
+            artifact_paths[os.path.basename(payload_exported_path)] = payload_exported_path
+            print(
+                f"  ✓ 已导出 StarNet2 16-bit 载荷（域={export_starnet_payload_domain}"
+                f"{'' if payload_midtones is None else f', midtones={payload_midtones:g}'}）: "
+                f"{payload_exported_path}"
+            )
+
+        bridge_instructions = build_bridge_run_instructions(
+            payload_path=payload_exported_path or os.path.join(work_dir, "03_pre_denoise.tif"),
+            output_starless_path=os.path.join(work_dir, "04_starless_external.tif"),
+            input_fits_path=input_path,
+            final_output_path=output_path,
+            env_info=env_info,
+            work_dir=work_dir,
+            domain=export_starnet_payload_domain,
+            stride=starnet_stride,
+            midtones=payload_midtones,
+        )
+
+        should_show_card = False
+        if starnet_recommendation == 'always':
+            should_show_card = True
+        elif starnet_recommendation == 'auto':
+            if should_export_payload or (bridge_rec.get('recommended') and not external_starless and not use_starnet):
+                should_show_card = True
+
+        if should_show_card:
+            print("\n" + format_bridge_recommendation_card(bridge_rec, bridge_instructions) + "\n")
+
+        neural_bridge_report = {
+            "environment": env_info,
+            "recommendation": bridge_rec,
+            "payload_exported": bool(should_export_payload),
+            "payload_path": payload_exported_path,
+            "instructions": bridge_instructions,
+        }
+
+    if neural_bridge_report is None and export_starnet_payload:
+        env_info = detect_neural_starnet_environment(custom_path=starnet_path)
+        payload_path, payload_midtones = export_starnet_payload_for_domain(
+            current, work_dir, domain=export_starnet_payload_domain,
+        )
+        artifact_paths[os.path.basename(payload_path)] = payload_path
+        bridge_instructions = build_bridge_run_instructions(
+            payload_path=payload_path,
+            output_starless_path=os.path.join(work_dir, "04_starless_external.tif"),
+            input_fits_path=input_path,
+            final_output_path=output_path,
+            env_info=env_info,
+            work_dir=work_dir,
+            domain=export_starnet_payload_domain,
+            stride=starnet_stride,
+            midtones=payload_midtones,
+        )
+        bridge_rec = evaluate_neural_bridge_recommendation(
+            image_shape=current.shape,
+            target_type=effective_target_type,
+            env_info=env_info,
+        )
+        if starnet_recommendation != 'never':
+            print("\n" + format_bridge_recommendation_card(bridge_rec, bridge_instructions) + "\n")
+        neural_bridge_report = {
+            "environment": env_info,
+            "recommendation": bridge_rec,
+            "payload_exported": True,
+            "payload_path": payload_path,
+            "instructions": bridge_instructions,
+        }
+
     # Phase 5: 拉伸 (线性→非线性, 对去星图像)
     stretch_target = starless if starless is not None else current
     if 'stretch' in steps:
@@ -1439,13 +1868,13 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 )
             elif effective_color_mode == 'emission':
                 effective_method = 'emission'
-            elif cfg.get('stretch_method') not in (None, 'auto'):
-                effective_method = cfg['stretch_method']
             elif is_very_dark:
                 effective_method = 'very_dark'
             elif effective_target_type in ('galaxy', 'emission_nebula', 'planetary_nebula'):
                 effective_method = 'masked_ghs'
                 print(f"[自适应] 识别为高动态范围天体 ({effective_target_type})，自动升级为 masked_ghs 拉伸以保护高光核心")
+            elif cfg.get('stretch_method') not in (None, 'auto'):
+                effective_method = cfg['stretch_method']
             else:
                 effective_method = 'masked'
         resolved_stretch_method = effective_method
@@ -1497,20 +1926,34 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         elif effective_method == 'ghs':
             sp_val = cfg.get('ghs_sp', 0.01)
             b_val = resolve_ghs_b(cfg)
+            lp_val, hp_val = resolve_ghs_lphp(cfg)
+            lp_eff = 0.0 if lp_val is None else lp_val
+            hp_eff = 1.0 if hp_val is None else hp_val
             stretch_target = apply_luminance_stretch(
                 stretch_target,
                 method='ghs',
                 sp=sp_val,
                 b=b_val,
-                c=cfg.get('ghs_c', 0.0)
+                c=cfg.get('ghs_c', 0.0),
+                lp=lp_eff,
+                hp=hp_eff,
             )
-            print(f"  ✓ GHS stretch sp={sp_val} b={b_val:.2f} c={cfg.get('ghs_c', 0.0)}")
+            print(f"  ✓ GHS stretch sp={sp_val} b={b_val:.2f} c={cfg.get('ghs_c', 0.0)} lp={lp_eff} hp={hp_eff}")
         elif effective_method == 'masked_ghs':
             sp_val = cfg.get('ghs_sp', -1)
             b_val = resolve_ghs_b(cfg)
             prot_val = cfg.get('ghs_protect_strength', 0.5)
             if is_m42_target(target_name):
                 prot_val = max(prot_val, 0.75)
+            hl_pctl = cfg.get('highlight_pctl', 99.9)
+            if effective_target_type in ('galaxy', 'globular_cluster', 'planetary_nebula') or is_m42_target(target_name):
+                hl_pctl = 100.0
+            lp_val, hp_val = resolve_ghs_lphp(cfg)
+            # 内层 GHS 切线保护（归一化 [0,1] 空间），与外层 lp/hp 语义不同，故独立取键。
+            # ghs_c 与裸 ghs 分支复用同一键名（见上方 ghs 分支）。
+            c_val = cfg.get('ghs_c', 0.0)
+            plp_val = cfg.get('ghs_protect_lp')
+            php_val = cfg.get('ghs_protect_hp')
             stretch_target = apply_luminance_stretch(
                 stretch_target,
                 method='masked_ghs',
@@ -1519,24 +1962,56 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 protect_strength=prot_val,
                 target_bg=cfg.get('target_bg', 0.08),
                 shadow_pctl=cfg.get('shadow_pctl', 0.0),
-                highlight_pctl=cfg.get('highlight_pctl', 99.9),
+                highlight_pctl=hl_pctl,
                 gamma=cfg.get('stretch_gamma', 0.45),
+                lp=lp_val,
+                hp=hp_val,
+                protect_lp=plp_val,
+                protect_hp=php_val,
+                c=c_val,
             )
             print(
                 f"  ✓ Masked GHS stretch sp={sp_val} b={b_val:.2f} "
                 f"protect={prot_val} target_bg={cfg.get('target_bg', 0.08)} "
                 f"shadow={cfg.get('shadow_pctl', 0.0)} "
-                f"highlight={cfg.get('highlight_pctl', 99.9)} "
+                f"highlight={hl_pctl} "
                 f"gamma={cfg.get('stretch_gamma', 0.45)}"
             )
+            if lp_val is not None or hp_val is not None:
+                print(f"    ↳ 显式锚点 lp={lp_val} hp={hp_val}（覆盖百分位推导）")
+            if plp_val is not None or php_val is not None or c_val:
+                print(
+                    f"    ↳ 内层保护 protect_lp={plp_val} protect_hp={php_val} c={c_val}"
+                )
         else:
             method_kwargs = {}
             if effective_method == 'masked':
                 method_kwargs = {'factor': cfg['stretch_factor'], 'target_bg': cfg.get('target_bg', 0.08)}
             elif effective_method == 'mtf':
                 method_kwargs = {'midtones': cfg.get('midtones', 0.3)}
-            elif effective_method == 'arcsinh':
+            elif effective_method == 'emission':
+                # `emission_stretch` 接受 shadow/highlight_pctl、gamma、target_bg。
+                # 此前这里落到空 kwargs，导致 **cfg 里的 stretch_gamma / target_bg /
+                # shadow_pctl / highlight_pctl 被静默丢弃**，实际一直跑该函数的默认值
+                # （gamma=0.33 / target_bg=0.08）—— 分析报告算出的曲线参数完全没生效。
+                # 实测某极暗母版：传入 cfg 值后拉伸层 p75 由 0.307 降到 0.280。
+                method_kwargs = {
+                    'shadow_pctl': cfg.get('shadow_pctl', 0.5),
+                    'highlight_pctl': cfg.get('highlight_pctl', 99.9),
+                    'gamma': cfg.get('stretch_gamma', 0.33),
+                    'target_bg': cfg.get('target_bg', 0.08),
+                }
+            elif effective_method == 'very_dark':
+                method_kwargs = {
+                    'factor': cfg['stretch_factor'],
+                    'gamma': cfg.get('stretch_gamma', 0.45),
+                    'shadow_pctl': cfg.get('shadow_pctl', 0.1),
+                    'highlight_pctl': cfg.get('highlight_pctl', 99.5),
+                    'target_bg': cfg.get('target_bg', 0.12),
+                }
+            elif effective_method in ('arcsinh', 'luminance_arcsinh'):
                 method_kwargs = {'factor': cfg['stretch_factor']}
+                effective_method = 'arcsinh'
             stretch_target = apply_luminance_stretch(
                 stretch_target,
                 method=effective_method,
@@ -1544,17 +2019,20 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             )
             print(f"  ✓ {effective_method} stretch kwargs={method_kwargs}")
 
-        # 3. 塌缩守卫：拉伸应当展宽色调范围。若输出被挤进一条很窄的亮度带，
-        #    或核心/背景对比度被压塌，说明该方法在当前数据上失准（常见于
-        #    黑点估计被极亮核心带偏），退回到保守的 masked 拉伸重试。
+        # 3. 塌缩守卫：拉伸应当展宽色调范围。若输出的绝对跨度 (p99 - p50) 被压到
+        #    很窄的一条亮度带里，说明该方法在当前数据上失准（常见于黑点估计被极亮
+        #    核心带偏），退回到保守的 masked 拉伸重试。
+        #    注意：这里**不**比较 p999/p50 比值 —— 任何抬升背景的拉伸都会让该比值
+        #    下降，无法区分正常背景抬升与病态对比度压塌（详见 is_stretch_collapsed
+        #    的 docstring）。
         collapsed, pre_health, post_health = is_stretch_collapsed(
             _pre_stretch_input, stretch_target
         )
         if collapsed:
             print(
                 f"  ⚠️ 检测到拉伸塌缩: span={post_health['span']:.4f} "
-                f"core_ratio={post_health['core_ratio']:.2f} "
-                f"(拉伸前 core_ratio={pre_health['core_ratio']:.2f})，改用保守 masked 拉伸"
+                f"(拉伸前 span={pre_health['span']:.4f}, "
+                f"core_ratio={post_health['core_ratio']:.2f})，改用保守 masked 拉伸"
             )
             recovered = apply_luminance_stretch(
                 _pre_stretch_input,
@@ -1603,6 +2081,18 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         save_artifact('05b_star_scnr.tif', processed_stars)
         print(f"  ✓ strength={cfg['star_scnr_strength']}")
 
+        # S2b: 星点保亮度饱和补偿
+        #
+        # 插在 S2 之后、S3 之前：S1 的 arcsinh 压色度、S2 的 SCNR 又把 Lab a 推向 0，
+        # 两者叠加是**最大损耗源**；而 S3 的 apply_curves 用亮度增益乘回 RGB（保比例、
+        # 不改饱和），缩星只做腐蚀——所以在 S2 之后一次补回，S3 不会撤销它。
+        star_sat = float(cfg.get('star_saturation', 1.08))
+        if processed_stars.ndim >= 3 and star_sat != 1.0:
+            print(f"\n[Star S2b] 星点保亮度饱和补偿 (×{star_sat})...")
+            processed_stars = saturate_stars(processed_stars, saturation=star_sat)
+            save_artifact('05b2_star_saturation.tif', processed_stars)
+            print(f"  ✓ saturation={star_sat}")
+
         # S3: 星点曲线微调 + 缩星
         print("\n[Star S3] 星点曲线微调 + 缩星...")
         if processed_stars.ndim >= 3:
@@ -1626,27 +2116,105 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     if 'enhance' in steps:
         print("\n─ 非线性阶段 ─")
         print("[Phase 6] 星云细节增强 (高光保护 HDR + CLAHE 局部对比)...")
-        from enhance import apply_clahe
+        from enhance import (apply_clahe, decide_enhance_mode, measure_texture_snr,
+                             preview_clahe_hf_amplification,
+                             CLAHE_MIN_TEXTURE_SNR, CLAHE_MAX_HF_AMPLIFICATION)
         hdr_strength = cfg.get('hdr_strength', 0.35)
-        current_nl, hdr_report = protected_hdr_compress(
-            current_nl,
-            strength=hdr_strength,
-            knee_percentile=cfg.get('hdr_knee_percentile', 85.0),
+
+        # HDR 与 CLAHE 二选一：外部经验「HDRMT 与 LHE 同时用太过头」。
+        # 信号**现算**而不是用 post_health——后者只在 'stretch' in steps 时定义，
+        # 缺 stretch 步会 NameError。默认分支仍是 both（= 历史行为）。
+        _g = (
+            np.mean(current_nl[..., :3], axis=2)
+            if current_nl.ndim == 3 else current_nl
         )
+        _p50 = float(np.median(_g))
+        _p99 = float(np.percentile(_g, 99.0))
+        enhance_signals = {
+            "highlight_clip_ratio": float(np.mean(_g >= 0.995)),
+            "p50": _p50,
+            "p99": _p99,
+            "span": _p99 - _p50,
+        }
+        # 噪声守卫：星云区纹理是否真的比背景噪声地板多出结构。
+        # 实测某极暗母版该比值 1.24（噪声主导），跑 CLAHE 后星云区高通能量被放大
+        # 5.4×，成片出现灰色蜂窝斑块；而干净输入的比值 ≥2.3。
+        _texture_snr = measure_texture_snr(_g)
+        if _texture_snr is not None:
+            enhance_signals["texture_snr"] = _texture_snr
+        enhance_mode = cfg.get('enhance_mode', 'auto')
+        guard_fired = False
+        if enhance_mode == 'auto':
+            # 先算「不带噪声守卫」的基准模式，用于报告守卫是否真的改变了决策
+            base_signals = {k: v for k, v in enhance_signals.items()
+                            if k != 'texture_snr'}
+            base_mode = decide_enhance_mode(base_signals, effective_target_type)
+            enhance_mode = decide_enhance_mode(enhance_signals, effective_target_type)
+            guard_fired = enhance_mode != base_mode
+        if guard_fired:
+            print(
+                f"  ⚠️ 星云区纹理/背景噪声 = {_texture_snr:.2f} "
+                f"< {CLAHE_MIN_TEXTURE_SNR}，判定为噪声主导："
+                f"已把增强模式从 {base_mode} 降为 {enhance_mode}（局部均衡只会放大噪声成蜂窝斑块）"
+            )
+
+        if enhance_mode in ('both', 'hdr_only'):
+            current_nl, hdr_report = protected_hdr_compress(
+                current_nl,
+                strength=hdr_strength,
+                knee_percentile=cfg.get('hdr_knee_percentile', 85.0),
+            )
+            save_current('06a_hdr.tif', img=current_nl)
+        else:
+            hdr_report = {
+                "applied": False,
+                "strength": hdr_strength,
+                "skipped_reason": enhance_mode,
+            }
+
         # 按图像短边的 6% 计算 CLAHE kernel，避免固定像素值导致尺度不匹配
         h, w = current_nl.shape[:2]
         kernel_size = int(min(h, w) * 0.06)
         kernel_size = max(64, kernel_size - (kernel_size % 2))  # 确保偶数且 >=64
         # 发射星云使用更低的 clip_limit 避免弥散区域伪影
         clip_limit = 0.003 if effective_color_mode == 'emission' else 0.004
-        current_nl = apply_clahe(current_nl, clip_limit=clip_limit, kernel_size=kernel_size)
+        clahe_mask_gamma = cfg.get('clahe_mask_gamma', 2.0)
+        clahe_hf_amplification = None
+        if enhance_mode in ('both', 'clahe_only'):
+            # 实测守卫：CLAHE 的 clip_limit 在窄直方图上会饱和，无法靠调小它减弱效果，
+            # 只能二选一。因此在下采样预览上实测它会把星云区高频放大多少倍。
+            clahe_hf_amplification = preview_clahe_hf_amplification(
+                current_nl, clip_limit, kernel_size,
+                mask_gamma=clahe_mask_gamma,
+                mask_high_pctl=cfg.get('clahe_mask_high_pctl', 95.0),
+            )
+            if (clahe_hf_amplification is not None
+                    and clahe_hf_amplification > CLAHE_MAX_HF_AMPLIFICATION):
+                print(
+                    f"  ⚠️ CLAHE 会把星云区高频放大 {clahe_hf_amplification:.2f}× "
+                    f"> {CLAHE_MAX_HF_AMPLIFICATION}，判定为过度增强：跳过 CLAHE"
+                )
+                enhance_mode = 'hdr_only' if enhance_mode == 'both' else 'none'
+            else:
+                current_nl = apply_clahe(
+                    current_nl, clip_limit=clip_limit, kernel_size=kernel_size,
+                    mask_gamma=clahe_mask_gamma,
+                    mask_high_pctl=cfg.get('clahe_mask_high_pctl', 95.0),
+                )
+        hdr_report.update({"enhance_mode": enhance_mode, **enhance_signals})
+        if clahe_hf_amplification is not None:
+            hdr_report["clahe_hf_amplification"] = round(clahe_hf_amplification, 4)
         current = current_nl
         save_current('06_clahe_enhance.tif')
         print(
             f"  ✓ HDR strength={hdr_strength} "
-            f"knee={hdr_report['knee']:.3f} "
-            f"P99 {hdr_report['p99_before']:.3f}→{hdr_report['p99_after']:.3f}; "
-            f"CLAHE clip={clip_limit}, kernel={kernel_size}"
+            + (
+                f"knee={hdr_report['knee']:.3f} "
+                f"P99 {hdr_report['p99_before']:.3f}→{hdr_report['p99_after']:.3f}; "
+                if hdr_report.get('applied', True) else "已跳过; "
+            )
+            + f"CLAHE clip={clip_limit}, kernel={kernel_size}, "
+              f"mask_gamma={clahe_mask_gamma}; 模式={enhance_mode}"
         )
 
     # Phase 7: 锐化
@@ -1694,6 +2262,31 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         print("\n[Phase 8] 颜色调整 (Vectra-like)...")
         if current_nl.ndim == 2:
             current_nl = np.stack([current_nl] * 3, axis=-1)
+
+        # 调色板假彩色映射 (AstroBOH Dual-band Palette Mapping)
+        if palette != 'none':
+            print(f"  [调色板] 执行双窄带假彩色映射: {palette.upper()}...")
+            from palette_tools import apply_dualband_palette
+            palette_star_mask = None
+            if not valid_starless_layer:
+                if linear_star_mask_val is None:
+                    gray_linear = (
+                        np.mean(original_linear[..., :3], axis=2)
+                        if original_linear.ndim == 3 else original_linear
+                    )
+                    linear_star_mask_val = detect_stars(
+                        gray_linear, star_threshold=cfg['star_threshold']
+                    )
+                palette_star_mask = linear_star_mask_val
+                print("  [调色板] 单图流程：挂载星点掩膜软羽化保护恒星真彩色")
+            else:
+                print("  [调色板] 多图层流程：当前为纯净无星底图，解耦假彩色调色板与独立星点层")
+            current_nl = apply_dualband_palette(
+                current_nl, palette=palette, star_mask=palette_star_mask
+            )
+            save_artifact(f'08_palette_{palette.lower()}.tif', current_nl)
+            print(f"  ✓ {palette.upper()} 调色板映射完成 (感官亮度 L 严格守恒)")
+
         if effective_color_mode == 'emission':
             target_ratios = None
             if cfg.get('emission_target_r_over_g') or cfg.get('emission_target_r_over_b'):
@@ -1731,14 +2324,27 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 pre_scnr[..., 1],
                 pre_scnr[..., 2],
             )
-            signal_floor = np.percentile(np.mean(pre_scnr, axis=2), 55)
-            oiii_mask = (
+            # 双窄带 / 发射星云 OIII 青蓝物理特征掩膜：
+            # OIII 在绿色与蓝色窗口均有透射响应，且能量较纯红 Hα 区更均衡。
+            signal_floor = np.percentile(np.mean(pre_scnr, axis=2), 35)
+            oiii_balance = (
+                (b0 / np.maximum(g0, 1e-6) >= 0.60)
+                & (b0 / np.maximum(g0, 1e-6) <= 1.65)
+            )
+            # 条件一：高氧辐射区 (G+B 相对 R 显著，如空腔与核心)
+            oiii_cavity = (
                 (np.mean(pre_scnr, axis=2) > signal_floor)
-                & (g0 > r0 * 1.03)
-                & (b0 > r0 * 0.90)
+                & ((g0 + b0) / (2.0 * np.maximum(r0, 1e-6)) >= 0.42)
                 & (np.minimum(g0, b0) > 0.015)
             )
-            oiii_soft = gaussian_filter(oiii_mask.astype(np.float32), sigma=2.0)
+            # 条件二：纯 OIII/低氢区 (G 或 B 直接超出 R)
+            oiii_pure = (
+                (np.mean(pre_scnr, axis=2) > signal_floor)
+                & ((g0 > r0 * 0.95) | (b0 > r0 * 0.90))
+                & (np.minimum(g0, b0) > 0.015)
+            )
+            oiii_mask = (oiii_balance & (oiii_cavity | oiii_pure))
+            oiii_soft = gaussian_filter(oiii_mask.astype(np.float32), sigma=2.5)
             current_nl = remove_green_noise(current_nl, strength=0.15)
             current_nl = (
                 current_nl * (1.0 - oiii_soft[..., None] * 0.85)
@@ -1769,13 +2375,35 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 f"  ✓ OIII青色保护: "
                 f"{float(np.mean(oiii_mask)) * 100:.1f}%像素免受强SCNR/压蓝"
             )
+            emission_shadows = cfg.get('emission_shadows', 0.92)
             current_nl = apply_curves(
-                current_nl, midtones=1.08, shadows=0.75, highlights=1.0
+                current_nl, midtones=1.08, shadows=emission_shadows, highlights=1.0
             )
             print(f"  ✓ 发射结构选择性饱和×{cfg.get('saturation', 1.85)}")
         else:
-            current_nl = apply_curves(current_nl, midtones=1.03, shadows=0.75)
-            print("  ✓ 中性曲线调整")
+            if effective_target_type == 'galaxy':
+                h, w = current_nl.shape[:2]
+                if cached_target_info is not None:
+                    gcx = float(cached_target_info['center'][0])
+                    gcy = float(cached_target_info['center'][1])
+                else:
+                    gcx, gcy = w / 2.0, h / 2.0
+                gradius = max(min(h, w) * 0.45, 200.0)
+                yy, xx = np.ogrid[:h, :w]
+                dist = np.sqrt((xx - gcx)**2 + (yy - gcy)**2)
+                spatial_mask = np.clip(1.0 - (dist / gradius)**2, 0.0, 1.0)
+                spatial_mask = gaussian_filter(spatial_mask, sigma=15.0)
+
+                hsv = rgb2hsv(current_nl)
+                sat_factor = cfg.get('saturation', 1.45)
+                hsv[..., 1] *= (1.0 + (sat_factor - 1.0) * spatial_mask)
+                hsv[..., 1] = np.clip(hsv[..., 1], 0, 1)
+                current_nl = hsv2rgb(hsv)
+                current_nl = apply_curves(current_nl, midtones=1.04, shadows=0.88, highlights=1.0)
+                print(f"  ✓ 宽带星系空间自适应饱和度提升×{sat_factor:.2f} + 温和曲线微调")
+            else:
+                current_nl = apply_curves(current_nl, midtones=1.03, shadows=0.75)
+                print("  ✓ 中性曲线调整")
         current = current_nl
         save_current('08_color.tif')
         print("  ✓ 背景保护曲线完成")
@@ -1795,12 +2423,24 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 else original_linear
             )
             try:
-                _target_crop, target_info = detect_target_crop(detail_source)
+                target_info = (
+                    cached_target_info
+                    if cached_target_info is not None
+                    else detect_target_crop(detail_source)[1]
+                )
                 nebula_cx = int(round(target_info['center'][0]))
                 nebula_cy = int(round(target_info['center'][1]))
                 object_width = target_info['object_bbox'][2]
                 object_height = target_info['object_bbox'][3]
                 detected_radius = int(max(object_width, object_height) * 1.45)
+                if effective_target_type == 'galaxy':
+                    min_galaxy_radius = int(min(current_nl.shape[:2]) * 0.38)
+                    if detected_radius < min_galaxy_radius:
+                        print(
+                            f"  星系盘面半径补偿: 原始检测半径={detected_radius}px "
+                            f"< 保底半径={min_galaxy_radius}px，调整为={min_galaxy_radius}px"
+                        )
+                        detected_radius = min_galaxy_radius
                 print(
                     f"  自动增强定位 center=({nebula_cx},{nebula_cy}) "
                     f"object_bbox={target_info['object_bbox']}"
@@ -1852,39 +2492,50 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
 
     # Phase 8d: 轻微缩星并恢复蓝白星色
     if 'star_reduce' in steps:
-        print("\n[Phase 8d] 轻微缩星...")
-        if linear_star_mask_val is None:
-            gray_linear = (
-                np.mean(original_linear[..., :3], axis=2)
-                if original_linear.ndim == 3 else original_linear
+        if valid_starless_layer and processed_stars is not None and not star_layer_empty:
+            print("\n[Phase 8d] 跳过无星层缩星：当前为纯净无星图，缩星已在星点层独立完成")
+            save_current('08d_star_reduced.tif')
+        else:
+            print("\n[Phase 8d] 带星图全局缩星...")
+            if linear_star_mask_val is None:
+                gray_linear = (
+                    np.mean(original_linear[..., :3], axis=2)
+                    if original_linear.ndim == 3 else original_linear
+                )
+                linear_star_mask_val = detect_stars(
+                    gray_linear, star_threshold=cfg['star_threshold']
+                )
+            current_nl = mild_star_reduce_full(
+                current_nl,
+                reduction=cfg.get('star_reduction', 0.18),
+                color_restore=effective_color_mode != 'emission',
+                star_mask=linear_star_mask_val,
             )
-            linear_star_mask_val = detect_stars(
-                gray_linear, star_threshold=cfg['star_threshold']
-            )
-        current_nl = mild_star_reduce_full(
-            current_nl,
-            reduction=cfg.get('star_reduction', 0.18),
-            color_restore=effective_color_mode != 'emission',
-            star_mask=linear_star_mask_val,
-        )
-        current = current_nl
-        save_current('08d_star_reduced.tif')
-        print(f"  ✓ 缩星(reduction={cfg.get('star_reduction', 0.18)})")
+            current = current_nl
+            save_current('08d_star_reduced.tif')
+            print(f"  ✓ 缩星(reduction={cfg.get('star_reduction', 0.18)})")
 
     # ══════════════════════════════════════════════════════════════
     # 最终阶段 (Final Phase)
     # ══════════════════════════════════════════════════════════════
 
     # Phase 9: 星点合成 (StarComposer)
+    effective_blend_mode = cfg.get('star_blend_mode', star_blend_mode)
+    # 具名星点门禁的同域参照图：合成后、后续非线性润色（style / final_denoise /
+    # background lock）之前的快照。pipeline 里此前没有任何「含星 + 非线性 + 与最终
+    # current 同域」的图，导致 STAR_BLOAT / STAR_LAYER_LOSS / STAR_HOLES 无法运行。
+    star_gate_reference = None
     if 'star_combine' in steps and processed_stars is not None and not star_layer_empty:
         print("\n─ 最终阶段 ─")
         print("[Phase 9] 星点合成 (StarComposer)...")
         current = combine_starless_stars(
             current_nl, processed_stars,
-            star_strength=cfg['star_combine_strength']
+            star_strength=cfg['star_combine_strength'],
+            blend_mode=effective_blend_mode,
         )
         save_current('09_star_combined.tif')
-        print(f"  ✓ 星点强度={cfg['star_combine_strength']}")
+        print(f"  ✓ 星点强度={cfg['star_combine_strength']} 混合模式={effective_blend_mode}")
+        star_gate_reference = downsample_for_gates(current)
     else:
         if 'star_combine' in steps and star_layer_empty:
             star_combine_skipped = {
@@ -1895,34 +2546,90 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             print("[Phase 9] 跳过星点合成：星点层为空（记录原因，不做静默空操作）")
         current = current_nl
 
+    # 去星修补足迹检测。
+    #
+    # 位置很重要：必须量**合成星点之后**的 `current`，而不是 Phase 9 之前的无星
+    # 层。实测同一文件：无星层 0/191 命中（passed），合成后 19/191=10.0% 命中
+    # （failed，全部为亮斑、纹理比低至 0.046）——因为可见斑块是星点层 screen
+    # 混合到无星底图上才出现的，无星层上量不到。这与最初设计假设相反，以实测为准。
+    #
+    # 星位来自线性域的星点蒙版（位置是几何量、域无关）；FWHM 也必须用线性域实测值
+    # （约 3.9px），否则会拿到被拉伸放大的 9~10px，几何关系全错。
+    inpaint_footprint = None
+    if ('star_remove' in steps and not star_removal_fallback
+            and linear_star_mask_val is not None):
+        try:
+            from artifact_gates import check_inpaint_footprint
+            _lin_fwhm = None
+            if 'linear_star_metrics' in locals() and linear_star_metrics:
+                _lin_fwhm = linear_star_metrics.get('estimated_fwhm')
+            inpaint_footprint = check_inpaint_footprint(
+                current, linear_star_mask_val, fwhm=_lin_fwhm
+            )
+            print(
+                f"  [足迹] INPAINT_FOOTPRINT: {inpaint_footprint['status']} "
+                f"— {inpaint_footprint['message']}"
+            )
+        except Exception as exc:  # 门禁失败不阻断出图
+            inpaint_footprint = {
+                "code": "INPAINT_FOOTPRINT", "status": "error",
+                "escalate": False, "message": f"足迹检测失败：{exc}", "evidence": {},
+            }
+
+    style_diagnostics = None
     if 'style' in steps:
         print("\n[Phase 9a] AI 风格定调 (非生成式)...")
         effective_style_strength = cfg.get('style_strength', style_strength)
-        current, selected_style, _style_reasoning = apply_professional_style(
+        style_star_mask = None
+        if processed_stars is not None and not star_layer_empty:
+            style_star_mask = np.max(processed_stars, axis=2) if processed_stars.ndim == 3 else processed_stars
+        elif linear_star_mask_val is not None:
+            style_star_mask = linear_star_mask_val
+        (current, selected_style, _style_reasoning,
+         style_diagnostics) = apply_professional_style(
             current,
             style=style,
             target_type=effective_target_type,
             color_mode=effective_color_mode,
             strength=effective_style_strength,
+            star_mask=style_star_mask,
+            return_diagnostics=True,
         )
         current_nl = current
         save_current('09a_style.tif')
         print(f"  ✓ style={selected_style} strength={effective_style_strength}")
+        if style_diagnostics:
+            print(
+                "    局部黑位: "
+                f"global={style_diagnostics['floor_global']:.4f} "
+                f"local=[{style_diagnostics['floor_min']:.4f}, "
+                f"{style_diagnostics['floor_max']:.4f}] "
+                f"裁切区块(before/after)="
+                f"{style_diagnostics['blocks_clipped_before_repair']}/"
+                f"{style_diagnostics['blocks_clipped_after_repair']}"
+            )
+            if style_diagnostics.get("repair_applied"):
+                print(
+                    "    ⚠ 自愈：黑位全局下移 "
+                    f"{style_diagnostics['repair_shift']:.5f} 以避免局部背景被裁成纯黑"
+                )
 
     # Phase 10: 最终降噪 (SCUNet-like, 必须最后)
     if 'final_denoise' in steps:
-        print("\n[Phase 10] 最终降噪 (SCUNet-like, 整体)...")
+        final_denoise_backend = cfg.get('final_denoise_method', cfg.get('denoise_method', 'bilateral'))
+        print(f"\n[Phase 10] 最终降噪 ({'À Trous Wavelet (Starlet)' if final_denoise_backend in ('atrous', 'starlet') else 'SCUNet-like'}, 整体)...")
         if current.ndim == 2:
             current = np.stack([current] * 3, axis=-1)
         current = tiled(
             lambda tile: denoise_luminance_chroma(
                 tile, lum_strength=cfg['final_denoise_lum'],
-                chroma_strength=cfg['final_denoise_chroma']
+                chroma_strength=cfg['final_denoise_chroma'],
+                method=final_denoise_backend
             ),
             current,
         )
         save_current('10_final_denoise.tif')
-        print(f"  ✓ Final-Denoise L={cfg['final_denoise_lum']}/C={cfg['final_denoise_chroma']}")
+        print(f"  ✓ Final-Denoise L={cfg['final_denoise_lum']}/C={cfg['final_denoise_chroma']}  方法={final_denoise_backend}")
 
     if reference_image:
         print("\n[Phase 11] 参考图全局定调...")
@@ -1934,7 +2641,19 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             "max_saturation": cfg.get("reference_max_saturation", 1.45),
             "local_contrast": cfg.get("reference_local_contrast", 0.10),
         }
-        if reference_auto_search:
+        reference_grade_report = None
+        if reference_color_only:
+            # 只做信号区色比匹配：跳过全局亮度/色调/饱和度定调。
+            # 全局定调会改动 tone/stretch 并可能引入 CORE_BURNING，且它的参数空间
+            # 里没有色比控制 —— 实测它先把 R/G 冲到 1.10 再靠色比匹配拉回 1.375，
+            # 属于"先错后纠"。只做色比匹配可直接从 1.78 命中 1.375。
+            print("  (--reference-color-only：跳过全局亮度/色调/饱和度匹配)")
+            reference_grade_report = {
+                "method": "signal_color_match_only",
+                "structural_transfer": False,
+                "global_grade_skipped": True,
+            }
+        elif reference_auto_search:
             current, reference_grade_report = optimize_reference_grade(
                 current,
                 reference,
@@ -1953,6 +2672,32 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 **grade_kwargs,
             )
             print("  ✓ 全局亮度/色调/饱和度匹配完成")
+
+        # 信号区色比匹配（可选）：闭式解通道增益，把星云主体的 Hα/OIII 比对齐参考图。
+        # 与上面的全局定调互补 —— 后者的搜索空间里没有色比控制，实测会把 R/G
+        # 从 1.77 冲到 0.79（目标 1.37）而 B/G 完全不动。
+        if reference_color_match:
+            current, signal_report = match_signal_color(
+                current,
+                reference,
+                strength=cfg.get("reference_color_match_strength", 1.0),
+                max_gain=cfg.get("reference_max_signal_color_gain", 2.0),
+            )
+            reference_grade_report["signal_color_match"] = signal_report
+            if signal_report.get("applied"):
+                src_r = signal_report["source_ratios"]
+                dst_r = signal_report["result_ratios"]
+                ref_r = signal_report["reference_ratios"]
+                print(
+                    f"  ✓ 信号区色比匹配 gains={signal_report['effective_gains']}"
+                    f"{' (已限幅)' if signal_report['clipped'] else ''}"
+                )
+                print(
+                    f"    R/G {src_r['r_over_g']}→{dst_r['r_over_g']}（参考 {ref_r['r_over_g']}）  "
+                    f"B/G {src_r['b_over_g']}→{dst_r['b_over_g']}（参考 {ref_r['b_over_g']}）"
+                )
+            else:
+                print(f"  ⚠️ 信号区色比匹配跳过: {signal_report.get('reason')}")
         orientation_changed = False
         if reference_match_orientation:
             source_landscape = current.shape[1] >= current.shape[0]
@@ -1963,6 +2708,30 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         reference_grade_report["orientation_changed"] = orientation_changed
         reference_grade_report["reference_image"] = reference_image
         save_current('11_reference_grade.tif', img=current)
+
+    # 终极背景中性化锁定 (Final Background Neutralization Lock)
+    bg_neutralize_report = None
+    if background_neutralize_lock:
+        bg_star_mask = None
+        if processed_stars is not None and not star_layer_empty:
+            bg_star_mask = np.max(processed_stars, axis=2) if processed_stars.ndim == 3 else processed_stars
+        elif linear_star_mask_val is not None:
+            bg_star_mask = linear_star_mask_val
+
+        current, bg_neutralize_report = lock_background_neutrality(
+            current,
+            bg_percentile=25.0,
+            upper_percentile=50.0,
+            star_mask=bg_star_mask,
+            return_report=True,
+        )
+        if bg_neutralize_report.get("applied"):
+            save_current('10b_background_locked.tif', img=current)
+            print(
+                f"  ✓ 终极背景中性化锁定完成 (迭代 {bg_neutralize_report.get('iterations_run', 1)} 轮): "
+                f"色偏量级 {bg_neutralize_report['pre_cast_magnitude']} → {bg_neutralize_report['post_cast_magnitude']}, "
+                f"offsets={bg_neutralize_report['offsets']}"
+            )
 
     # 最终输出
     current = np.clip(current, 0, 1)
@@ -1977,12 +2746,43 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         data_offset=meta.get('data_offset') if is_linear_input else None,
     )
 
+    # 具名星点伪影门禁（与标量门禁并存）。
+    #
+    # 快照点 star_gate_reference 在 Phase 9 合成后，即去星/缩星都已结束，因此这里
+    # 必须把 star_remove / star_process / star_reduce 从 steps 里剔除：
+    #   - 含 star_remove / star_process → artifact_gates 会把星点层门禁判为 skipped
+    #   - 含 star_reduce → STAR_LAYER_LOSS 门不会升级
+    # 剔掉之后，量的才是「末端润色（style / final_denoise / background lock）对星点
+    # 层的损伤」，这正是 pipeline 路径此前完全看不到的部分。
+    star_artifact_gates = None
+    if star_gate_reference is not None:
+        _gate_steps = [
+            s for s in steps
+            if s not in ('star_remove', 'star_process', 'star_reduce')
+        ]
+        try:
+            from artifact_gates import evaluate_star_artifact_gates
+            star_artifact_gates = evaluate_star_artifact_gates(
+                star_gate_reference,
+                downsample_for_gates(current),
+                steps=_gate_steps,
+            )
+        except Exception as exc:  # 门禁失败不阻断出图
+            star_artifact_gates = {
+                "schema": "artifact_gates/1.0",
+                "status": "error",
+                "summary": f"星点门禁执行失败：{exc}",
+                "gates": [],
+            }
+
     output_metrics = calculate_metrics(
         current,
         {
             'processing_stage': 'final',
             'linear_star_metrics':
-                linear_star_metrics if 'linear_star_metrics' in locals() else None
+                linear_star_metrics if 'linear_star_metrics' in locals() else None,
+            'style_diagnostics': style_diagnostics,
+            'inpaint_footprint': inpaint_footprint,
         },
     )
     quality_status, quality_gates = evaluate_quality_gates(
@@ -2005,13 +2805,15 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         and Path(input_path).suffix.lower() in ASTRO_INPUT_EXTENSIONS
         and recognition_ok
     )
-    warnings = [
+    # 注意：warnings 已在管线早期初始化（外部无星图分支会提前 append），
+    # 这里必须 extend 而不是重新赋值，否则会丢掉早期警告。
+    warnings.extend([
         {
             "code": gate["code"],
             "message": gate["message"],
         }
         for gate in quality_gates
-    ]
+    ])
     if recognize and not recognition_ok:
         warnings.append({
             "code": "RECOGNITION_FAILED",
@@ -2036,6 +2838,18 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             "message": star_combine_skipped["detail"],
         })
     status = quality_status
+    # 具名星点门禁是**加法式**升级：只在原本 success 时升级为 review_required，
+    # 不覆盖既有 partial_success / failed 语义；warnings 只收 escalate=True 的
+    # warning/failed（passed/skipped 不进 warnings，避免噪音）。
+    if star_artifact_gates and star_artifact_gates.get("status") == "review_required":
+        if status == "success":
+            status = "review_required"
+        for _gate in star_artifact_gates.get("gates", []):
+            if _gate.get("escalate", True) and _gate.get("status") in ("warning", "failed"):
+                warnings.append({
+                    "code": _gate["code"],
+                    "message": _gate["message"],
+                })
     if recognize and not recognition_ok and status == "success":
         status = "partial_success"
     if recognition_review_pending and status == "success":
@@ -2064,12 +2878,14 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             "stretch_method": resolved_stretch_method,
             "style": selected_style,
             "style_strength": cfg.get("style_strength", style_strength),
+            "star_blend_mode": effective_blend_mode,
         },
         "capture_metadata": capture_metadata,
         "physical_priors": physical_priors,
         "astrometry": plate_solution,
         "metrics": output_metrics,
         "color_calibration": color_calibration_report,
+        "stellar_repair": stellar_repair_report,
         "emission_channel_recovery": emission_channel_report,
         "hdr": hdr_report,
         "sharpen": sharpen_report,
@@ -2080,6 +2896,12 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             star_report if 'star_report' in locals() else None
         ),
         "reference_grade": reference_grade_report,
+        "background_neutralization": bg_neutralize_report,
+        "style_diagnostics": style_diagnostics,
+        "star_artifact_gates": star_artifact_gates,
+        "inpaint_footprint": inpaint_footprint,
+        "external_starless_diagnostics": external_starless_diagnostics,
+        "neural_star_removal_bridge": neural_bridge_report,
         "quality_policy": quality_policy,
         "quality_gates": quality_gates,
         "warnings": warnings,
@@ -2106,6 +2928,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 'stretch_method': resolved_stretch_method,
                 'style': selected_style,
                 'style_strength': cfg.get('style_strength', style_strength),
+                'star_blend_mode': effective_blend_mode,
                 'artifacts': artifact_paths,
                 'safety_rules_applied': safety_log,
                 'step_dependencies_applied': dependency_log,
@@ -2115,6 +2938,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                     'external_denoised': bool(external_denoised),
                     'ai_artifact_check_required': bool(external_starless or external_denoised),
                 },
+                'neural_star_removal_bridge': neural_bridge_report,
                 'metrics': output_metrics,
                 'color_calibration': color_calibration_report,
                 'emission_channel_recovery': emission_channel_report,
@@ -2127,6 +2951,10 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                     star_report if 'star_report' in locals() else None
                 ),
                 'reference_grade': reference_grade_report,
+                'background_neutralization': bg_neutralize_report,
+                'style_diagnostics': style_diagnostics,
+                'star_artifact_gates': star_artifact_gates,
+                'external_starless_diagnostics': external_starless_diagnostics,
                 'quality_gates': quality_gates,
                 'warnings': warnings,
                 'effective_config': result['effective_config'],
@@ -2206,12 +3034,25 @@ def main():
     )
     p.add_argument('--external-starless', default=None,
                    help='外部工具生成的无星图，如 StarNet++ starless.tif')
+    p.add_argument('--external-starless-domain', default='linear',
+                   choices=['linear', 'mtf'],
+                   help='外部无星图所在域。linear=线性（默认，兼容旧输入）；'
+                        'mtf=已做 MTF 拉伸，回流时会自动逆变换回线性。'
+                        '若 work-dir 存在 starnet_payload_meta.json 则会自动识别，无需手传')
+    p.add_argument('--external-starless-midtones', type=float, default=None,
+                   help='mtf 域回流时使用的 MTF midtones；缺省则按原图背景推导。'
+                        '必须与导出载荷时用的值一致（sidecar 会记录）')
     p.add_argument('--use-starnet', action='store_true',
                    help='使用 StarNet2 CLI 进行 AI 去星（需要本地已部署二进制）')
     p.add_argument('--starnet-path', default=None,
                    help='StarNet2 CLI (starnet++) 可执行二进制文件的绝对路径')
-    p.add_argument('--starnet-stride', type=int, default=256,
-                   help='StarNet2 步长，较小的值去星更精细但耗时长，例如 128 或 64 (默认: 256)')
+    p.add_argument('--starnet-stride', type=int, default=128,
+                   help='StarNet2 步长，较小的值去星更精细但耗时长，例如 128 或 64 (默认: 128)。'
+                        '内置 --use-starnet 路径与外部桥接命令共用此值')
+    p.add_argument('--starnet-domain', default='mtf', choices=['linear', 'mtf'],
+                   help='送进 StarNet2 的载荷域（内置 --use-starnet 路径）。'
+                        'mtf=先 MTF 拉伸再量化、读回后逆变换（默认，推荐）；'
+                        'linear=原样量化（旧行为，极暗数据会丢弱色通道）')
     p.add_argument('--starnet-timeout', type=int, default=900,
                    help='StarNet2 执行超时秒数（默认: 900）')
     p.add_argument('--external-denoised', default=None,
@@ -2277,12 +3118,55 @@ def main():
                    help='可选天体星表 JSON，含 name/ra_deg/dec_deg，用 WCS 投影到画面')
     p.add_argument('--reference-image', default=None,
                    help='可选本地参考成片；仅匹配全局亮度、色调和饱和度')
+    p.add_argument('--reference-color-only', action='store_true',
+                   help='只做信号区色比匹配，跳过全局亮度/色调/饱和度定调。'
+                        '全局定调会改动 tone/stretch 且可能引入 CORE_BURNING，'
+                        '其参数空间里也没有色比控制（会先冲过头再被拉回）')
+    p.add_argument('--reference-color-match', action='store_true',
+                   help='在全局定调之后，把星云**信号区**的 R/G、B/G 色比对齐参考图'
+                        '（闭式解通道增益，确定性、可复现）。修正 Hα/OIII 比 —— '
+                        '全局定调与背景色偏匹配都做不到这一点')
     p.add_argument('--reference-auto-search', action='store_true',
                    help='在缩略图上自动搜索受约束参考图参数')
     p.add_argument('--reference-strength', type=float, default=0.85,
                    help='参考图全局定调强度（默认: 0.85）')
     p.add_argument('--reference-match-orientation', action='store_true',
                    help='参考图横竖方向不同时旋转最终输出')
+    p.add_argument('--stellar-repair', action='store_true',
+                   help='在线性阶段执行星点像差、色散微调与紫晕抑制 (Phase 2b)')
+    p.add_argument('--stellar-repair-mode', choices=['auto', 'color_only', 'shape_only'], default=None,
+                   help='星点修复模式: auto (默认), color_only, shape_only')
+    p.add_argument('--stellar-repair-strength', choices=['conservative', 'balanced', 'strong'], default=None,
+                   help='星点修复强度档位: conservative, balanced (默认), strong')
+    p.add_argument('--palette', default='none',
+                   choices=['none', 'hoo', 'sho', 'hso', 'osh', 'ohs', 'hos'],
+                   help='双窄带 (Duo-Band/Dual-Band) 哈勃色板假彩色映射 (默认: none)')
+    p.add_argument('--linear-deconv', action='store_true',
+                   help='在线性阶段执行带背景保护的正则化 Richardson-Lucy 物理反卷积')
+    p.add_argument('--deconv-iterations', type=int, default=10,
+                   help='反卷积迭代轮次 (默认: 10)')
+    p.add_argument('--stacking-crop', choices=['none', 'auto'], default='none',
+                   help='自动检测并裁切抖动叠加低信噪比边缘 (默认: none)')
+    p.add_argument('--halo-guard', action='store_true',
+                   help='去星后执行大亮星残余彩色星晕平整守卫')
+    p.add_argument('--star-blend-mode', choices=['screen', 'add'], default='screen',
+                   help='星点合成混合模式 (默认: screen，天体物理屏幕混合保护天然星色与高光)')
+    bg_neut = p.add_mutually_exclusive_group()
+    bg_neut.add_argument('--background-neutralize', dest='background_neutralize_lock',
+                         action='store_true', default=True,
+                         help='开启出片前终极背景中性化锁定（默认开启，严格消除背景色偏警告）')
+    bg_neut.add_argument('--no-background-neutralize', dest='background_neutralize_lock',
+                         action='store_false',
+                         help='关闭出片前终极背景中性化锁定')
+    p.add_argument('--export-starnet-payload', action='store_true',
+                   help='导出当前线性阶段标准 16-bit 载荷 (starnet_payload_stretched.tif) 供外部神经网络去星使用')
+    p.add_argument('--export-starnet-payload-domain', default='mtf',
+                   choices=['linear', 'mtf'],
+                   help='载荷导出域。mtf=先做 MTF 拉伸再量化（默认，推荐）；'
+                        'linear=原样量化。极暗数据用 linear 会让弱色通道被量化归零'
+                        '（实测星云区 G 有 93%% 像素为 0），拉伸后整片星云变纯红')
+    p.add_argument('--starnet-recommendation', choices=['auto', 'always', 'never'], default='auto',
+                   help='外部神经网络去星推荐模式: auto (默认), always, never')
     args = p.parse_args()
 
     if not os.path.exists(args.input):
@@ -2383,6 +3267,7 @@ def main():
         use_starnet=args.use_starnet,
         starnet_path=args.starnet_path,
         starnet_stride=args.starnet_stride,
+        starnet_domain=args.starnet_domain,
         starnet_timeout=args.starnet_timeout,
         result_json=args.result_json,
         quality_policy=args.quality_policy,
@@ -2396,8 +3281,25 @@ def main():
         low_memory_threshold_mpix=args.low_memory_threshold_mpix,
         reference_image=args.reference_image,
         reference_auto_search=args.reference_auto_search,
+        reference_color_match=args.reference_color_match or args.reference_color_only,
+        reference_color_only=args.reference_color_only,
         reference_strength=args.reference_strength,
         reference_match_orientation=args.reference_match_orientation,
+        stellar_repair=args.stellar_repair,
+        stellar_repair_mode=args.stellar_repair_mode,
+        stellar_repair_strength=args.stellar_repair_strength,
+        palette=args.palette,
+        linear_deconv=args.linear_deconv,
+        deconv_iterations=args.deconv_iterations,
+        stacking_crop=args.stacking_crop,
+        halo_guard=args.halo_guard,
+        star_blend_mode=args.star_blend_mode,
+        background_neutralize_lock=args.background_neutralize_lock,
+        export_starnet_payload=args.export_starnet_payload,
+        export_starnet_payload_domain=args.export_starnet_payload_domain,
+        external_starless_domain=args.external_starless_domain,
+        external_starless_midtones=args.external_starless_midtones,
+        starnet_recommendation=args.starnet_recommendation,
     )
     if not args.result_json:
         print(json.dumps(result, ensure_ascii=False))

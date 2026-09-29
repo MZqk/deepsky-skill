@@ -158,5 +158,76 @@ class TestStarnetBridge(unittest.TestCase):
         self.assertEqual(starless.shape, image.shape)
         self.assertEqual(stars.shape, image.shape)
 
+
+class TestBuiltinStarnetDomain(unittest.TestCase):
+    """内置 --use-starnet 路径的载荷域与 stride 默认值。
+
+    背景（实测）：极暗线性母版直接量化为 16-bit 时星云区 G 只有 23 counts，
+    StarNet2 输出把 G 归零 99.4%。旧版内置路径因此被接受门拒绝
+    （`nebula_damage_ratio` 0.5521 > 0.20）→ 回退形态学。改用 MTF 域后
+    实测 damage 降到 **0.0**、score 0.996、accepted=True、不再回退 ——
+    **不需要放宽接受门**。
+    """
+
+    def test_run_starnet_cli_defaults_to_mtf_domain_and_stride_128(self):
+        import inspect
+        sig = inspect.signature(star_tools.run_starnet_cli)
+        self.assertEqual(sig.parameters["domain"].default, "mtf")
+        self.assertEqual(sig.parameters["stride"].default, 128)
+        self.assertIn("midtones", sig.parameters)
+
+    def test_separate_stars_defaults_to_mtf_domain(self):
+        import inspect
+        sig = inspect.signature(star_tools.separate_stars)
+        self.assertEqual(sig.parameters["starnet_domain"].default, "mtf")
+        self.assertEqual(sig.parameters["starnet_stride"].default, 128)
+
+    def test_execution_report_records_domain(self):
+        """即使可执行文件不存在，报告也要带上 domain/stride 供排查。"""
+        image = np.full((16, 16, 3), 0.01, np.float32)
+        ok, starless, report = star_tools.run_starnet_cli(
+            image, "/nonexistent/starnet2", stride=128,
+            timeout=1, return_report=True, domain="mtf",
+        )
+        self.assertFalse(ok)
+        self.assertEqual(report["domain"], "mtf")
+        self.assertEqual(report["stride"], 128)
+
+    def test_linear_domain_is_recorded_too(self):
+        image = np.full((16, 16, 3), 0.01, np.float32)
+        _ok, _sl, report = star_tools.run_starnet_cli(
+            image, "/nonexistent/starnet2", stride=64,
+            timeout=1, return_report=True, domain="linear",
+        )
+        self.assertEqual(report["domain"], "linear")
+        self.assertEqual(report["stride"], 64)
+        self.assertNotIn("midtones", report)   # linear 域不做 MTF
+
+    def test_mtf_quantization_preserves_weak_channel_span(self):
+        """核心依据：MTF 域下弱通道在 16-bit 里保留的级数远多于线性域。
+
+        这是"接受门不再拒绝"的根因 —— 输出变健康了，不是门放宽了。
+        """
+        from stretch import derive_mtf_midtones, mtf_stretch
+
+        rng = np.random.default_rng(4)
+        yy, xx = np.mgrid[:120, :160]
+        neb = np.exp(-(((yy - 66) ** 2 + (xx - 80) ** 2) / (2 * 28.0 ** 2)))
+        img = np.full((120, 160, 3), 0.0004, np.float32)
+        img += neb[..., None] * np.array([0.0030, 0.0011, 0.0009], np.float32)
+        img = np.clip(img + rng.normal(0, 2e-5, img.shape), 0, 1).astype(np.float32)
+
+        lum = img.mean(axis=2)
+        mask = lum > np.percentile(lum, 60)
+        m = derive_mtf_midtones(img)
+
+        def span(arr):
+            u = (np.clip(arr, 0, 1) * 65535.0).round().astype(np.uint16)
+            reg = u[..., 1][mask].astype(np.int64)
+            return int(np.percentile(reg, 99) - np.percentile(reg, 1))
+
+        self.assertGreater(span(mtf_stretch(img, midtones=m)), span(img) * 3)
+
+
 if __name__ == "__main__":
     unittest.main()

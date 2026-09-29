@@ -279,5 +279,65 @@ class StarStepDependencyTests(unittest.TestCase):
         self.assertNotIn("dbe", result["effective_config"]["steps"])
 
 
+class StarStretchFactorScaleTests(unittest.TestCase):
+    """分析报告给出的 `star_stretch_factor` 必须与 pipeline 预设**同量纲**。
+
+    历史缺陷：`analyze.py` 曾写 `star_stretch_factor = stretch_factor * 0.25`，
+    而预设表把两者成对给出（light 25→88、medium 45→132、strong 80→198、
+    adaptive 120→264），比值是 2.2~3.5。旧式小了一个数量级：
+
+        某极暗母版分析给出 stretch_factor=25（= light 预设同档）
+        → 旧式 6.25，经 pipeline 的 ×1.5 后为 **9.375**，而预设同档是 **88**。
+        → 星点层亮度只有预设的 ~1/4.7（星点像素均值 0.061 vs 0.287），
+          成片星点中位 0.561 vs 手动后期的 0.794。
+    """
+
+    # 与 analyze.py 的锚点一致（stretch_factor=120 取 adaptive/emission 的均值）
+    ANCHORS = ((25.0, 88.0), (45.0, 132.0), (80.0, 198.0), (120.0, 231.0))
+
+    def setUp(self):
+        from analyze import _star_stretch_factor_for
+        self.fn = _star_stretch_factor_for
+
+    def test_matches_preset_anchors_exactly(self):
+        for stretch_factor, expected in self.ANCHORS:
+            with self.subTest(stretch_factor=stretch_factor):
+                self.assertAlmostEqual(
+                    self.fn(stretch_factor), expected, delta=1e-6)
+
+    def test_clamped_to_preset_range(self):
+        for stretch_factor in (0.0, 5.0, 12.0, 25.0, 120.0, 200.0, 1000.0):
+            with self.subTest(stretch_factor=stretch_factor):
+                value = self.fn(stretch_factor)
+                self.assertGreaterEqual(value, 88.0)
+                self.assertLessEqual(value, 264.0)
+
+    def test_monotonic_non_decreasing(self):
+        values = [self.fn(sf) for sf in range(1, 200)]
+        self.assertTrue(all(b >= a - 1e-9 for a, b in zip(values, values[1:])))
+
+    def test_interpolates_between_anchors(self):
+        # 30 落在 25→88 与 45→132 之间，应严格居中偏下
+        mid = self.fn(30.0)
+        self.assertGreater(mid, 88.0)
+        self.assertLess(mid, 132.0)
+
+    def test_not_an_order_of_magnitude_below_preset(self):
+        """回归护栏：同一 stretch_factor 下，分析建议不得比预设小一个数量级。"""
+        from pipeline import STRENGTH_PRESETS as PRESETS
+        for name, preset in PRESETS.items():
+            sf = preset.get("stretch_factor")
+            ref = preset.get("star_stretch_factor")
+            if not sf or not ref:
+                continue
+            with self.subTest(preset=name):
+                got = self.fn(sf)
+                # 允许 ±30% 偏差（预设间比值本就随强度缓降），但绝不能差 10 倍
+                self.assertGreater(got, ref * 0.7,
+                                   f"{name}: 分析建议 {got} 远低于预设 {ref}")
+                self.assertLess(got, ref * 1.3,
+                                f"{name}: 分析建议 {got} 远高于预设 {ref}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -321,6 +321,9 @@ def write_image(img, filepath, as_fits=False, fits_header=None, auto_stretch=Fal
       data_offset: 输入 FITS 时的归一化偏移量
     """
     img = np.clip(img.astype(np.float32), 0, 1)
+    parent_dir = os.path.dirname(os.path.abspath(filepath))
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
     ext = os.path.splitext(filepath)[1].lower()
 
     if as_fits or ext in ('.fit', '.fits', '.fts'):
@@ -580,15 +583,20 @@ def normalize_target_name(name):
     if upper_name in DERIVED_TARGET_SYNONYMS:
         return DERIVED_TARGET_SYNONYMS[upper_name]
 
-    # 去除非标准分隔符并提取 M/NGC/IC/B/LDN/SH2 编号
-    pattern = re.compile(r'^(M|NGC|IC|B|LDN|SH2|CED|SH-2|VDB)\s*[-_]?\s*(\d+)$', re.IGNORECASE)
+    # 去除非标准分隔符并提取 M/NGC/IC/B/LDN/SH2/CALDWELL/C 编号
+    pattern = re.compile(r'^(M|NGC|IC|B|LDN|SH2|CED|SH-2|VDB|CALDWELL|C)\s*[-_]?\s*(\d+)$', re.IGNORECASE)
     match = pattern.match(name)
     if match:
         prefix = match.group(1).upper()
         if prefix == "SH-2":
             prefix = "SH2"
+        elif prefix == "CALDWELL":
+            prefix = "C"
         number = match.group(2)
-        return f"{prefix}{number}"
+        catalog_id = f"{prefix}{number}"
+        if catalog_id in TARGET_NAME_SYNONYMS:
+            return TARGET_NAME_SYNONYMS[catalog_id]
+        return catalog_id
 
     return re.sub(r'\s+', '', upper_name)
 
@@ -710,6 +718,39 @@ TARGET_NAME_SYNONYMS = {
     "PLEIADES_CLUSTER": "M45",
     "ROSETTE NEBULA": "NGC2237",
     "ROSETTE_NEBULA": "NGC2237",
+    "ROSETTE": "NGC2237",
+    "ROSETTE CLUSTER": "NGC2244",
+    "ROSETTE_CLUSTER": "NGC2244",
+    # Caldwell mappings
+    "C50": "NGC2237",
+    "C 50": "NGC2237",
+    "CALDWELL 50": "NGC2237",
+    "CALDWELL_50": "NGC2237",
+    "C49": "NGC2244",
+    "C 49": "NGC2244",
+    "CALDWELL 49": "NGC2244",
+    "CALDWELL_49": "NGC2244",
+    "C11": "NGC7635",
+    "C 11": "NGC7635",
+    "CALDWELL 11": "NGC7635",
+    "C20": "NGC7000",
+    "C 20": "NGC7000",
+    "CALDWELL 20": "NGC7000",
+    "C27": "NGC6888",
+    "C 27": "NGC6888",
+    "CALDWELL 27": "NGC6888",
+    "C33": "NGC6992",
+    "C 33": "NGC6992",
+    "CALDWELL 33": "NGC6992",
+    "C34": "NGC6960",
+    "C 34": "NGC6960",
+    "CALDWELL 34": "NGC6960",
+    "C4": "NGC7023",
+    "C 4": "NGC7023",
+    "CALDWELL 4": "NGC7023",
+    "C14": "NGC869",
+    "C 14": "NGC869",
+    "CALDWELL 14": "NGC869",
     "WITCH HEAD NEBULA": "IC2118",
     "WITCH_HEAD_NEBULA": "IC2118",
     "NORTH AMERICA NEBULA": "NGC7000",

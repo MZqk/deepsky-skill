@@ -37,7 +37,7 @@ def estimate_background_median(image, filter_size=101, iterations=3):
     return bg
 
 
-def estimate_background_polynomial(image, degree=2, sample_spacing=50):
+def estimate_background_polynomial(image, degree=2, sample_spacing=50, exclusion_mask=None):
     """
     使用多项式曲面拟合估计背景。
     原理：在图像上等间距采样背景点，用低阶多项式拟合出平滑背景面。
@@ -55,6 +55,12 @@ def estimate_background_polynomial(image, degree=2, sample_spacing=50):
     bg_median = np.median(samples)
     bg_std = np.std(samples)
     mask = (samples < bg_median + 2 * bg_std) & (samples > bg_median - 2 * bg_std)
+    if exclusion_mask is not None:
+        ex_arr = np.asarray(exclusion_mask > 0, dtype=bool)
+        if ex_arr.shape == image.shape:
+            ex_samples = ex_arr[sample_y[:, None], sample_x[None, :]]
+            mask = mask & (~ex_samples)
+
     valid_y = sy[mask].ravel()
     valid_x = sx[mask].ravel()
     valid_z = samples[mask].ravel()
@@ -62,6 +68,14 @@ def estimate_background_polynomial(image, degree=2, sample_spacing=50):
     if len(valid_z) < 10:
         print("[WARN] Too few valid background samples, falling back to median filter")
         return estimate_background_median(image, filter_size=101)
+
+    # 如果存在排除蒙版且 degree >= 2，检查中心区域是否有足够背景样本支撑曲率拟合
+    if degree >= 2 and exclusion_mask is not None:
+        center_samples = np.sum((valid_y >= 0.25 * h) & (valid_y <= 0.75 * h) &
+                                (valid_x >= 0.25 * w) & (valid_x <= 0.75 * w))
+        if center_samples < 8:
+            print(f"[DBE] 中心背景样本仅 {center_samples} 个，不足以约束 2 阶曲面，自动降阶至 degree=1 线性梯度拟合")
+            degree = 1
 
     A = np.column_stack([valid_x**i * valid_y**j
                          for i in range(degree + 1)
@@ -78,7 +92,7 @@ def estimate_background_polynomial(image, degree=2, sample_spacing=50):
     return bg.astype(np.float32)
 
 
-def estimate_background_rbf(image, num_samples=300):
+def estimate_background_rbf(image, num_samples=300, exclusion_mask=None):
     """
     使用径向基函数(RBF)插值估计背景。
     原理：在图像上随机采样背景点，使用RBF插值生成平滑背景面。
@@ -108,13 +122,19 @@ def estimate_background_rbf(image, num_samples=300):
 
     mask = (sample_values < bg_median + sigma_factor * bg_std) & \
            (sample_values > bg_median - sigma_factor * bg_std)
+    if exclusion_mask is not None:
+        ex_arr = np.asarray(exclusion_mask > 0, dtype=bool)
+        if ex_arr.shape == image.shape:
+            ex_hit = ex_arr[sample_y, sample_x]
+            mask = mask & (~ex_hit)
+
     valid_y = sample_y[mask]
     valid_x = sample_x[mask]
     valid_z = sample_values[mask]
 
     if len(valid_z) < 20:
         print(f"[WARN] RBF 样本不足 ({len(valid_z)}<20)，回退至 polynomial deg=3")
-        return estimate_background_polynomial(image, degree=3)
+        return estimate_background_polynomial(image, degree=3, exclusion_mask=exclusion_mask)
 
     indices = rng.choice(len(valid_z), min(num_samples, len(valid_z)), replace=False)
     pts = np.column_stack([valid_x[indices].astype(float), valid_y[indices].astype(float)])
@@ -127,13 +147,13 @@ def estimate_background_rbf(image, num_samples=300):
     return bg.astype(np.float32)
 
 
-def _estimate_bg_plane(plane, method='polynomial', degree=2, filter_size=101):
+def _estimate_bg_plane(plane, method='polynomial', degree=2, filter_size=101, exclusion_mask=None):
     """对单个通道估计背景面（未平滑）。"""
     if method == 'median':
         return estimate_background_median(plane, filter_size=filter_size)
     if method == 'rbf':
-        return estimate_background_rbf(plane)
-    return estimate_background_polynomial(plane, degree=degree)
+        return estimate_background_rbf(plane, exclusion_mask=exclusion_mask)
+    return estimate_background_polynomial(plane, degree=degree, exclusion_mask=exclusion_mask)
 
 
 def estimate_background_noise(image):
@@ -159,17 +179,26 @@ def normalize_background_subtracted(image, pctl_high=99.7, pedestal_sigmas=3.0):
     """把 DBE 输出归一化到 [0,1]。
 
     黑点取**背景的稳健中心**：逐通道 DBE 之后背景以 0 为中心、噪声对称分布。
-    旧实现先 `clip(0)` 再减去"正值像素的 p0.3"，等于连续两次抬高黑位，
-    把噪声底整个裁掉（实测 28~44% 的画面变成纯 0），暗弱外晕随之丢失。
-
-    白点**锚定真实峰值**。星系/星云的亮度跨数量级，p99.7 会落在很暗的外缘
-    —— 实测比峰值低 36.6 倍。用它当白点等于把整幅图放大 ~37 倍，噪声随之
-    被放大到与星点可比：星点检测于是把噪声当成星（面积比 0.24% → 4.5%），
-    核心同时被裁到 1.0。
-
-    最后加一个 pedestal（默认 3σ），让背景噪声完整落在 [0,1] 内而不是被裁掉。
+    对于多通道图像，分别计算各通道的背景中值并分别对齐至 0，避免单标量导致通道间底电平微弱失调。
+    白点**锚定真实峰值**，最后加上 pedestal（默认 3σ）。
     """
     values = np.asarray(image, dtype=np.float64)
+    if values.ndim == 3 and values.shape[2] >= 3:
+        black = np.median(values[..., :3], axis=(0, 1))
+        peak = float(np.max(values))
+        white = max(float(np.percentile(values, pctl_high)), peak)
+        span = white - float(np.min(black))
+        if span <= 1e-8:
+            if peak <= 0:
+                return np.zeros_like(values, dtype=np.float32)
+            return (values / peak).astype(np.float32)
+
+        normalized = values.copy()
+        normalized[..., :3] = (normalized[..., :3] - black) / span
+        noise = estimate_background_noise(normalized)
+        pedestal = min(0.05, max(pedestal_sigmas * noise, 0.002))
+        return np.clip(normalized + pedestal, 0, 1).astype(np.float32)
+
     black = float(np.median(values))
     peak = float(np.max(values))
     white = max(float(np.percentile(values, pctl_high)), peak)
@@ -185,23 +214,17 @@ def normalize_background_subtracted(image, pctl_high=99.7, pedestal_sigmas=3.0):
     return np.clip(normalized + pedestal, 0, 1).astype(np.float32)
 
 
-def remove_gradient(image, method='polynomial', degree=2, filter_size=101):
+def remove_gradient(image, method='polynomial', degree=2, filter_size=101, exclusion_mask=None):
     """
     从图像中去除背景梯度。
     返回：(校正后图像, 背景模型)
 
     多通道输入时**对每个通道独立估计并减去各自的背景面**。
-
-    旧实现用 `np.mean(image, axis=2)` 得到一个亮度背景面，再复制成 3 份减所有通道。
-    只要背景存在轻微色偏（深空图像几乎总是如此），较暗的通道就会被减成负值并被
-    clip 到 0 —— 背景相对色偏被急剧放大，且被裁掉的通道信息无法用任何后续增益恢复。
-    逐通道处理则让每个通道各自归零，保持通道间比例。
-
-    bg_model：灰度输入返回 [H,W]；多通道输入返回 [H,W,C]（逐通道模型，供 --save-bg）。
+    exclusion_mask: 可选目标排除蒙版（True/1 为天体主体区），采样点将避开此区域，保护弱信号外盘。
     """
     if image.ndim == 2:
         bg_model = gaussian_filter(
-            _estimate_bg_plane(image, method, degree, filter_size), sigma=10
+            _estimate_bg_plane(image, method, degree, filter_size, exclusion_mask=exclusion_mask), sigma=10
         )
         corrected = image.astype(np.float64) - bg_model.astype(np.float64)
         return corrected, bg_model.astype(np.float32)
@@ -212,7 +235,7 @@ def remove_gradient(image, method='polynomial', degree=2, filter_size=101):
     for c in range(n_channels):
         plane = image[..., c]
         bg_model = gaussian_filter(
-            _estimate_bg_plane(plane, method, degree, filter_size), sigma=10
+            _estimate_bg_plane(plane, method, degree, filter_size, exclusion_mask=exclusion_mask), sigma=10
         )
         bg_channels.append(bg_model)
         corrected[..., c] = plane.astype(np.float64) - bg_model.astype(np.float64)

@@ -5,7 +5,7 @@ import argparse
 import sys
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, zoom
 from skimage import img_as_float32, img_as_ubyte
 from color_conv import safe_hsv2rgb as hsv2rgb, safe_rgb2hsv as rgb2hsv, safe_rgb2lab as rgb2lab, safe_lab2rgb as lab2rgb
 from skimage.io import imread, imsave
@@ -62,7 +62,7 @@ STYLE_PROFILES = {
     },
     "galaxy_core": {
         "description": "星系黄核、蓝臂和尘埃带层次",
-        "black_floor": 0.018,
+        "black_floor": 0.008,
         "gamma": 1.00,
         "contrast": 0.16,
         "highlight_rolloff": 0.45,
@@ -420,16 +420,163 @@ def _apply_user_prefs(adapted_params, user_prefs):
     return params, reasons
 
 
-def _tone_curve(luminance, profile):
+def _block_slices(shape, block):
+    """把 (h, w) 切成 block×block 的块网格。
+
+    返回 (block, ny, nx, pad_h, pad_w)。块边长会 clamp 到 [8, min(h, w)]，
+    小图因此退化为单块（局部 == 全局）。
+    """
+    h, w = shape
+    block = max(8, min(int(block), h, w))
+    ny = max(1, -(-h // block))
+    nx = max(1, -(-w // block))
+    return block, ny, nx, ny * block - h, nx * block - w
+
+
+def _block_values(values, block, ny, nx, pad_h, pad_w):
+    """(h, w) → (ny*nx, block*block)。
+
+    边界**必须**用 edge 复制：补 0 会把块分位拉到 0，让黑位与后置断言双双失真。
+    """
+    padded = np.pad(values, ((0, pad_h), (0, pad_w)), mode="edge")
+    tiles = padded.reshape(ny, block, nx, block).transpose(0, 2, 1, 3)
+    return tiles.reshape(ny * nx, block * block)
+
+
+def _block_medians(gray, block=96):
+    """逐块中位数（1D，长度 ny*nx）。"""
+    block, ny, nx, pad_h, pad_w = _block_slices(gray.shape, block)
+    return np.median(_block_values(gray, block, ny, nx, pad_h, pad_w), axis=1)
+
+
+def _upsample_block_map(block_map, out_shape, block):
+    """块网格 → 原尺寸：块内轻度高斯 + 双线性上采样 + 全分辨率轻平滑。"""
+    h, w = out_shape
+    ny, nx = block_map.shape
+    smooth = gaussian_filter(block_map.astype(np.float32), sigma=1.0, mode="nearest")
+    up = zoom(smooth, (h / ny, w / nx), order=1, mode="nearest", prefilter=False)
+    up = up[:h, :w]
+    if up.shape != (h, w):
+        up = np.pad(
+            up,
+            ((0, max(0, h - up.shape[0])), (0, max(0, w - up.shape[1]))),
+            mode="edge",
+        )
+    # 抹掉双线性上采样留下的棱面
+    up = gaussian_filter(up, sigma=max(1.0, block / 8.0), mode="nearest")
+    return np.clip(up, 0.0, 1.0).astype(np.float32)
+
+
+def _local_background(luminance, block=96, percentiles=(5.0, 25.0)):
+    """分块低分位 + 平滑上采样，稳健估计局部背景。
+
+    与 gaussian_filter(luminance) 的区别：分块低分位对星点/星云亮核稳健
+    （高亮不会抬高 p5/p25），而高斯模糊会被亮区整体抬高。
+
+    返回 ({分位: 与输入同形状的 float32 图}, (ny, nx))。
+    """
+    lum = np.asarray(luminance, dtype=np.float32)
+    block, ny, nx, pad_h, pad_w = _block_slices(lum.shape[:2], block)
+    pcts = [float(p) for p in percentiles]
+
+    padded = np.pad(lum, ((0, pad_h), (0, pad_w)), mode="edge")
+    maps = {p: np.empty((ny, nx), dtype=np.float32) for p in pcts}
+    # 逐块行处理：临时内存 O(nx * block²)，避免整幅铺平
+    for j in range(ny):
+        row = padded[j * block:(j + 1) * block]
+        row = row.reshape(block, nx, block).transpose(1, 0, 2).reshape(nx, -1)
+        vals = np.percentile(row, pcts, axis=1)
+        for i, p in enumerate(pcts):
+            maps[p][j, :] = vals[i]
+
+    out = {
+        p: _upsample_block_map(maps[p], lum.shape[:2], block)
+        for p in pcts
+    }
+    return out, (ny, nx)
+
+
+def _repair_local_clip(luminance, floor_map, block, margin=1e-4):
+    """确定性保证：任一 block×block 区块的 base toned 中位数 > 0。
+
+    充分条件：块内 ``max(floor_map) < 块内 median(luminance)``。此时
+    ``L <= floor`` 的像素占比 <= 50%，故 ``toned > 0`` 的像素占比 >= 50%，
+    中位数必为正。
+
+    以**全局常量下移** floor_map 满足该条件：保持 floor_map 平滑，不产生块缝。
+    单次计算，无迭代。
+
+    返回 (floor_map, report)。
+    """
+    block, ny, nx, pad_h, pad_w = _block_slices(luminance.shape, block)
+    tiles_l = _block_values(luminance, block, ny, nx, pad_h, pad_w)
+    tiles_f = _block_values(floor_map, block, ny, nx, pad_h, pad_w)
+
+    block_median = np.median(tiles_l, axis=1)
+    block_floor_max = tiles_f.max(axis=1)
+
+    risky = block_median > 0.0  # 真·黑块不是 bug，不参与修复
+    excess = np.where(risky, block_floor_max - block_median, -np.inf)
+    n_before = int(np.count_nonzero(excess >= 0.0))
+    shift = float(excess.max() + margin) if n_before > 0 else 0.0
+
+    n_after = 0
+    if shift > 0.0:
+        floor_map = np.maximum(floor_map - shift, 0.0).astype(np.float32)
+        tiles_f2 = _block_values(floor_map, block, ny, nx, pad_h, pad_w)
+        excess2 = np.where(risky, tiles_f2.max(axis=1) - block_median, -np.inf)
+        n_after = int(np.count_nonzero(excess2 >= 0.0))
+
+    report = {
+        "block_size": int(block),
+        "block_grid": [int(ny), int(nx)],
+        "n_blocks": int(ny * nx),
+        "blocks_clipped_before_repair": n_before,
+        "blocks_clipped_after_repair": n_after,
+        "repair_shift": round(shift, 6),
+        "repair_applied": bool(shift > 0.0),
+    }
+    return floor_map, report
+
+
+def _tone_curve(luminance, profile, return_diagnostics=False, block=96):
+    luminance = np.asarray(luminance, dtype=np.float32)
     black_floor = profile["black_floor"]
-    low = float(np.percentile(luminance, 5))
+    low_global = float(np.percentile(luminance, 5))
+    bg_global = float(np.percentile(luminance, 25))
     # black_floor 是 L/100 单位的绝对量，但黑位不得越过背景亮度本身。
     # 曝光充分的图上背景 L/100 只有 ~0.03，直接加 0.018 会把整片背景裁成
     # 纯 0（实测 p1 掉到 2e-06，重新触发 BACKGROUND_CRUSHED）。
     # 限制黑位最多吃掉背景亮度的一半，保证背景仍留有层次。
-    background = float(np.percentile(luminance, 25))
-    floor = min(max(low, 0.0) + black_floor, background * 0.5, 0.25)
-    toned = np.clip((luminance - floor) / max(1.0 - floor, 1e-6), 0, 1)
+    global_floor = min(max(low_global, 0.0) + black_floor, bg_global * 0.5, 0.25)
+
+    # 上面的全局黑位在**空间非均匀**背景上会超过最暗区域的局部背景，把整片
+    # 裁成纯黑：实测某图 BR 角背景 0.0413 < 全局 floor 0.043 → 该角归零，
+    # 四角比值 2.07 → 5203，触发 CORNER_NONUNIFORM。
+    # 改用逐像素局部黑位，并以 global_floor 封顶。由外层 np.minimum 保证
+    # floor_map <= global_floor 逐像素成立；而基础项 (L-f)/(1-f) 关于 f 单调
+    # 不增（导数 (L-1)/(1-f)² <= 0），故**黑位本身**只会更低。
+    #
+    # 注意：这**不**等于「最终 toned 逐像素只会更亮」。末端的 highlight_rolloff
+    # 做了 `compressed /= max(compressed)` 的全局重标定，分母会随整体变亮而变大，
+    # 因此少数中间调像素可能轻微下降（实测最大 -1.9e-4）。可保证的是：
+    # 黑位不升高、归零像素严格减少、净效果为变亮。
+    local_maps, _grid = _local_background(
+        luminance, block=block, percentiles=(5.0, 25.0)
+    )
+    low_map, bg_map = local_maps[5.0], local_maps[25.0]
+    floor_map = np.minimum(
+        global_floor,
+        np.minimum(np.maximum(low_map, 0.0) + black_floor, bg_map * 0.5),
+    ).astype(np.float32)
+
+    # 后置保证：平滑上采样可能把暗块的局部背景从邻块抬高，公式本身并不保证
+    # 「无区块被裁」。这里做一次确定性的全局下移兜住。
+    floor_map, repair = _repair_local_clip(luminance, floor_map, block)
+
+    toned = np.clip(
+        (luminance - floor_map) / np.maximum(1.0 - floor_map, 1e-6), 0.0, 1.0
+    )
 
     toned = np.power(toned, profile["gamma"])
     contrast = profile["contrast"]
@@ -440,7 +587,24 @@ def _tone_curve(luminance, profile):
         compressed = toned / (1.0 + rolloff * toned)
         compressed /= max(float(compressed.max()), 1e-6)
         toned = np.clip(compressed, 0, 1)
-    return toned.astype(np.float32)
+    toned = toned.astype(np.float32)
+
+    if not return_diagnostics:
+        return toned
+
+    diagnostics = {
+        "floor_global": round(global_floor, 6),
+        "floor_min": round(float(floor_map.min()), 6),
+        "floor_max": round(float(floor_map.max()), 6),
+        "floor_mean": round(float(floor_map.mean()), 6),
+        "local_bg_min": round(float(bg_map.min()), 6),
+        "local_bg_max": round(float(bg_map.max()), 6),
+        "clipped_block_frac_before": round(
+            repair["blocks_clipped_before_repair"] / max(repair["n_blocks"], 1), 6
+        ),
+        **repair,
+    }
+    return toned, diagnostics
 
 
 def apply_professional_style(
@@ -451,6 +615,8 @@ def apply_professional_style(
     strength=1.0,
     diagnostic_report=None,
     user_prefs=None,
+    star_mask=None,
+    return_diagnostics=False,
 ):
     """
     Apply a selected non-generative style grade.
@@ -461,6 +627,9 @@ def apply_professional_style(
     增强参数:
         diagnostic_report: analyze.py 的诊断报告，用于数据驱动风格微调
         user_prefs: 用户偏好 dict
+        return_diagnostics: True 时额外返回黑位/区块裁切诊断 dict（第 4 个返回值）
+
+    默认返回三元组 (graded, selected, reasoning)，与既有调用方兼容。
     """
     selected, adapted, reasoning = choose_style_profile(
         target_type=target_type,
@@ -484,7 +653,13 @@ def apply_professional_style(
     source = np.clip(source, 0, 1)
     lab = rgb2lab(source)
     luminance = np.clip(lab[..., 0] / 100.0, 0, 1)
-    toned = _tone_curve(luminance, profile)
+    if return_diagnostics:
+        toned, style_diagnostics = _tone_curve(
+            luminance, profile, return_diagnostics=True
+        )
+    else:
+        toned = _tone_curve(luminance, profile)
+        style_diagnostics = None
 
     detail = luminance - gaussian_filter(luminance, sigma=10)
     signal_low = np.percentile(luminance, 30)
@@ -510,22 +685,87 @@ def apply_professional_style(
 
     hsv = rgb2hsv(graded)
     value = hsv[..., 2]
-    background_threshold = np.percentile(value, 35)
+    edge_band = max(16, int(min(value.shape[:2]) * 0.05))
+    edges = np.concatenate([
+        value[:edge_band, :].flatten(),
+        value[-edge_band:, :].flatten(),
+        value[:, :edge_band].flatten(),
+        value[:, -edge_band:].flatten()
+    ])
+    edge_median = float(np.median(edges))
+    background_threshold = min(max(float(np.percentile(value, 35)), edge_median * 1.15), 0.25)
     background_mask = gaussian_filter((value < background_threshold).astype(np.float32), sigma=4)
+    if color_mode == 'emission' or target_type == 'emission_nebula':
+        oiii_mask = ((graded[..., 1] + graded[..., 2]) / (2.0 * np.maximum(graded[..., 0], 1e-6))) >= 0.42
+        if np.any(oiii_mask):
+            oiii_protect = gaussian_filter(oiii_mask.astype(np.float32), sigma=3.0)
+            background_mask = background_mask * (1.0 - np.clip(oiii_protect, 0.0, 1.0))
+    if star_mask is not None:
+        sm = np.asarray(star_mask, dtype=np.float32)
+        if sm.ndim == 3:
+            sm = np.mean(sm, axis=2)
+        star_protect = gaussian_filter(np.clip(sm, 0.0, 1.0), sigma=1.2)
+        background_mask = background_mask * (1.0 - star_protect)
+    else:
+        star_protect = None
+    # ── 饱和度提升：RGB 域、以像素均值为轴的保比例色度缩放 ──
+    # 旧实现直接乘 HSV 的 S：保持 max 通道不变、把 (max−min) 拉开，非最大通道被压向 0。
+    # 当 G≠B 时后果尤其严重 —— 实测受控输入 [0.25,0.10,0.06] 经 ×1.32 后 B 被压到 0，
+    # B/G 从 0.600 掉到 0.000；[0.50,0.15,0.09] 同样归零。对发射星云即系统性破坏 OIII。
+    # 改用与 :680 color_separation 相同的公式：像素均值严格不变（未越界裁切时），
+    # 弱通道只按其偏离均值的比例缩放，不会塌到 0（同例 B/G 保留 0.402）。
+    #
+    # 掩膜顺序：background_mask / oiii_mask / value 均已基于**提升前**的 graded 算好，
+    # 本步不回头改它们 —— 掩膜语义与旧实现逐位一致。
+    # （若把本步挪到 rgb2hsv 之前以省一次转换，oiii_mask 会在提升后的图上计算：
+    #  (G+B)/2R 会下降，实测 0.45 → 0.350，跌破 :699 的 0.42 阈值，恰好让待保护的
+    #  OIII 区失去保护、交还给 background_desat —— 与修复目标反向。）
     sat_factor = 1.0 + (profile["saturation"] - 1.0) * strength
-    hsv[..., 1] *= sat_factor
-    hsv[..., 1] *= 1.0 - background_mask * profile["background_desat"] * strength
-    hsv[..., 1] = np.clip(hsv[..., 1], 0, 1)
-    graded = hsv2rgb(hsv)
+    if abs(sat_factor - 1.0) > 1e-6:
+        neutral = graded.mean(axis=2, keepdims=True)
+        graded = np.clip(neutral + (graded - neutral) * sat_factor, 0, 1)
+
+    # background_desat 仍在 HSV 域执行（它受 oiii_protect 保护，对 B/G 贡献极小）。
+    # graded 已被上式改写，S 必须**重新取**；掩膜沿用提升前的定义。
+    desat = profile["background_desat"] * strength
+    if abs(desat) > 1e-6:
+        hsv_sat = rgb2hsv(graded)
+        hsv_sat[..., 1] *= 1.0 - background_mask * desat
+        hsv_sat[..., 1] = np.clip(hsv_sat[..., 1], 0, 1)
+        graded = hsv2rgb(hsv_sat)
 
     warmth = profile["warmth"] * strength
     if abs(warmth) > 1e-6:
+        signal_blend = np.clip(1.0 - background_mask, 0.0, 1.0)[..., None]
+        if star_protect is not None:
+            signal_blend = signal_blend * (1.0 - star_protect[..., None])
+        edge_weight = np.ones_like(value)
+        ew_y = max(8, int(value.shape[0] * 0.06))
+        ew_x = max(8, int(value.shape[1] * 0.06))
+        edge_weight[:ew_y, :] *= np.linspace(0, 1, ew_y)[:, None]
+        edge_weight[-ew_y:, :] *= np.linspace(1, 0, ew_y)[:, None]
+        edge_weight[:, :ew_x] *= np.linspace(0, 1, ew_x)[None, :]
+        edge_weight[:, -ew_x:] *= np.linspace(1, 0, ew_x)[None, :]
+        signal_blend *= edge_weight[..., None]
         gains = np.array([1.0 + warmth, 1.0, 1.0 - warmth], dtype=np.float32)
-        graded = np.clip(graded * gains, 0, 1)
+        warm_graded = np.clip(graded * gains, 0, 1)
+        graded = graded * (1.0 - signal_blend) + warm_graded * signal_blend
 
     if alpha is not None:
         graded = np.dstack([graded, alpha])
-    return np.clip(graded, 0, 1).astype(np.float32), selected, reasoning
+    graded = np.clip(graded, 0, 1).astype(np.float32)
+
+    if not return_diagnostics:
+        return graded, selected, reasoning
+
+    # 在**最终 RGB 亮度**上再验一次「无区块中位归零」——比色调曲线内部更下游、
+    # 更强的证据（后续饱和度/去饱和/加温都还可能有影响）。
+    gray = graded[..., :3].mean(axis=2)
+    block = style_diagnostics["block_size"]
+    final_medians = _block_medians(gray, block)
+    style_diagnostics["min_block_median_final"] = round(float(final_medians.min()), 6)
+    style_diagnostics["blocks_zeroed_final"] = int(np.count_nonzero(final_medians <= 0.0))
+    return graded, selected, reasoning, style_diagnostics
 
 
 def main():

@@ -98,6 +98,149 @@ def protected_hdr_compress(image, strength=0.5, knee_percentile=85.0):
     return np.clip(result, 0, 1).astype(np.float32), report
 
 
+ENHANCE_MODES = ("both", "hdr_only", "clahe_only", "none")
+
+# 星云区纹理 / 背景噪声地板 的最小比值。低于它说明星云区也没比噪声多出结构，
+# 此时 CLAHE 只会把噪声放大成团（实测 5.4×），不会揭示任何东西。
+# 实测分离度：有伪影的输入 1.24，干净的输入 2.32~5.26 → 取几何中点 1.7。
+CLAHE_MIN_TEXTURE_SNR = 1.7
+
+# CLAHE 允许的**星云区高频能量放大倍数**上限。超过即判定为"过度增强"并跳过。
+#
+# 为什么需要实测而不是调参：`equalize_adapthist` 的 `clip_limit` 在**窄直方图**上会
+# 饱和。实测某极暗发射星云（span=0.39）上，clip_limit 从 0.0003 到 0.003 给出
+# **逐位相同**的输出（HF 放大恒为 1.85×、p75 恒为 0.440），只有到 0.006 才变化。
+# 也就是说**无法靠调小 clip_limit 来减弱效果**，只能二选一 —— 因此需要一条实测判据。
+#
+# 该例实测放大 1.85×，而跳过 CLAHE 后成片 p75 由 0.381 降到 0.173（−55%）、
+# HF 比由 6.74 降到 3.62（−46%），大幅贴近参考成片。阈值取 1.5 略低于该例，
+# 保守起见只拦"明显过度"的情形。**该阈值目前只在单一案例上标定过，需随样本积累复核。**
+CLAHE_MAX_HF_AMPLIFICATION = 1.5
+
+
+def _nebula_hf_energy(image, sigma=2.0, nebula_percentile=55.0):
+    """星云主体区（亮度分位以上）的**绝对**高频能量。"""
+    arr = np.asarray(image, dtype=np.float32)
+    if arr.ndim == 3:
+        arr = arr[..., :3]
+        lum = (0.2126 * arr[..., 0] + 0.7152 * arr[..., 1]
+               + 0.0722 * arr[..., 2])
+    else:
+        lum = arr
+    mask = lum > float(np.percentile(lum, nebula_percentile))
+    if not mask.any():
+        return None
+    hf = np.abs(lum - gaussian_filter(lum, sigma=float(sigma)))
+    return float(hf[mask].mean())
+
+
+def preview_clahe_hf_amplification(image, clip_limit, kernel_size,
+                                  max_side=640, **clahe_kwargs):
+    """在下采样预览上实测 CLAHE 会把星云区高频能量放大多少倍。
+
+    返回 None 表示无法判定（无信号区或能量为零）。预览用 `max_side` 限幅以控制开销。
+    """
+    from skimage.transform import resize
+
+    arr = np.asarray(image, dtype=np.float32)
+    if arr.ndim == 3:
+        arr = arr[..., :3]
+    h, w = arr.shape[:2]
+    if max(h, w) > int(max_side):
+        scale = float(max_side) / max(h, w)
+        target = (max(1, int(round(h * scale))), max(1, int(round(w * scale))))
+        arr = resize(arr, target + (arr.shape[2],) if arr.ndim == 3 else target,
+                     preserve_range=True, anti_aliasing=True).astype(np.float32)
+
+    before = _nebula_hf_energy(arr)
+    if before is None or before <= 1e-9:
+        return None
+    after_img = apply_clahe(arr, clip_limit=clip_limit,
+                            kernel_size=kernel_size, **clahe_kwargs)
+    after = _nebula_hf_energy(after_img)
+    if after is None:
+        return None
+    return float(after / before)
+
+
+def measure_texture_snr(gray, sigma=2.0, nebula_pctl=55.0, bg_pctl=20.0):
+    """星云区高通能量 / 背景区高通能量 —— 用来判断 CLAHE 是"揭示结构"还是"放大噪声"。
+
+    背景区（低分位）只有噪声、没有结构，所以它就是**噪声地板**。若星云区的
+    高通能量与背景地板相当（比值 ≈1），说明星云区也没有可揭示的纹理 ——
+    CLAHE 的局部直方图均衡只会把这个噪声放大成可见的蜂窝状斑块。
+
+    实测（真实母版 Phase 6 输入）：伪影案例比值 1.24，干净案例 2.32~5.26。
+
+    返回 None 表示无法判定（区域为空或噪声地板为 0），调用方应视为"不触发守卫"。
+    """
+    g = np.asarray(gray, dtype=np.float32)
+    if g.size == 0:
+        return None
+    hf = np.abs(g - gaussian_filter(g, sigma=float(sigma)))
+    nebula = g > np.percentile(g, float(nebula_pctl))
+    background = g <= np.percentile(g, float(bg_pctl))
+    if not nebula.any() or not background.any():
+        return None
+    floor = float(hf[background].mean())
+    if floor <= 1e-12:
+        return None
+    return float(hf[nebula].mean()) / floor
+
+
+def decide_enhance_mode(signals, target_type=None):
+    """决定 Phase 6 跑哪些非线性细节增强。
+
+    外部权威经验：「HDRMT 与 LHE 同时使用太过头，二选一」。本地 Phase 6 此前是
+    无条件串联 HDR + CLAHE。本函数把它变成条件触发，但**保守默认仍是 both**，
+    即大多数情况下行为与历史一致，只在测到明确信号时才跳过一个：
+
+      - 有高光过曝风险（highlight_clip 或 p99 很高）→ HDR 必要；
+        若背景本身已很亮（p50 高），再叠 CLAHE 会放大噪声 → 只跑 HDR。
+      - 完全没有高光风险（p99 < 0.80）→ HDR 近似空操作 → 只跑 CLAHE。
+      - 全局层次不足（span = p99 − p50 偏小）→ 优先局部对比 → 只跑 CLAHE。
+      - 其余 → both（默认兜底 = 历史行为）。
+
+    **噪声守卫**（signals 含 `texture_snr` 时启用）：若星云区的高通能量并不比
+    背景噪声地板高出多少（`texture_snr < CLAHE_MIN_TEXTURE_SNR`），说明这张图
+    没有可揭示的纹理，CLAHE 只会把噪声放大成蜂窝状斑块 —— 此时跳过 CLAHE。
+
+    实测：某极暗母版的 Phase 6 输入 `texture_snr = 1.24`，跑 CLAHE 后星云区高通
+    能量被放大 **5.4×**，成片出现明显灰色蜂窝斑块，必须靠 `enhance_mode=none`
+    规避。注意**光看 span 分不出来**：同一批数据里 `span = 0.2187` 的几张是有
+    结构的、跑 CLAHE 无害，而 `span = 0.0814` 的才是噪声主导。判据必须是 SNR。
+
+    signals: {"highlight_clip_ratio", "p50", "p99", "span", 可选 "texture_snr"}
+    """
+    # 关键信号缺失时回落 both（= 历史行为），而不是静默跳过一个阶段。
+    if "p50" not in signals or "p99" not in signals:
+        return "both"
+
+    hl_clip = float(signals.get("highlight_clip_ratio", 0.0))
+    p50 = float(signals.get("p50", 0.0))
+    p99 = float(signals.get("p99", 0.0))
+    span = float(signals.get("span", max(p99 - p50, 0.0)))
+
+    if hl_clip >= 0.002 or p99 >= 0.95:
+        mode = "hdr_only" if p50 >= 0.12 else "both"
+    elif p99 < 0.80:
+        mode = "clahe_only"
+    elif span < 0.22:
+        mode = "clahe_only"
+    else:
+        mode = "both"
+
+    # 噪声守卫：只在明确噪声主导时削掉 CLAHE，HDR 该跑还跑。
+    # 注意 mode 是**模式名**，不能拿 "clahe" in mode 做子串判断（"clahe" 不是
+    # "both" 的子串），必须按语义列集合。
+    texture_snr = signals.get("texture_snr")
+    if (texture_snr is not None and np.isfinite(float(texture_snr))
+            and float(texture_snr) < CLAHE_MIN_TEXTURE_SNR
+            and mode in ("both", "clahe_only")):
+        mode = "hdr_only" if mode == "both" else "none"
+    return mode
+
+
 def _hdr_compress_channel(channel, layers, strength):
     """
     多尺度 HDR 动态范围压缩（修正版拉普拉斯金字塔）。
@@ -138,7 +281,47 @@ def _hdr_compress_channel(channel, layers, strength):
     return np.clip(result, 0, 1)
 
 
-def apply_clahe(image, clip_limit=0.02, kernel_size=64):
+def _clahe_rolloff(L, highlight_rolloff=True, shadow_rolloff=True,
+                   mask_gamma=None, mask_low_pctl=90.0, mask_high_pctl=99.9):
+    """CLAHE 的作用权重掩版（0 = 完全不动，1 = 满强度）。
+
+    两部分**相乘**：
+
+    1. 固定的分段线性斜坡（历史行为）：高光 >0.65 渐弱、>0.95 归零；
+       暗部 <0.16 渐弱、<0.06 归零。
+    2. 可选的**自适应高光渐弱掩版**（mask_gamma 非 None 时启用）：
+       用图像自身的分位定义渐弱窗口 [p_low, p_high]，
+       ``taper = clip((hi - L)/(hi - lo))``，再取 ``mask_gamma`` 次幂。
+       **在 p_low 以下 taper 恒为 1**，所以绝大多数像素（背景与星云主体）完全不受
+       影响；只有最亮的 p_low~p_high 区间被逐步保护。
+
+    为什么必须是「下降型 taper」而不是「上升型幂版」：上升型 ``((L-lo)/(hi-lo))**g``
+    会在整个中低亮度区间给出接近 0 的权重，等于把 CLAHE 全图关掉——实测某星云
+    占满画幅的图 median 掉了 25%，远超保守范围。下降型只保护亮端，实测 median
+    几乎不动。
+
+    乘法的意义：taper ∈ [0,1]，故新权重**恒 ≤ 旧权重** —— 相对历史行为只会更保守。
+    mask_gamma=None（默认）时与历史实现逐位一致。
+    """
+    rolloff = 1.0
+    if highlight_rolloff:
+        rolloff = rolloff * np.clip((0.95 - L) / (0.95 - 0.65), 0.0, 1.0) ** 2
+    if shadow_rolloff:
+        rolloff = rolloff * np.clip((L - 0.06) / (0.16 - 0.06), 0.0, 1.0) ** 2
+    if mask_gamma is not None and float(mask_gamma) > 0.0:
+        lo = float(np.percentile(L, float(mask_low_pctl)))
+        hi = float(np.percentile(L, float(mask_high_pctl)))
+        taper = np.clip((hi - L) / max(hi - lo, 1e-6), 0.0, 1.0)
+        # exp(gamma*ln(max(taper, eps))) 与 taper**gamma 数值等价，
+        # 写成 exp/ln 是为了与外部经验的公式形式对齐、便于对照。
+        rolloff = rolloff * np.exp(
+            float(mask_gamma) * np.log(np.maximum(taper, 1e-5))
+        )
+    return rolloff
+
+
+def apply_clahe(image, clip_limit=0.02, kernel_size=64, highlight_rolloff=True, shadow_rolloff=True,
+                mask_gamma=None, mask_low_pctl=90.0, mask_high_pctl=99.9):
     """
     CLAHE (Contrast Limited Adaptive Histogram Equalization)。
     原理：在每个小窗口内做受限的直方图均衡化，
@@ -147,27 +330,47 @@ def apply_clahe(image, clip_limit=0.02, kernel_size=64):
 
     clip_limit: 对比度限制（防止噪声放大）
     kernel_size: 局部窗口大小
+    highlight_rolloff: 是否对高光区域（>0.65）应用软滚降衰减，防止亮核被顶爆
+    shadow_rolloff: 是否对暗部/背景区域（<0.16）应用软滚降衰减，防止空背景/暗角被局部均衡化放大噪点
+    mask_gamma: 自适应高光渐弱掩版指数（None=关闭，保持历史行为；建议 2.0）
+    mask_low_pctl / mask_high_pctl: 渐弱窗口的分位端点（默认 p90 / p99.9）。
+        p_low 以下权重恒为 1（不受影响），p_high 以上被完全保护。
     """
+    image = np.asarray(image, dtype=np.float32)
     if image.ndim == 3:
-        from color_conv import safe_rgb2lab as rgb2lab, safe_lab2rgb as lab2rgb
-        lab = rgb2lab(image)
-        L = lab[..., 0] / 100.0
+        L = (
+            0.2126 * image[..., 0]
+            + 0.7152 * image[..., 1]
+            + 0.0722 * image[..., 2]
+        )
         L_enhanced = equalize_adapthist(L, kernel_size=kernel_size, clip_limit=clip_limit)
-        lab[..., 0] = np.clip(L_enhanced * 100.0, 0, 100)
-        result = lab2rgb(lab)
+        rolloff = _clahe_rolloff(
+            L, highlight_rolloff, shadow_rolloff,
+            mask_gamma, mask_low_pctl, mask_high_pctl,
+        )
+        L_target = L + (L_enhanced - L) * rolloff
+        gain = L_target / np.maximum(L, 1e-8)
+        result = image * gain[..., None]
     else:
-        result = equalize_adapthist(image, kernel_size=kernel_size, clip_limit=clip_limit)
-    return np.clip(result, 0, 1)
+        L_enhanced = equalize_adapthist(image, kernel_size=kernel_size, clip_limit=clip_limit)
+        rolloff = _clahe_rolloff(
+            image, highlight_rolloff, shadow_rolloff,
+            mask_gamma, mask_low_pctl, mask_high_pctl,
+        )
+        result = image + (L_enhanced - image) * rolloff
+    return np.clip(result, 0, 1).astype(np.float32)
 
 
 def apply_curves(image, shadows=1.0, midtones=1.3, highlights=1.0):
     """
-    曲线调整。
-    原理：分别控制阴影、中间调、高光的亮度。
-    - shadows:  阴影亮度因子 (>1 提亮暗部)
+    曲线调整（保比例感官亮度增益乘法模式）。
+    原理：分别控制阴影、中间调、高光的亮度，并将增益直接作用于 RGB 通道，
+    严格保持每个像素原有的通道比率与色相，避免压暗背景时色偏被相对放大。
+    - shadows:  阴影亮度因子 (>1 提亮暗部, <1 压暗背景)
     - midtones: 中间调亮度因子 (>1 提亮星云主体)
     - highlights: 高光亮度因子 (=1 保护亮星不过曝)
     """
+    image = np.asarray(image, dtype=np.float32)
     # 使用样条插值构造 S 曲线
     x = np.array([0, 0.25, 0.5, 0.75, 1.0])
     y = np.array([0, 0.25 * shadows, 0.5 * midtones,
@@ -178,16 +381,18 @@ def apply_curves(image, shadows=1.0, midtones=1.3, highlights=1.0):
         return np.interp(v, x, y)
 
     if image.ndim == 3:
-        from color_conv import safe_rgb2lab as rgb2lab, safe_lab2rgb as lab2rgb
-        lab = rgb2lab(image)
-        L = lab[..., 0] / 100.0
+        L = (
+            0.2126 * image[..., 0]
+            + 0.7152 * image[..., 1]
+            + 0.0722 * image[..., 2]
+        )
         L_adj = interpolate(L)
-        lab[..., 0] = np.clip(L_adj * 100.0, 0, 100)
-        result = lab2rgb(lab)
+        gain = L_adj / np.maximum(L, 1e-8)
+        result = image * gain[..., None]
     else:
         result = interpolate(image)
 
-    return np.clip(result, 0, 1)
+    return np.clip(result, 0, 1).astype(np.float32)
 
 
 def local_contrast_enhance(image, radius=20, strength=0.3):
@@ -346,12 +551,58 @@ def positive_starless_detail_enhance(image, original_linear, starless_linear,
     return np.clip(result, 0, 1).astype(np.float32)
 
 
+def apply_pi_detail_layer(image, strength_fine=0.35, strength_med=0.18, 
+                          sigma_fine=3.2, sigma_med=14.0, bg_thresh=0.065):
+    """
+    PixInsight 风格双尺度微对比度与高通细节层 (LHE + Detail Layer) 注入。
+
+    公式参考 PixInsight-pipeline:
+      $T + detailStr * (Ha - GaussianBlur(Ha, 15))
+    结合自适应明度保护掩膜，提取毛细细丝与中尺度立体结构，按比率守恒映射回 RGB。
+    """
+    source = np.asarray(image, dtype=np.float32)
+    is_color = source.ndim == 3 and source.shape[2] >= 3
+    rgb = source[..., :3] if is_color else source
+
+    if is_color:
+        lum = 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
+    else:
+        lum = rgb
+
+    # 自适应掩膜：保护暗部噪点，高光核心平滑过渡
+    mask = np.clip((lum - float(bg_thresh)) / 0.18, 0.0, 1.0)
+    mask = mask * mask * (3.0 - 2.0 * mask)  # smoothstep
+    mask = gaussian_filter(mask, sigma=4.0)
+
+    # 细微毛细纤维层
+    blur_fine = gaussian_filter(lum, sigma=float(sigma_fine))
+    detail_fine = lum - blur_fine
+
+    # 中尺度立体结构层
+    blur_med = gaussian_filter(lum, sigma=float(sigma_med))
+    detail_med = lum - blur_med
+
+    # 细节注入
+    lum_enhanced = lum + mask * (float(strength_fine) * detail_fine + float(strength_med) * detail_med)
+    lum_enhanced = np.clip(lum_enhanced, 0.0, 1.0)
+
+    if is_color:
+        gain = (lum_enhanced + 1e-6) / (lum + 1e-6)
+        result = rgb * gain[..., None]
+        if source.shape[2] > 3:
+            result = np.dstack([result, source[..., 3:]])
+    else:
+        result = lum_enhanced
+
+    return np.clip(result, 0, 1).astype(np.float32)
+
+
 def main():
     p = argparse.ArgumentParser(description='深空星云细节增强')
     p.add_argument('input', help='输入图像路径')
     p.add_argument('output', help='输出图像路径')
     p.add_argument('--method', default='hdr',
-                   choices=['hdr', 'clahe', 'curves', 'local_contrast'],
+                   choices=['hdr', 'clahe', 'curves', 'local_contrast', 'detail_layer'],
                    help='增强方法 (默认: hdr)')
     p.add_argument('--strength', type=float, default=0.5,
                    help='增强强度 (默认: 0.5)')
@@ -376,6 +627,8 @@ def main():
         result = apply_curves(img, midtones=args.midtones, shadows=args.strength)
     elif args.method == 'local_contrast':
         result = local_contrast_enhance(img, strength=args.strength)
+    elif args.method == 'detail_layer':
+        result = apply_pi_detail_layer(img, strength_fine=args.strength * 0.7, strength_med=args.strength * 0.35)
 
     imsave(args.output, img_as_ubyte(result))
     print(f"[增强] 输出已保存: {args.output}")

@@ -88,6 +88,101 @@ def _background_channel_gains(source, reference, max_gain):
     return np.clip(gains, 1.0 / max_gain, max_gain).astype(np.float32)
 
 
+def _signal_ratios(image, signal_percentile=55.0):
+    """信号区（星云主体）的逐通道 p99 与 R/G、B/G 比。
+
+    与 `_background_channel_gains` 的取区互补：那个看背景（luma <= p60）修背景色偏，
+    本函数看星云主体（luma > p55）修 Hα/OIII 比 —— 双窄带数据的核心色彩指标。
+    """
+    rgb = _rgb(image)
+    luma = _luminance(rgb)
+    mask = luma > float(np.percentile(luma, signal_percentile))
+    if not mask.any():
+        return None
+    p99 = [float(np.percentile(rgb[..., c][mask], 99.0)) for c in range(3)]
+    green = max(p99[1], 1e-9)
+    return {
+        "p99": p99,
+        "r_over_g": p99[0] / green,
+        "b_over_g": p99[2] / green,
+    }
+
+
+def match_signal_color(source, reference, strength=1.0, max_gain=2.0,
+                       signal_percentile=55.0):
+    """把源图**信号区**的色比（R/G、B/G）匹配到参考图。
+
+    通道增益是**闭式解**，无需搜索：
+
+        gR = (R/G)_ref / (R/G)_src
+        gG = 1                        （归一化，不改变整体亮度量级）
+        gB = (B/G)_ref / (B/G)_src
+
+    实测某极暗母版：源 R/G=1.769 / B/G=0.727，参考（手动后期）R/G=1.375 / B/G=0.993
+    → 解出 [0.777, 1.0, 1.365]，命中后 R/G、B/G 误差均为 **0.0%**。
+
+    `max_gain` 默认 2.0：双窄带 Hα 主导的源图 R/G 常达 2.5~3.5，而参考可能只有 1.4，
+    需要 gR≈0.4~0.55（即 1/gR≈1.8~2.5）。实测把默认设为 1.45 时，
+    源 R/G=2.6795 需要 gR=0.513 却被卡在 1/1.45=0.690 → **命中失败**（结果停在 1.848）。
+
+    **为什么需要它**：`optimize_reference_grade` 的搜索空间是
+    stretch/gamma/target_bg/saturation/hdr，**里面没有色比控制** —— 实测它会把
+    R/G 从 1.77 冲到 0.79（目标 1.37），而 B/G 完全不动（0.73）。
+    `_background_channel_gains` 只碰背景，同样不解决星云的 Hα/OIII 比。
+
+    返回 (graded, report)。report 里同时记录原始解、限幅后、按 strength 混合后的
+    增益与命中后的实际色比，便于审计。
+    """
+    src = _rgb(source)
+    ref = _rgb(reference)
+    src_stat = _signal_ratios(src, signal_percentile)
+    ref_stat = _signal_ratios(ref, signal_percentile)
+    if src_stat is None or ref_stat is None:
+        return src.astype(np.float32), {
+            "method": "signal_color_match",
+            "applied": False,
+            "reason": "insufficient_signal",
+        }
+
+    gains = np.array([
+        ref_stat["r_over_g"] / max(src_stat["r_over_g"], 1e-9),
+        1.0,
+        ref_stat["b_over_g"] / max(src_stat["b_over_g"], 1e-9),
+    ], dtype=np.float32)
+    clipped = np.clip(gains, 1.0 / float(max_gain), float(max_gain))
+
+    s = float(np.clip(strength, 0.0, 1.0))
+    effective = 1.0 + (clipped - 1.0) * s
+    graded = np.clip(src * effective, 0, 1)
+
+    after = _signal_ratios(graded, signal_percentile)
+    report = {
+        "method": "signal_color_match",
+        "applied": True,
+        "structural_transfer": False,
+        "signal_percentile": float(signal_percentile),
+        "source_ratios": {
+            "r_over_g": round(src_stat["r_over_g"], 4),
+            "b_over_g": round(src_stat["b_over_g"], 4),
+        },
+        "reference_ratios": {
+            "r_over_g": round(ref_stat["r_over_g"], 4),
+            "b_over_g": round(ref_stat["b_over_g"], 4),
+        },
+        "raw_gains": gains.round(5).tolist(),
+        "gains": clipped.round(5).tolist(),
+        "effective_gains": effective.round(5).tolist(),
+        "strength": s,
+        "max_gain": float(max_gain),
+        "clipped": bool(not np.allclose(gains, clipped, atol=1e-6)),
+        "result_ratios": None if after is None else {
+            "r_over_g": round(after["r_over_g"], 4),
+            "b_over_g": round(after["b_over_g"], 4),
+        },
+    }
+    return graded.astype(np.float32), report
+
+
 def _saturation_stat(image):
     rgb = _rgb(image)
     high = np.max(rgb, axis=-1)

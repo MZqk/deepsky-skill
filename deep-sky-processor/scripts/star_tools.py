@@ -156,6 +156,221 @@ def estimate_fwhm(image, n_brightest=50, max_candidates=200,
     return float(np.median(fwhm_clean)), float(np.std(fwhm_clean)), len(fwhm_clean), n_candidates
 
 
+def _profile_shape_at(image_gray, center_rc, fit_radius=8):
+    """Measure a local stellar profile at a fixed reference coordinate."""
+    cy, cx = (int(center_rc[0]), int(center_rc[1]))
+    h, w = image_gray.shape
+    y0, y1 = cy - fit_radius, cy + fit_radius + 1
+    x0, x1 = cx - fit_radius, cx + fit_radius + 1
+    if y0 < 0 or x0 < 0 or y1 > h or x1 > w:
+        return None
+    patch = np.asarray(image_gray[y0:y1, x0:x1], dtype=np.float64)
+    background = float(np.percentile(patch, 20.0))
+    signal = np.clip(patch - background, 0.0, None)
+    peak = float(np.max(signal))
+    if not np.isfinite(peak) or peak <= 1e-7:
+        return None
+    # Suppress faint wings/noise so profile widths remain comparable after
+    # nonlinear star-layer curves.
+    weights = np.where(signal >= peak * 0.05, signal, 0.0)
+    total = float(np.sum(weights))
+    if total <= 1e-8:
+        return None
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    cx_fit = float(np.sum(xx * weights) / total)
+    cy_fit = float(np.sum(yy * weights) / total)
+    if (cx_fit - cx) ** 2 + (cy_fit - cy) ** 2 > 2.5 ** 2:
+        return None
+    dx = xx - cx_fit
+    dy = yy - cy_fit
+    cov_xx = float(np.sum(weights * dx * dx) / total)
+    cov_yy = float(np.sum(weights * dy * dy) / total)
+    cov_xy = float(np.sum(weights * dx * dy) / total)
+    eigenvalues = np.linalg.eigvalsh(np.array([
+        [cov_xx, cov_xy],
+        [cov_xy, cov_yy],
+    ], dtype=np.float64))
+    eigenvalues = np.maximum(eigenvalues, 0.04)
+    sigma_minor, sigma_major = np.sqrt(eigenvalues)
+    fwhm_minor = float(2.355 * sigma_minor)
+    fwhm_major = float(2.355 * sigma_major)
+    return {
+        "center_rc": [cy, cx],
+        "fitted_centroid_rc": [cy_fit, cx_fit],
+        "fwhm_major_px": fwhm_major,
+        "fwhm_minor_px": fwhm_minor,
+        "axis_ratio": float(fwhm_minor / max(fwhm_major, 1e-8)),
+        "peak_above_local_background": peak,
+    }
+
+
+def measure_paired_star_profiles(reference, candidate, max_stars=80,
+                                 min_stars=3, min_separation=7,
+                                 fit_radius=8):
+    """Compare the same unsaturated stellar coordinates before and after.
+
+    The report is a processing/aesthetic diagnostic.  It does not claim
+    physical acquisition resolution when either input has been stretched.
+    """
+    reference = np.asarray(reference, dtype=np.float32)
+    candidate = np.asarray(candidate, dtype=np.float32)
+    if reference.shape != candidate.shape:
+        raise ValueError("reference and candidate must have identical shapes")
+    if not np.all(np.isfinite(reference)) or not np.all(np.isfinite(candidate)):
+        raise ValueError("reference and candidate must contain finite values")
+
+    def luminance(value):
+        if value.ndim == 2:
+            return value
+        if value.ndim != 3 or value.shape[2] < 3:
+            raise ValueError("paired star profiles require gray or RGB images")
+        return (
+            0.2126 * value[..., 0]
+            + 0.7152 * value[..., 1]
+            + 0.0722 * value[..., 2]
+        )
+
+    ref_gray = luminance(reference)
+    candidate_gray = luminance(candidate)
+    margin = int(fit_radius) + 2
+    if min(ref_gray.shape) <= margin * 2:
+        return {
+            "status": "insufficient_samples",
+            "reason": "image_too_small",
+            "n_paired_stars": 0,
+            "data_domain": "star_layer_processing_diagnostic",
+        }
+    interior = ref_gray[margin:-margin, margin:-margin]
+    threshold = float(np.percentile(interior, 99.5))
+    local_max = maximum_filter(interior, size=max(3, int(min_separation)))
+    peak_mask = (interior == local_max) & (interior > threshold)
+    yy, xx = np.where(peak_mask)
+    yy += margin
+    xx += margin
+    order = np.argsort(ref_gray[yy, xx])[::-1]
+    coordinates = []
+    for index in order:
+        cy, cx = int(yy[index]), int(xx[index])
+        peak = float(ref_gray[cy, cx])
+        if peak >= 0.995:
+            continue
+        if any(
+            (cy - ky) ** 2 + (cx - kx) ** 2 < min_separation ** 2
+            for ky, kx in coordinates
+        ):
+            continue
+        coordinates.append((cy, cx))
+        if len(coordinates) >= int(max_stars):
+            break
+
+    pairs = []
+    for coordinate in coordinates:
+        before = _profile_shape_at(ref_gray, coordinate, fit_radius=fit_radius)
+        after = _profile_shape_at(
+            candidate_gray,
+            coordinate,
+            fit_radius=fit_radius,
+        )
+        if before is None or after is None:
+            continue
+        pairs.append((before, after))
+
+    if len(pairs) < int(min_stars):
+        return {
+            "status": "insufficient_samples",
+            "reason": "too_few_valid_unsaturated_isolated_stars",
+            "n_reference_candidates": len(coordinates),
+            "n_paired_stars": len(pairs),
+            "data_domain": "star_layer_processing_diagnostic",
+            "coordinate_convention": "row_col",
+        }
+
+    before_major = np.array(
+        [before["fwhm_major_px"] for before, _after in pairs],
+        dtype=np.float64,
+    )
+    after_major = np.array(
+        [after["fwhm_major_px"] for _before, after in pairs],
+        dtype=np.float64,
+    )
+    before_axis = np.array(
+        [before["axis_ratio"] for before, _after in pairs],
+        dtype=np.float64,
+    )
+    after_axis = np.array(
+        [after["axis_ratio"] for _before, after in pairs],
+        dtype=np.float64,
+    )
+    ratios = after_major / np.maximum(before_major, 1e-8)
+    centroid_shifts = np.asarray(
+        [
+            np.hypot(
+                after["fitted_centroid_rc"][0]
+                - before["fitted_centroid_rc"][0],
+                after["fitted_centroid_rc"][1]
+                - before["fitted_centroid_rc"][1],
+            )
+            for before, after in pairs
+        ],
+        dtype=np.float64,
+    )
+    peak_ratios = np.asarray(
+        [
+            after["peak_above_local_background"]
+            / max(before["peak_above_local_background"], 1e-8)
+            for before, after in pairs
+        ],
+        dtype=np.float64,
+    )
+    median_ratio = float(np.median(ratios))
+    review_required = bool(
+        len(pairs) >= max(int(min_stars), 5)
+        and (
+            median_ratio > 1.50
+            or float(np.percentile(ratios, 90.0)) > 1.90
+        )
+    )
+    return {
+        "status": "review_required" if review_required else "ok",
+        "n_reference_candidates": len(coordinates),
+        "n_paired_stars": len(pairs),
+        "data_domain": "star_layer_processing_diagnostic",
+        "physical_resolution_claim": False,
+        "coordinate_convention": "row_col",
+        "reference_fwhm_major_median_px": float(np.median(before_major)),
+        "candidate_fwhm_major_median_px": float(np.median(after_major)),
+        "candidate_to_reference_fwhm_ratio_median": median_ratio,
+        "candidate_to_reference_fwhm_ratio_p90": float(
+            np.percentile(ratios, 90.0)
+        ),
+        "reference_axis_ratio_median": float(np.median(before_axis)),
+        "candidate_axis_ratio_median": float(np.median(after_axis)),
+        "candidate_to_reference_centroid_shift_median_px": float(
+            np.median(centroid_shifts)
+        ),
+        "candidate_to_reference_centroid_shift_p95_px": float(
+            np.percentile(centroid_shifts, 95.0)
+        ),
+        "candidate_to_reference_peak_ratio_median": float(
+            np.median(peak_ratios)
+        ),
+        "candidate_to_reference_peak_ratio_p10": float(
+            np.percentile(peak_ratios, 10.0)
+        ),
+        "candidate_to_reference_peak_ratio_p90": float(
+            np.percentile(peak_ratios, 90.0)
+        ),
+        "review_required": review_required,
+        "engineering_thresholds": {
+            "median_fwhm_ratio_max": 1.50,
+            "p90_fwhm_ratio_max": 1.90,
+        },
+        "sample_centers_rc": [
+            before["center_rc"] for before, _after in pairs[:64]
+        ],
+    }
+
+
 # ══════════════════════════════════════════════════════════════
 # 多尺度星点检测
 # ══════════════════════════════════════════════════════════════
@@ -202,7 +417,7 @@ def _gradient_mask(image_gray, fwhm):
     return grad_norm.astype(np.float32)
 
 
-def _analyze_connected_components(labeled, image_gray, fwhm, star_threshold):
+def _analyze_connected_components(labeled, image_gray, fwhm, star_threshold, galaxy_center=None):
     """
     对每个连通域计算特征并分类过滤。
 
@@ -220,7 +435,8 @@ def _analyze_connected_components(labeled, image_gray, fwhm, star_threshold):
       2. 面积 > π*(4*FWHM)² 且 圆度 < 0.25 → 星云亮核（reject）
       3. 峰值 < star_threshold * 0.3 → 噪声（reject）
       4. 长宽比 > 5 且 圆度 < 0.3   → 星云细丝（reject）
-      5. 其余 → 保留，按特征分配置信度
+      5. 质心重合于星系中心且尺寸显著 → 星系核球（reject，保留在无星底层）
+      6. 其余 → 保留，按特征分配置信度
 
     返回: (kept_mask, component_info_list)
     """
@@ -282,19 +498,39 @@ def _analyze_connected_components(labeled, image_gray, fwhm, star_threshold):
 
         # 过滤决策
         reject_reason = None
-        if area < min_area:
-            reject_reason = "hot_pixel"
-        elif area > max_area:
-            reject_reason = "nebula_bright_core"
-        elif (
-            area > np.pi * (0.85 * fwhm) ** 2
-            and peak / max(mean_val, 1e-9) < 1.5
-        ):
-            reject_reason = "diffuse_bright_structure"
-        elif peak < abs_peak_thresh:
-            reject_reason = "noise"
-        elif aspect_ratio > 5.0 and circularity < 0.3:
-            reject_reason = "filament"
+        if galaxy_center is not None:
+            g_cy, g_cx = galaxy_center
+            cy_comp = (by0 + by1) / 2.0
+            cx_comp = (bx0 + bx1) / 2.0
+            dist_to_center = np.sqrt((cy_comp - g_cy)**2 + (cx_comp - g_cx)**2)
+            if dist_to_center <= 15.0 and area >= min(50, 2 * min_area):
+                reject_reason = "galaxy_nuclear_core"
+
+        if reject_reason is None:
+            if area < min_area:
+                reject_reason = "hot_pixel"
+            elif area > max_area:
+                peak_prom = peak / max(mean_val, 1e-9)
+                # 只有当区域既显著超过星点尺寸，又缺乏恒星特有的集中尖锐高光峰值时，才判定为星云亮核
+                # 真实亮星（包含饱和星与亮星光晕）具有极高的峰值和中心集中度
+                if (
+                    peak >= abs_peak_thresh * 2.0
+                    and peak_prom >= 2.0
+                    and area <= min(int(0.05 * h * w), int(max_area * 1.5))
+                    and aspect_ratio < 2.5
+                ):
+                    reject_reason = None
+                else:
+                    reject_reason = "nebula_bright_core"
+            elif (
+                area > np.pi * (0.85 * fwhm) ** 2
+                and peak / max(mean_val, 1e-9) < 1.5
+            ):
+                reject_reason = "diffuse_bright_structure"
+            elif peak < abs_peak_thresh:
+                reject_reason = "noise"
+            elif aspect_ratio > 5.0 and circularity < 0.3:
+                reject_reason = "filament"
 
         comp = {
             'id': i,
@@ -406,7 +642,7 @@ def _compute_detection_confidence(components, fwhm, image_shape):
 
 def detect_stars_multiscale(image, fwhm=None, star_threshold=0.85,
                             gradient_aware=True, n_scales=4,
-                            return_details=False):
+                            return_details=False, galaxy_center=None):
     """
     多尺度星点检测引擎（v2）。
 
@@ -512,11 +748,11 @@ def detect_stars_multiscale(image, fwhm=None, star_threshold=0.85,
 
     # 5. 连通域特征过滤
     kept_mask, components = _analyze_connected_components(
-        labeled, img_gray, fwhm, star_threshold
+        labeled, img_gray, fwhm, star_threshold, galaxy_center=galaxy_center
     )
 
-    # 6. 轻微膨胀以覆盖星点 PSF 边缘
-    dilation_radius = max(1, min(3, int(round(fwhm * 0.25))))
+    # 6. 膨胀以覆盖星点 PSF 边缘与扩散翼（防止去星后残留亮环或在拉伸中激化为白斑）
+    dilation_radius = max(2, min(5, int(round(fwhm * 0.6))))
     star_mask = binary_dilation(kept_mask, structure=disk(dilation_radius))
     star_mask = star_mask.astype(np.float32)
 
@@ -824,24 +1060,159 @@ def estimate_star_removal_quality(original, starless):
     return report
 
 
-def _repair_star_mask(image, star_mask, method, inpaint_radius):
+def inpaint_chroma_guard(image_inpainted, star_mask, blur_sigma=16.0):
+    """
+    对 Inpaint 修复后的无星图应用色度保护。
+    原理：在保持 Inpaint 亮度不变的前提下，将星坑内部的色彩通道比例对齐至周围低频背景场，
+    彻底消除折射镜红光色差光晕向内扩散造成的刺眼红橙圆斑。
+    """
+    image_inpainted = np.asarray(image_inpainted, dtype=np.float32)
+    if image_inpainted.ndim != 3 or image_inpainted.shape[2] < 3:
+        return image_inpainted
+
+    mask_bool = np.asarray(star_mask > 0.5, dtype=bool)
+    if not np.any(mask_bool):
+        return image_inpainted
+
+    # 计算低频平滑背景色彩场
+    bg_smooth = gaussian_filter(image_inpainted, sigma=blur_sigma)
+    bg_lum = (
+        0.2126 * bg_smooth[..., 0]
+        + 0.7152 * bg_smooth[..., 1]
+        + 0.0722 * bg_smooth[..., 2]
+    )
+    bg_ratio_r = bg_smooth[..., 0] / np.maximum(bg_lum, 1e-6)
+    bg_ratio_g = bg_smooth[..., 1] / np.maximum(bg_lum, 1e-6)
+    bg_ratio_b = bg_smooth[..., 2] / np.maximum(bg_lum, 1e-6)
+
+    # 软羽化蒙版 (稍向外扩张 2px 并平滑羽化，确保接缝自然过渡)
+    feathered = gaussian_filter(
+        binary_dilation(mask_bool, structure=disk(2)).astype(np.float32),
+        sigma=2.0
+    )
+    feathered = np.clip(feathered * 1.5, 0.0, 1.0)[..., None]
+
+    # Inpaint 结果的感官亮度
+    lum = (
+        0.2126 * image_inpainted[..., 0]
+        + 0.7152 * image_inpainted[..., 1]
+        + 0.0722 * image_inpainted[..., 2]
+    )
+    chroma_clean = np.stack(
+        [lum * bg_ratio_r, lum * bg_ratio_g, lum * bg_ratio_b],
+        axis=-1
+    )
+
+    result = image_inpainted * (1.0 - feathered) + chroma_clean * feathered
+    return np.clip(result, 0.0, 1.0).astype(np.float32)
+
+
+def apply_star_halo_guard(starless, stars=None, fwhm=3.0, halo_threshold=0.6, radius_factor=3.5):
+    """
+    亮星星晕守卫（Star Halo Guard）。
+    
+    去星算法（无论是形态学还是 StarNet2）往往能去除亮星核，但由于光学系统（特别是双窄带滤镜/折射镜）
+    的色差或衍射光晕，亮星外周 2~4 倍 FWHM 区域往往残留一圈发红或发青的假彩色星晕（Halo）。
+    在非线性强拉伸后，这些暗弱星晕会被成百倍放大为显眼的彩色圆环。
+    
+    本函数在大亮星周围的星晕过渡带中，保留背景感官亮度 L 绝对不变，
+    平滑过渡其色度比例至周围背景场，彻底消除亮星外围残余晕轮。
+    
+    参数:
+        starless: (H, W, 3) 浮点无星图
+        stars: (H, W, 3) 或 (H, W) 浮点星点图，若为 None 则从 starless 局部残差分析
+        fwhm: 恒星 FWHM（像素）
+        halo_threshold: 亮星判定阈值 (默认 0.6)
+        radius_factor: 光晕影响半径倍数 (默认 3.5x FWHM)
+    
+    返回:
+        平整星晕后的无星图 (H, W, 3)
+    """
+    starless = np.asarray(starless, dtype=np.float32)
+    if starless.ndim != 3 or starless.shape[2] < 3:
+        return starless
+
+    fwhm = float(fwhm) if fwhm is not None else 3.0
+    fwhm = max(1.5, fwhm)
+
+    if stars is not None:
+        stars_arr = np.asarray(stars, dtype=np.float32)
+        star_signal = np.mean(stars_arr, axis=2) if stars_arr.ndim == 3 else stars_arr
+    else:
+        star_signal = np.mean(starless, axis=2)
+
+    bright_star_mask = star_signal > halo_threshold
+    if not np.any(bright_star_mask):
+        p999 = float(np.percentile(star_signal, 99.9))
+        if p999 > 0.3:
+            bright_star_mask = star_signal >= p999
+        else:
+            return starless
+
+    if not np.any(bright_star_mask):
+        return starless
+
+    outer_r = max(3, int(round(fwhm * radius_factor)))
+    dilated_outer = binary_dilation(bright_star_mask, structure=disk(outer_r))
+    if not np.any(dilated_outer):
+        return starless
+
+    halo_mask = gaussian_filter(dilated_outer.astype(np.float32), sigma=max(1.5, fwhm * 0.75))
+    halo_mask = np.clip(halo_mask * 1.2, 0.0, 1.0)[..., None]
+
+    lum = (
+        0.2126 * starless[..., 0]
+        + 0.7152 * starless[..., 1]
+        + 0.0722 * starless[..., 2]
+    )
+    safe_lum = np.maximum(lum, 1e-6)
+
+    smooth_sigma = max(4.0, fwhm * 3.0)
+    ratio_r = starless[..., 0] / safe_lum
+    ratio_g = starless[..., 1] / safe_lum
+    ratio_b = starless[..., 2] / safe_lum
+
+    smooth_r = gaussian_filter(ratio_r, sigma=smooth_sigma)
+    smooth_g = gaussian_filter(ratio_g, sigma=smooth_sigma)
+    smooth_b = gaussian_filter(ratio_b, sigma=smooth_sigma)
+
+    chroma_cleaned = np.stack(
+        [lum * smooth_r, lum * smooth_g, lum * smooth_b],
+        axis=-1
+    )
+
+    result = starless * (1.0 - halo_mask) + chroma_cleaned * halo_mask
+    return np.clip(result, 0.0, 1.0).astype(np.float32)
+
+
+
+def _repair_star_mask(image, star_mask, method, inpaint_radius, apply_chroma_guard=True):
     """Apply one repair strategy and return the result plus actual method."""
     if method == 'telea':
         if HAS_OPENCV:
-            return inpaint_telea(image, star_mask, radius=inpaint_radius), 'telea'
-        return _inpaint_fallback(image, star_mask, inpaint_radius), 'gaussian_fallback'
-    if method == 'ns':
+            repaired, actual = inpaint_telea(image, star_mask, radius=inpaint_radius), 'telea'
+        else:
+            repaired, actual = _inpaint_fallback(image, star_mask, inpaint_radius), 'gaussian_fallback'
+    elif method == 'ns':
         if HAS_OPENCV:
-            return inpaint_ns(image, star_mask, radius=inpaint_radius), 'ns'
-        return _inpaint_fallback(image, star_mask, inpaint_radius), 'gaussian_fallback'
-    if method == 'median':
-        return remove_stars_median(image, star_mask), 'median'
+            repaired, actual = inpaint_ns(image, star_mask, radius=inpaint_radius), 'ns'
+        else:
+            repaired, actual = _inpaint_fallback(image, star_mask, inpaint_radius), 'gaussian_fallback'
+    elif method == 'median':
+        repaired, actual = remove_stars_median(image, star_mask), 'median'
+    else:
+        if HAS_OPENCV:
+            if int(np.sum(star_mask > 0.5)) > 500:
+                repaired, actual = inpaint_ns(image, star_mask, radius=inpaint_radius), 'ns'
+            else:
+                repaired, actual = inpaint_telea(image, star_mask, radius=inpaint_radius), 'telea'
+        else:
+            repaired, actual = _inpaint_fallback(image, star_mask, inpaint_radius), 'gaussian_fallback'
 
-    if HAS_OPENCV:
-        if int(np.sum(star_mask > 0.5)) > 500:
-            return inpaint_ns(image, star_mask, radius=inpaint_radius), 'ns'
-        return inpaint_telea(image, star_mask, radius=inpaint_radius), 'telea'
-    return _inpaint_fallback(image, star_mask, inpaint_radius), 'gaussian_fallback'
+    if apply_chroma_guard and image.ndim == 3:
+        repaired = inpaint_chroma_guard(repaired, star_mask)
+
+    return repaired, actual
 
 
 def _safe_star_removal_fallback(image, reason, report=None):
@@ -956,21 +1327,32 @@ def find_starnet_executable(user_path=None):
     return None
 
 
-def run_starnet_cli(image, exe_path, stride=256, timeout=900,
-                    return_report=False):
+def run_starnet_cli(image, exe_path, stride=128, timeout=900,
+                    return_report=False, domain='mtf', midtones=None):
     """
     运行 StarNet2 CLI 去星。
+
+    domain: 送进 StarNet2 的载荷域。
+      - "mtf"（默认）：先做 MTF 拉伸再量化为 16-bit，读回后做逆 MTF 还原到线性。
+        **极暗线性数据必须用这个**——线性直接量化会让弱色通道被压成 0（实测星云区
+        G 通道 93% 像素精确为 0），StarNet2 输出随之丢掉 OIII，拉伸后整片星云变纯红。
+        实测先拉伸可把 G 的量化级数从 70 抬到 5800，通道比值全程保持。
+      - "linear"：原样量化（旧行为）。极暗数据下会丢色，仅供向后兼容。
+
+    midtones: MTF 中间调参数，None 则按图像背景自动推导。读回时用**同一个值**
+      做逆变换，因此这里只推导一次。
     """
     import os
     import tempfile
     import subprocess
     import sys
-    
+
     parent_dir = os.path.dirname(os.path.abspath(exe_path))
     execution_report = {
         "executable": os.path.abspath(exe_path),
         "stride": int(stride),
         "timeout_seconds": int(timeout),
+        "domain": str(domain),
         "attempts": [],
     }
     
@@ -1017,7 +1399,21 @@ def run_starnet_cli(image, exe_path, stride=256, timeout=900,
             img_to_save = np.stack([img_to_save]*3, axis=-1)
         elif img_to_save.ndim == 3 and img_to_save.shape[2] == 1:
             img_to_save = np.concatenate([img_to_save]*3, axis=-1)
-        
+
+        # 极暗线性数据必须先做 MTF 拉伸再量化：否则弱色通道会被 16-bit 量化压成 0
+        # （实测星云区 G 有 93% 像素精确为 0），StarNet2 输出随之丢掉 OIII。
+        applied_midtones = None
+        if str(domain) == 'mtf':
+            from stretch import derive_mtf_midtones, mtf_stretch
+
+            applied_midtones = (float(midtones) if midtones is not None
+                                else derive_mtf_midtones(img_to_save))
+            img_to_save = np.clip(
+                mtf_stretch(img_to_save, midtones=applied_midtones, shadows=0.0),
+                0.0, 1.0,
+            )
+            execution_report["midtones"] = applied_midtones
+
         img_to_save = (img_to_save * 65535.0).astype(np.uint16)
         
         try:
@@ -1104,6 +1500,13 @@ def run_starnet_cli(image, exe_path, stride=256, timeout=900,
             if not np.all(np.isfinite(starless)):
                 raise ValueError("输出包含 NaN/Inf")
             starless = np.clip(starless, 0, 1)
+            # 逆 MTF 还原回线性域（用与正向拉伸同一个 midtones）
+            if applied_midtones is not None:
+                from stretch import inverse_mtf_stretch
+
+                starless = inverse_mtf_stretch(
+                    starless, midtones=applied_midtones, shadows=0.0
+                )
             execution_report.update({
                 "output_shape": list(starless.shape),
                 "output_dtype": str(starless_raw.dtype),
@@ -1122,12 +1525,18 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
                    external_starless=None, fwhm=None, use_multiscale=True,
                    min_confidence=0.3, min_quality_score=0.45,
                    auto_fallback=True, return_report=False,
-                   starnet_path=None, starnet_stride=256,
-                   starnet_timeout=900):
+                   starnet_path=None, starnet_stride=128,
+                   starnet_timeout=900, exclude_mask=None,
+                   galaxy_center=None, starnet_domain='mtf'):
     """
     分离星点和星云（v2 增强版）。
 
+    starnet_domain: 送进 StarNet2 的载荷域，'mtf'（默认，先 MTF 拉伸再量化，
+        读回后逆变换回线性）或 'linear'（旧行为）。极暗线性数据用 'linear' 会
+        让弱色通道被量化压成 0，StarNet2 输出丢掉 OIII。
+
     新增参数:
+        exclude_mask: 排除蒙版（布尔或浮点）。蒙版内非零区域禁止标记为星点并免于 Inpaint，用于星系核心等致密高光天体保护。
         fwhm: FWHM 估计值。None 时自动估计。
         use_multiscale: 是否使用多尺度检测引擎（True=新引擎，False=旧引擎）
         min_confidence: 检测置信度阈值，低于此值时安全回退
@@ -1175,6 +1584,7 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
                     stride=starnet_stride,
                     timeout=starnet_timeout,
                     return_report=True,
+                    domain=starnet_domain,
                 )
                 if success:
                     starless = starnet_starless
@@ -1220,7 +1630,8 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
         if use_multiscale:
             star_mask_val, confidence, details = detect_stars_multiscale(
                 image, fwhm=fwhm, star_threshold=star_threshold,
-                gradient_aware=True, n_scales=4, return_details=True
+                gradient_aware=True, n_scales=4, return_details=True,
+                galaxy_center=galaxy_center
             )
 
             if confidence < min_confidence:
@@ -1233,6 +1644,7 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
                         gradient_aware=True,
                         n_scales=4,
                         return_details=True,
+                        galaxy_center=galaxy_center,
                     )
                 )
                 if retry_confidence > confidence:
@@ -1277,6 +1689,14 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
         # 把检测阶段实测到的 FWHM 带进报告：调用方（pipeline）用它决定后续
         # 星点检测的尺度，丢失它会退回硬编码默认值并把噪声峰当成星点。
         detected_fwhm = details.get('fwhm') if use_multiscale else None
+
+        if exclude_mask is not None:
+            ex_arr = np.asarray(exclude_mask > 0, dtype=bool)
+            if ex_arr.shape == star_mask_val.shape:
+                excluded_pixels = int(np.sum((star_mask_val > 0) & ex_arr))
+                if excluded_pixels > 0:
+                    star_mask_val = star_mask_val * (~ex_arr).astype(np.float32)
+                    print(f"  [核心保护] 排除天体核心防去星像素: {excluded_pixels:,}px")
 
         n_star_pixels = int(np.sum(star_mask_val > 0.5))
         print(f"[星点分离] 检测到星点像素: {n_star_pixels:,}"
@@ -1399,14 +1819,77 @@ def reduce_stars(image, reduction=0.5, iterations=1, fwhm=None):
     return np.clip(result, 0, 1)
 
 
-def combine_starless_stars(starless, stars, star_strength=1.0, star_softness=1.0):
+def saturate_stars(image, saturation=1.0):
+    """星点层**保亮度**饱和补偿。
+
+    为什么需要：星点链路是 拉伸(arcsinh) → 去绿(SCNR) → 曲线 → 缩星，其中
+    拉伸压缩色度、SCNR 又把 Lab a 推向 0，**净效果是去饱和**。外部权威经验
+    （线性 Seti 星点法）明确要求「饱和必须在拉伸之后、且要足够激进」，因为
+    拉伸本身会显著去饱和。
+
+    为什么不用 `color_tools.enhance_saturation`：它带 V 分位背景保护，
+    而星点层绝大部分是纯黑，V 的分位区间退化为 p_low≈p_high≈0，保护逻辑失效。
+    （该函数本身已改为保比例公式、不再压死弱通道，但背景保护在这个场景仍不适用。）
+
+    本实现与 `stellar_recompose.process_stars_layer` 的星点饱和公式同源：
+    亮度严格不变，只缩放相对亮度的色度差。
+
+    注意：色度放大后若某通道被推到 [0,1] 之外，末尾的 clip 会改变该像素亮度
+    （只影响近零/近饱和通道的极饱和星核）。这是该公式的固有行为，与
+    `stellar_recompose` 一致。
+
+    saturation == 1.0 时返回原数组（恒等，逐位不变）。
     """
-    重新合成星云和星点图像（保持不变）。
+    src = np.asarray(image, dtype=np.float32)
+    if src.ndim < 3 or src.shape[2] < 3 or float(saturation) == 1.0:
+        return src
+    gray = (
+        0.2126 * src[..., 0]
+        + 0.7152 * src[..., 1]
+        + 0.0722 * src[..., 2]
+    )[..., None]
+    out = np.clip(gray + (src[..., :3] - gray) * float(saturation), 0.0, 1.0)
+    if src.shape[2] > 3:
+        out = np.dstack([out, src[..., 3:]])
+    return out.astype(np.float32)
+
+
+def combine_starless_stars(
+    starless,
+    stars,
+    star_strength=1.0,
+    star_softness=1.0,
+    blend_mode="screen",
+):
     """
+    重新合成星云和星点图像。
+
+    参数:
+      starless: 无星底图，范围 [0, 1]
+      stars: 星点图层，范围 [0, 1]
+      star_strength: 星点强度增益因子
+      star_softness: 星点高斯羽化软度
+      blend_mode: 混合模式:
+        - "screen": 天体物理标准屏幕混合 1 - (1 - starless) * (1 - stars * strength)，
+                    平滑过渡且保护高光动态范围，避免星晕被星云底色简单加法染色泛黄
+        - "add": 传统线性相加 np.clip(starless + star_strength * stars, 0, 1)
+    """
+    starless_f = np.clip(np.asarray(starless, dtype=np.float32), 0.0, 1.0)
+    stars_f = np.clip(np.asarray(stars, dtype=np.float32), 0.0, 1.0)
+
     if star_softness != 1.0:
-        stars = gaussian_filter(stars, sigma=star_softness)
-    result = np.clip(starless + star_strength * stars, 0, 1)
-    return result
+        stars_f = gaussian_filter(stars_f, sigma=star_softness)
+
+    scaled_stars = np.clip(stars_f * float(star_strength), 0.0, 1.0)
+
+    if blend_mode == "screen":
+        result = 1.0 - (1.0 - starless_f) * (1.0 - scaled_stars)
+    elif blend_mode == "add":
+        result = starless_f + scaled_stars
+    else:
+        raise ValueError(f"不支持的合成混合模式: {blend_mode}，支持: 'screen', 'add'")
+
+    return np.clip(result, 0.0, 1.0).astype(np.float32)
 
 
 def mild_star_reduce_full(image, reduction=0.3, color_restore=True,
@@ -1515,6 +1998,7 @@ def main():
     p_com.add_argument('output', help='输出图像')
     p_com.add_argument('--strength', type=float, default=1.0, help='星点强度 (默认: 1.0)')
     p_com.add_argument('--softness', type=float, default=1.0, help='星点柔化 (默认: 1.0)')
+    p_com.add_argument('--blend-mode', choices=['screen', 'add'], default='screen', help='混合模式 (默认: screen)')
 
     args = p.parse_args()
 
@@ -1527,7 +2011,7 @@ def main():
             inpaint_radius=args.radius, external_starless=external,
             fwhm=args.fwhm, use_multiscale=not args.legacy,
             starnet_path=getattr(args, 'starnet_path', None),
-            starnet_stride=getattr(args, 'starnet_stride', 256)
+            starnet_stride=getattr(args, 'starnet_stride', 128)
         )
         imsave(args.output_starless, img_as_ubyte(starless))
         print(f"[星点分离] 无星图像: {args.output_starless}")
@@ -1564,7 +2048,7 @@ def main():
         print(f"[合成] 星云: {args.starless} + 星点: {args.stars}")
         result = combine_starless_stars(
             starless, stars, star_strength=args.strength,
-            star_softness=args.softness
+            star_softness=args.softness, blend_mode=args.blend_mode
         )
         imsave(args.output, img_as_ubyte(result))
         print(f"[合成] 输出: {args.output}")

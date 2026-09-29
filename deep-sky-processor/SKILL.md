@@ -6,7 +6,7 @@ description: |
 license: Proprietary
 metadata:
   slug: deep-sky-processor
-  version: "0.1.9"
+  version: "0.1.20"
   displayName: Deep Sky Processor
   summary: 在真实性约束和分阶段审查下处理深空图像，交付自然版与增强版成片。
   tags: [astronomy, astrophotography, image-processing, fits]
@@ -81,6 +81,7 @@ python scripts/agent_workflow.py apply work/session action.json
 
 高风险阶段必须逐步审查：
 - `dbe`
+- `stellar_repair`（RGB 亚像素对齐 + 亮星紫晕抑制 + PSF 形变修复，仅限线性阶段）
 - `stretch`
 - `star_remove` / `star_reduce`
 - `star_process` / `star_combine`；请求其中任一步时自动执行完整星点链路
@@ -97,6 +98,27 @@ python scripts/agent_workflow.py apply work/session action.json
 - `star_combine` 自动补全同一完整链路，确保存在无星层和已处理星点层。
 - 球状星团、疏散星团和 M45 的安全规则会移除
   `star_remove`、`star_process`、`star_combine`，不得强制补回。
+
+星点链路（`star_process` 内部顺序）：
+
+```
+S1 星点拉伸(arcsinh) → S2 去紫(SCNR) → S2b 保亮度饱和补偿 → S3 曲线微调 + 缩星
+```
+
+- **S2b 是必需的**：arcsinh 压缩色度、SCNR 又把 Lab a 推向 0，两者叠加是最大
+  损耗源，而 S3 的曲线用亮度增益乘回 RGB（保比例、不改饱和）、缩星只做腐蚀，
+  都不会撤销它。外部经验要求「饱和必须在拉伸之后、且要足够激进」。
+  由 `star_saturation` 控制（默认 `1.08`，`1.0` = 关闭）。公式保亮度，
+  只在色度放大后越界裁切时才会轻微改变亮度（仅影响近零通道的极饱和星核）。
+- **S1 的 `star_stretch_factor` 必须与主拉伸因子同量纲**。预设把两者成对给出
+  （`light` 25→88、`medium` 45→132、`strong` 80→198、`adaptive`/`emission` 120→264/198），
+  比值 1.65~3.52。历史上该值曾被设成 8/12/24/18 一档，导致星点层 p99 只有 0.0067、
+  暗星整体沉进背景（见 `CHANGELOG.md` 的「提升 11 倍」条目）。
+  **分析报告这条路径曾漏改**：`analyze.py` 写过 `stretch_factor * 0.25`，给出 9.375，
+  而预设同档是 88 —— 星点层亮度只有预设的 1/4.7。现已改为按预设配对插值
+  （`_star_stretch_factor_for`），并夹到 `[88, 264]`。**改这条链时两处都要看。**
+  产物 `05b2_star_saturation.tif`。
+- 星点即主体的目标（星团 / M45）已被安全规则移除 `star_process`，不进入该链路。
 
 需要对 Hα、OIII、亮部、暗部或星点做精细局部控制时，使用
 `scripts/mask_tools.py` 或 Agent 的 `masked_adjustment` 动作。只描述亮度范围、
@@ -128,7 +150,11 @@ python scripts/agent_workflow.py apply work/session action.json
 - `galaxy_core`：星系黄核、蓝臂、尘埃带层次。
 - `widefield_punch`：宽场星野的深背景和星云可见度。
 
-这些 profile 只做色调曲线、背景压暗、背景去饱和、局部对比、轻微色彩分离和高光 rolloff，不生成新结构。
+这些 profile 只做色调曲线、背景压暗、**保比例饱和度提升**、背景去饱和、局部对比、轻微色彩分离和高光 rolloff，不生成新结构。
+
+饱和度提升以**像素均值为轴**缩放色度（`new = mean + (x - mean) * k`，与 `color_separation` 同一公式），保亮度、保通道比例。**不要**改用 HSV 的 S 乘法——它保持 max 通道不变、把 `(max−min)` 拉开，当 G≠B 时两个非最大通道被**不等比例**压向 0：实测受控输入 `[0.25,0.10,0.06]` 经 ×1.32 后 B 直接归零（B/G 保留率 **0%**），对双窄带数据即系统性破坏 OIII。
+
+**同一条规则适用于 Phase 8 `final_color` 的 `enhance_saturation`**（`color_tools.py`）。它此前也是 HSV 的 S 乘法且因子更高（1.45），破坏更重——实测受控输入 `[0.25,0.10,0.06]` 的 B/G 从 0.600 被压到 **0.088**。现已改为同一保比例公式，并用**每像素色域上限**（而非末尾"底电平守护"的均匀抬亮补丁）保证不越界、逐像素均值严格守恒。两处一起改后，真实母版成片 `B/G 0.48 → 0.72`、`S 0.944 → 0.810`、`R/G 2.22 → 1.77`。
 
 默认输出两版更稳妥：
 - `*_natural.jpg`
@@ -206,6 +232,65 @@ python scripts/pipeline.py input.fits preview.jpg \
 | 核心过曝 | 降低拉伸、提高 HDR、输出更保守版本 |
 | 图片扁平、缺少个人风格 | 加 `style`，使用 `--style auto` 或指定 profile |
 
+### HDR 与 CLAHE 二选一（`enhance_mode`）
+
+外部权威经验：「**HDRMT 与 LHE 同时使用太过头，二选一**」；「LHE amount > 0.5 开始假」；
+「一趟 LHE 通常就够」；「dual LHE + HDRMT = 过度处理的'设计感'」。本地 Phase 6 因此
+支持条件触发（`enhance_mode`，默认 `auto`）：
+
+| 条件 | mode | 说明 |
+|---|---|---|
+| `highlight_clip ≥ 0.002` 或 `p99 ≥ 0.95`，且 `p50 < 0.12` | `both` | 高光过曝 + 暗背景，两者都要 |
+| `highlight_clip ≥ 0.002` 或 `p99 ≥ 0.95`，且 `p50 ≥ 0.12` | `hdr_only` | 背景已亮，再叠 CLAHE 会放大噪声 |
+| `p99 < 0.80` | `clahe_only` | 没有可压的高光，HDR 近似空操作 |
+| `span = p99 − p50 < 0.22` | `clahe_only` | 全局层次不足，优先局部对比 |
+| 其余（含信号缺失） | `both` | **保守兜底 = 历史行为** |
+
+判定信号在 Phase 6 开头**现算**（不用 `post_health`——它只在 `stretch` 在 steps 里时存在）。
+`enhance_mode` 可用 `--override-params` 强制。
+
+**CLAHE 亮核保护**：`clahe_mask_gamma`（默认 2.0）在 `[p90, p99.9]` 区间内逐步降低
+局部均衡权重，`p90` 以下权重恒为 1——只保护亮端，背景与主体不受影响（实测某星云占满
+画幅的图 median 变化 +1.9%）。**不要**把掩版写成上升型幂版 `((L-lo)/(hi-lo))**g`：
+那会在整个中低亮度区间给出接近 0 的权重，等于把 CLAHE 全图关掉（实测 median 掉 25%）。
+
+### 噪声守卫：低 SNR 时不要跑 CLAHE
+
+`decide_enhance_mode` 的 span 分支会为「层次不足」的图选 `clahe_only`。但**光看 span
+分不出来**该不该跑 CLAHE —— 实测同一批数据里 `span = 0.2187` 的几张是有结构的（跑
+CLAHE 无害），而 `span = 0.0814` 的才是**噪声主导**（跑 CLAHE 出蜂窝斑块）。
+
+判据必须是 SNR。Phase 6 现算 `texture_snr = 星云区高通能量 / 背景区高通能量`
+（背景区只有噪声，即噪声地板）：
+
+| `texture_snr` | 含义 | 决策 |
+|---|---|---|
+| `< 1.7` | 星云区不比噪声多出结构 | **削掉 CLAHE**（`both`→`hdr_only`，`clahe_only`→`none`） |
+| `≥ 1.7` | 有可揭示的纹理 | 保持原决策 |
+
+实测分离度：出伪影的输入 **1.24~1.35**，干净的 **2.32~5.26**。触发时日志会打印
+「星云区纹理/背景噪声 = X < 1.7，判定为噪声主导」并给出降级前后的模式。
+
+### 第二条守卫：CLAHE 高频放大实测
+
+`clip_limit` **不是**可用的强度旋钮 —— 在**窄直方图**上它会饱和。实测某极暗发射星云
+（span=0.39）上 `clip_limit` 从 0.0003 到 0.003 给出**逐位相同**的输出（HF 放大恒为
+1.85×、p75 恒为 0.440），只有到 0.006 才变化。**所以只能二选一，不能"调小一点"。**
+
+因此 Phase 6 在下采样预览（≤640px）上**实测** CLAHE 会把星云区高频放大多少倍，
+超过 `CLAHE_MAX_HF_AMPLIFICATION`（默认 **1.5**）就跳过，并把实测值写进
+`hdr_report.clahe_hf_amplification` 供审计。
+
+实测收益（真实母版）：跳过 CLAHE 后成片 **p75 由 0.381 降到 0.173（−55%）**、
+**HF 比由 6.74 降到 3.62（−46%）**，大幅贴近参考成片。
+
+> ⚠️ 该阈值目前只在**单一案例**上标定过（该例实测放大 1.92×）。它是保守取值，
+> 随样本积累应复核。
+
+**为什么必须跳而不是调参**：CLAHE 的局部直方图均衡会把噪声一起均衡掉 —— 实测把星云区
+高通能量放大 **4.24×**，成片出现灰色蜂窝斑块（`NGC2237_fixed.jpg` 那种）。调小
+`clip_limit` 或换 `kernel_size` 都只是缓解；噪声主导时它没有任何可揭示的结构。
+
 **优先使用 `--strength adaptive`**，仅在需要覆盖特定参数时使用 `--override-params`：
 
 ```bash
@@ -232,6 +317,25 @@ AI 自动风格选择规则（`--style auto` 时）：
 如果用户明确要求某种风格，使用 `--style <profile>` 覆盖 `auto`。
 `--style-strength` 通常保持 `0.8-1.1`，超过 `1.2` 要特别检查颜色和光晕。
 
+### 双窄带哈勃假彩色、线性反卷积与物理守卫（三大梯队演进）
+
+系统内置纯 Python / NumPy / SciPy 实现的进阶天体物理处理链，无需安装额外第三方工具：
+
+1. **梯队 1：双窄带哈勃假彩色色板合成 (`--palette`)**：
+   - 算法：基于 Carlo Mollicone (AstroBOH) 经典双窄带转哈勃假彩色算法；
+   - 通道解离与合成硫二：从双窄带（Hα+OIII）提取 Hα 与 OIII，通过梯队分布合成 $S=(H+O)/2$；
+   - 支持色板：`SHO`（经典哈勃金色星云+深蓝空腔）、`HSO`、`HOO`（自然双窄带基准）、`OSH`、`OHS`、`HOS`；
+   - **保亮度色域重映射（Luminance-Preserving Gamut Mapping）**：在重映射色板时 100% 保持底图 Rec.709 感官亮度与对比度结构不变，仅平滑置换色彩。
+
+2. **梯队 2：线性域物理反卷积 (`--linear-deconv`)**：
+   - 原理：在非线性拉伸之前（Phase 2c）执行正则化 Richardson-Lucy 反卷积，还原大气视宁度和光学衍射丢失的高频极限；
+   - 自适应 PSF 核：基于实测 FWHM 自动构建高斯/Moffat 卷积核；
+   - 安全门禁：信号自适应权重掩膜（保护纯暗背景不发散）与高光防吉布斯振铃门禁。参数 `--deconv-iterations 8~12`。
+
+3. **梯队 3：叠边自动裁切与星晕守卫 (`--stacking-crop`, `--halo-guard`)**：
+   - **抖动叠边裁切 (`--stacking-crop auto`)**：扫描行/列统计一致性，自动切除场旋与抖动带来的低信噪比边缘色差断崖，避免带偏 DBE 和 PCC；
+   - **星晕守卫 (`--halo-guard`)**：去星后在亮星周围 2~4 倍 FWHM 区域平滑色度，彻底平整强色差折射镜造成的假彩色星晕，保持背景亮度不变。
+
 ### 天体类型安全规则（已自动落实）
 
 管线代码已根据 `target_type` 和 `target_name` 自动执行以下规则，AI 不需要手动禁用步骤：
@@ -243,7 +347,7 @@ AI 自动风格选择规则（`--style auto` 时）：
 | M42 猎户座大星云 | 拉伸 ×0.75（**独占**，不再叠加发射星云的 ×0.85）、HDR +0.15、target_bg ≥0.10；锐化 ×0.7 仍生效 |
 | 发射星云（非 M42） | 拉伸 ×0.85、锐化 ×0.7、HDR 若过低则 +0.1 |
 | 反射星云 | 拉伸 +20%、HDR -0.1、降噪 +15% |
-| 星系 | HDR +0.15、锐化增强 |
+| 星系 | HDR +0.15、锐化增强；**缩星上限 0.25**（HII 区/旋臂结保护） |
 | 行星状星云 | HDR +0.15、锐化增强 |
 | 暗星云 | 拉伸 +15% |
 | 发射星云 + 无梯度 | 自动跳过 DBE（诊断报告驱动） |
@@ -287,6 +391,41 @@ python scripts/quality_metrics.py output_enhanced.jpg
   使用 `ghs_b`，不要把 `stretch_factor=100` 直接解释成 `b=100`。
 - 可通过 `--override-params '{"dbe_method":"skip"}'` 显式跳过 DBE。
 
+GHS 两端保护 `ghs_lp` / `ghs_hp`（默认 `0.0` / `1.0`，行为与不设置完全一致）：
+- `lp`（阴影锚点）与 `hp`（高光锚点）定义曲线的**作用窗口**：窗口内走 GHS
+  基准曲线，窗口外以边界处的切线线性延伸（只做等比缩放，不引入非线性扭曲），
+  最后仿射归一化使 `f(0)=0`、`f(1)=1`。
+- **`ghs_lp` 治「拉伸坍缩」**：极暗数据的真实动态范围常只占 `[0.002, 0.03]`，
+  而裸 GHS 的归一化锚定在固定的 `[0,1]`，导致暗部增益极低（实测压缩 172 倍），
+  整幅被压成一条窄带。把 `lp` 设为背景水平（如 `0.001`）即可重新锚定。
+- **`ghs_hp` 治「核心过曝」**：它是**拉伸阶段的高光 headroom 旋钮**，因果上
+  早于 HDR 阶段。设为真实最亮结构（如 `p99.9`）可为亮核留出余量，并让离群亮
+  像素不再主导整条曲线。注意两条路径方向不同——裸 `ghs` 下 `hp` 越小核心落点
+  越高，`masked_ghs` 下 `hp` 是归一化除数、越小核心落点越低。
+- 建议成对使用：极暗数据 `{"ghs_lp": 0.001, "ghs_hp": 0.05, "ghs_sp": 0.005}`
+  实测可把 `stretch_recovery` 从 `failed` 转为正常，暗部均匀斑块比从 0.50 降到 0。
+- `ghs_hp <= ghs_lp` 视为退化窗口，管线会告警并回退为不启用。
+
+### 内层 GHS 切线保护 `ghs_protect_lp` / `ghs_protect_hp` / `ghs_c`
+
+`masked_ghs` 路径**另有**一套内层保护，与外层 `ghs_lp`/`ghs_hp` **语义不同**，
+因此是独立键（默认 `None` = 不启用，输出与旧实现逐位一致）：
+
+| 键 | 语义 | 空间 | 默认 |
+|---|---|---|---|
+| `ghs_lp` / `ghs_hp` | **重锚点**（`source=lp→0`、`source=hp→1`） | 绝对输入单位 | `None` |
+| `ghs_protect_lp` / `ghs_protect_hp` | 内层 GHS 的**两端切线保护锚点** | 归一化 `[0,1]` | `None` |
+| `ghs_c` | GHS 输出后的高光 rolloff（域无关） | 曲线输出 `[0,1]` | `0.0` |
+
+- **为什么不能复用外层键**：外层 `lp/hp` 作用在归一化**之前**；内层 `ghs_stretch`
+  看到的已经是 `normalized`。原样透传量纲不符；按 `((v-low)/(high-low))` 换算又会
+  退化为 `(0,1)`（等于无保护）。故必须两个独立旋钮。
+- 取值可为 `None` / `"auto"` / 浮点。`"auto"` 按归一化背景中值与 `p99.5` 自动推导
+  （实测量级 `protect_lp≈0.02~0.08`、`protect_hp≈0.70~0.95`）。
+- `ghs_protect_hp <= ghs_protect_lp` 时告警并禁用内层保护。
+- 典型用法：极暗/发射星云需要「锁住已建立的暗部层次、同时给亮核留 headroom」时，
+  `--override-params '{"ghs_protect_lp":"auto","ghs_protect_hp":"auto"}'`。
+
 若视觉不可用，输出“需人工视觉审查”的清单，不要声称视觉通过。
 
 ## 参数闭环
@@ -309,9 +448,85 @@ python scripts/reference_grade.py processed.jpg reference.png final.jpg \
 参考图与输入不是同一视场或曝光深度时，只把参考图作为审美约束；不得为了
 “看起来一样”制造输入数据中不存在的暗尘、Hα/OIII 结构或高频细节。
 
+#### 信号区色比匹配（`--reference-color-match` / `--reference-color-only`）
+
+全局定调的搜索空间是 stretch/gamma/target_bg/saturation/hdr —— **里面没有色比控制**，
+所以它**修不了 Hα/OIII 比**（双窄带数据的核心色彩指标）。实测它会把源 R/G 从 1.77
+冲到 **0.79**（目标 1.37）而 B/G 完全不动（0.73）。`_background_channel_gains` 只看
+背景（luma ≤ p60），同样不解决星云主体。
+
+补一条**闭式解**通道增益：
+
+```
+gR = (R/G)_ref / (R/G)_src ,  gG = 1 ,  gB = (B/G)_ref / (B/G)_src
+```
+
+色比取星云主体（luma > p55）的逐通道 p99。实测某极暗母版：源 R/G=1.769 / B/G=0.727，
+参考 R/G=1.375 / B/G=0.993 → 解出 `[0.777, 1.0, 1.365]`，命中后 R/G 误差 **0.0%**、
+B/G 误差 **0.1%**。是**确定性闭式解，无搜索、无生成**。
+
+```bash
+# 全局定调 + 色比匹配（推荐：全局定调同时改善 tone 与星点亮度）
+python scripts/pipeline.py input.fits out.jpg \
+  --reference-image 参考成片.jpg --reference-color-match
+
+# 只做色比匹配，跳过全局亮度/色调/饱和度定调
+python scripts/pipeline.py input.fits out.jpg \
+  --reference-image 参考成片.jpg --reference-color-only
+```
+
+**两者的取舍（实测）**：`--reference-color-match` 在色彩与星点亮度上更接近参考
+（R/G 1.28 / B/G 0.98 / S 0.602 / 亮星 0.9635，参考 1.38 / 0.99 / 0.643 / 0.9694），
+但全局定调会把星核推到近饱和，可能新增 `CORE_BURNING` 告警 —— 注意**参考成片自身
+往往就是近饱和的**（本例参考的亮星中位 0.9694）。`--reference-color-only` 只改色比，
+不碰 tone，代价是星点亮度与 R/G 不如前者贴近参考。
+
+报告（`reference_grade.signal_color_match`）记录源/参考/结果三方色比与原始解、限幅后、
+按 strength 混合后的增益，可直接审计。
+
 极暗线性数据不要直接量化为 16-bit 后交给 StarNet2，否则弱星云与背景会
-产生分层和色块。先安全拉伸，再运行 StarNet2。对已拉伸 TIFF/PNG，应保留
-StarNet 独立输出的 starless 和 stars 图层，再运行：
+产生分层和色块。先安全拉伸，再运行 StarNet2。
+
+**「安全拉伸」必须是 MTF，不能用 GHS / 反正弦**（见 `references/external_tools.md`：
+GHS/arcsinh 会让 StarNet/SXT 误判星点为小星系）。实测某极暗 Duo-Band 母版的
+星云区 G 通道只有 23 counts（占 16-bit 满量程 0.035%），线性直接量化后 StarNet2
+的输出在**所有低于 200 counts 的亮度档把 G 100% 归零**，拉伸后整片星云变纯红
+（成片 R/G 从 1.70 涨到 9.1）。先做 MTF 拉伸后同一命令下 G 归零率 99.4% → 0.05%，
+通道比值全程保持。
+
+桥接命令已默认走这条路（`--export-starnet-payload-domain` 默认 `mtf`）：
+
+```bash
+# 1. 导出**已 MTF 拉伸**的 16-bit 载荷，并写 starnet_payload_meta.json 记录域与 midtones
+python scripts/pipeline.py input.fits out.jpg --steps dbe,pre_denoise,star_remove,stretch \
+  --export-starnet-payload --work-dir work --keep-all
+#    打印出的 external_starnet_command 形如：
+#    starnet2 -i .../starnet_payload_stretched.tif -o .../04_starless_external.tif \
+#             -n .../stars_unscreen.tif -s 128
+# 2. 原样执行该命令（外部桥接默认 stride=128；内置路径仍是 --starnet-stride 256）
+# 3. 回流：work-dir 里的 sidecar 会自动识别 mtf 域并做逆 MTF，无需手传参数
+python scripts/pipeline.py input.fits out.jpg --steps dbe,pre_denoise,star_remove,stretch \
+  --external-starless work/04_starless_external.tif --work-dir work --keep-all
+```
+
+相关键：`--export-starnet-payload-domain {linear,mtf}`（默认 `mtf`）、
+`--external-starless-domain {linear,mtf}`（默认 `linear`，兼容旧输入；有 sidecar
+时自动识别）、`--external-starless-midtones`（缺省按背景推导，**必须与导出时一致**）。
+
+**内置 `--use-starnet` 路径同样走 MTF 域**（`--starnet-domain`，默认 `mtf`），
+读回后自动逆变换回线性。两条路径的 stride 默认值已统一为 **128**（`--starnet-stride`）。
+
+> 实测对比（同一极暗母版）：旧版内置路径因弱色通道被量化归零，输出
+> `nebula_damage_ratio = 0.5521` → 超过接受门 `≤ 0.20` → **回退形态学**（StarNet2 白跑）。
+> 改走 MTF 域后 `damage = 0.0`、`score = 0.996`、`accepted = True`、**不再回退**。
+> **接受门没有被放宽** —— 是输出真的变健康了。
+
+**回流时会做通道完整性硬校验**：若外部无星层在星云信号区大范围丢失某个通道
+（实测故障形态是 G 归零 99%），管线直接 `raise ValueError` 并给出通道名、相对
+强度与归零比例，不会静默产出纯红成片。窄带图天然缺通道（原图该通道相对最强
+通道 <5%）不判塌缩。
+
+对已拉伸 TIFF/PNG，应保留 StarNet 独立输出的 starless 和 stars 图层，再运行：
 
 ```bash
 python scripts/enhance_starless.py \
@@ -364,7 +579,7 @@ python scripts/pipeline.py input.fits output.jpg \
   "target_bg": 0.08,
   "star_threshold": 0.85,
   "star_reduction": 0.3,
-  "star_stretch_factor": 12,
+  "star_stretch_factor": 149,
   "star_scnr_strength": 0.15,
   "star_combine_strength": 0.9,
   "hdr_strength": 0.35,
@@ -375,9 +590,35 @@ python scripts/pipeline.py input.fits output.jpg \
   "final_denoise_chroma": 0.024,
   "shadow_pctl": 0.5,
   "highlight_pctl": 99.9,
-  "stretch_gamma": 0.4
+  "stretch_gamma": 0.4,
+  "ghs_lp": 0.0,
+  "ghs_hp": 1.0,
+  "ghs_protect_lp": null,
+  "ghs_protect_hp": null,
+  "ghs_c": 0.0,
+  "clahe_mask_gamma": 2.0,
+  "clahe_mask_low_pctl": 90.0,
+  "clahe_mask_high_pctl": 99.9,
+  "enhance_mode": "auto",
+  "star_saturation": 1.08
 }
 ```
+
+`ghs_lp` / `ghs_hp` 是 GHS 的阴影/高光锚点，默认 `0.0` / `1.0`（即不启用，
+行为与不设置这两个键完全一致）。仅在需要修复极暗拉伸坍缩或为亮核留高光
+余量时设置，取值参见上文「GHS 两端保护」一节。内层保护与 `ghs_c` 见
+「内层 GHS 切线保护」一节。
+
+`clahe_mask_gamma` / `clahe_mask_low_pctl` / `clahe_mask_high_pctl`：
+CLAHE 的**自适应高光渐弱掩版**。在 `[p_low, p_high]` 分位区间内按 `taper**gamma`
+逐步降低局部均衡权重，**p_low 以下权重恒为 1**（背景与星云主体不受影响）。
+用于保护亮核不被局部均衡压平成无特征斑块。`clahe_mask_gamma=0` 一键回到历史行为。
+
+`enhance_mode`：`auto` / `both` / `hdr_only` / `clahe_only` / `none`。
+见下文「HDR 与 CLAHE 二选一」。
+
+`star_saturation`：星点层保亮度饱和补偿（默认 `1.08`，`1.0` = 关闭）。
+见下文「星点链路」。
 
 经验初值（`adaptive` 已自动处理大部分）：
 - 极暗线性 FITS/XISF：`stretch_factor` 80-140，`stretch_gamma` 0.33-0.45。
@@ -505,6 +746,28 @@ python scripts/star_tools.py separate input.jpg starless.tif --legacy
 4. 色彩：Hα 深红不品红，OIII 青蓝不电蓝，星系自然黄核蓝臂。
 5. 动态范围：核心不过曝，外围不断层。
 
+具名星点伪影门禁（`scripts/artifact_gates.py`）：
+- **两条路径都会运行**：Agent-in-the-loop 的 review bundle（`review.json` 的
+  `star_artifact_gates`），以及 `pipeline.py` 主管线（`result.json` 的同名顶层键）。
+  主管线在 Phase 9 星点合成后快照一张**同域**参照图，末端与成品成对比较，因此
+  `STAR_BLOAT`/`STAR_LAYER_LOSS`/`STAR_HOLES` 都能跑（此前它们只在会话路径生效，
+  导致星点胀大在主管线里无人报警）。
+- **STAR_RINGING**：亮星周围暗环（振铃/黑环），定位到具体星坐标和环半径。
+- **STAR_BLOAT**：星点整体胀大，复用 `measure_paired_star_profiles` 的成对 FWHM 比。
+- **STAR_LAYER_LOSS / STAR_HOLES**：星点层保留率不足或出现暗坑，定位到具体星坐标。
+- **CORE_BURNING**：处理引入的死白连通域，区分"输入自带饱和"与"处理烧毁"。
+- 这些门禁与标量门禁（BACKGROUND_CRUSHED / CORNER_NONUNIFORM 等）**并存**：数值门禁是审查触发器，具名门禁提供定位证据。两者都不声称"视觉质量合格"——最终判断仍由 AI/human critic 完成。
+- 主管线路径下，具名门禁触发是**加法式**升级：只在原本 `success` 时升级为
+  `review_required`，且只把 `escalate=True` 的 warning/failed 写进 `warnings`。
+
+标量门禁 `INPAINT_FOOTPRINT`（去星修补足迹）：
+- 盯住「线性域 inpaint 补丁被拉伸放大成可见斑块」。判据是**联合**的：补丁缺纹理
+  （核心 std < 35% × 环带 std）**且**与邻域有亮度落差（|Δ| ≥ 0.020）。
+  单独任一条都会大量误报（实测只看落差命中 63%、只看纹理 36%；联合命中 ~10%）。
+- 量的是**合成星点之后**的成品（斑块是星点层 screen 混合后才出现的），星位来自
+  线性域星点蒙版，FWHM 必须用**线性域**实测值。
+- `warning`（命中 ≥2%）只记录不升级；`failed`（≥8%）升级为 `review_required`。
+
 失败时必须重跑，不要硬宣布完成：
 - DBE 失败：降低 degree、换 `median`、跳过 DBE 或只裁黑边。
 - 拉伸过强：降低 `stretch_factor` 或提高 `stretch_gamma`。
@@ -513,6 +776,15 @@ python scripts/star_tools.py separate input.jpg starless.tif --legacy
 - 风格过重：降低 `--style-strength`，或改用 `natural`/`deep_clean`。
 - 星点处理伪影：检查 `04_starless_linear.tif`，若残留星多或星云误伤严重，使用 `--external-starless` 传入 StarNet++ 无星图。也可运行 `star_tools.py detect` 查看检测置信度。
 - 去星置信度过低（<0.3）：检测输出会提示原因（热像素过多/过检/全部拒绝），此时应优先使用外部 StarNet++。
+- **具名伪影门禁触发**：`review.json` 中 `star_artifact_gates` 出现 failed/warning 时，按门禁码定位具体问题：
+  - `STAR_RINGING` → 检查 `--deconv-iterations` 和 `sharpen_amount`，考虑降低或跳过锐化。
+  - `STAR_BLOAT` → 检查拉伸方法（是否裸 STF？），改用 `masked_ghs` 或加 `ghs_hp`。
+  - `STAR_LAYER_LOSS` / `STAR_HOLES` → 检查去星/缩星强度，回落 `star_reduction` 或改用外部 StarNet++。
+  - `CORE_BURNING` → 检查 `ghs_hp` 是否过低，或降低 `sharpen_amount` / HDR 强度。
+  - `INPAINT_FOOTPRINT` → 去星修补足迹被拉伸放大。优先改用外部 StarNet++
+    （`--use-starnet` / `--external-starless`），或调整内部 inpaint 半径与去星蒙版阈值。
+    注意：该门禁的灵敏度受**星点蒙版质量**限制——若 `detect_stars` 的蒙版里混入
+    大量星云大块，采样位置会偏离真实星点，命中率会被压低。
 
 ## 输出格式
 
@@ -579,6 +851,8 @@ final_color + star_reduce + local_enhance + style)
 - 分区 SNR、星点圆度、星表色差与分辨率评估：`references/quality_assessment.md`
 - Siril、PixInsight、StarNet++、外部降噪等集成：`references/external_tools.md`
 - AI 工具边界：`references/ai_hybrid_workflow.md`
+- CV 护栏、浮点图像状态契约与算子边界：`references/cv_guardrails.md`
+- 线性星点像差、色散与形变修复：`references/stellar_repair.md`
 - 常见误判：`references/ai_common_pitfalls.md`
 - 真实案例：`references/case_ngc6888_rgb.md`
 

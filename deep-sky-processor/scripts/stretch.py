@@ -45,11 +45,70 @@ def mtf_stretch(image, midtones=0.5, shadows=0.0):
     本质是一个 S 曲线：保护阴影和高光，只拉伸中间调。
     midtones: 0-1，控制中间调位置 (<0.5 偏暗, >0.5 偏亮)
     shadows: 阴影保护强度
+
+    注意：midtones=0.5 时本函数是**恒等映射**（`((0.5-1)x)/((1-1)x-0.5) = x`），
+    完全不做拉伸。要真正抬升极暗数据必须取 m < 0.5。
     """
     m = max(midtones, 0.001)
     x = np.clip(image - shadows, 0, 1)
     stretched = ((m - 1) * x) / ((2 * m - 1) * x - m)
     return np.clip(stretched, 0, 1)
+
+
+def inverse_mtf_stretch(image, midtones=0.25, shadows=0.0):
+    """MTF 的解析逆变换：从已拉伸域回到线性域。
+
+    由 `y = (m-1)x / ((2m-1)x - m)` 反解：
+        y·((2m-1)x - m) = (m-1)x
+        x·[(2m-1)y - (m-1)] = m·y
+        x = m·y / ((2m-1)·y - (m-1))
+
+    数值边界：分母 `D(y) = (2m-1)y - (m-1)` 在 `m∈(0,1)`、`y∈[0,1]` 上恒
+    `≥ min(m, 1-m) > 0`，**区间内无极点**（极点 `y=(1-m)/(1-2m)` 落在 [0,1] 之外）。
+    故只需 clip 输入即可，无需复杂保护。
+
+    shadows：正向变换里的 `clip(image - shadows, 0, 1)` 会让所有 ≤ shadows 的
+    像素永久归零，**不可逆**。因此去星载荷配方固定 shadows=0.0；若传非零值，
+    低于 shadows 的信息已经丢失，这里只能加回常量。
+    """
+    m = float(np.clip(midtones, 1e-4, 1.0 - 1e-4))
+    y = np.clip(np.asarray(image, dtype=np.float32), 0.0, 1.0)
+    denom = (2.0 * m - 1.0) * y - (m - 1.0)
+    x = np.clip((m * y) / np.where(np.abs(denom) < 1e-9, 1e-9, denom), 0.0, 1.0)
+    if shadows:
+        x = np.clip(x + float(shadows), 0.0, 1.0)
+    return x.astype(np.float32)
+
+
+def derive_mtf_midtones(image, target_bg=0.15, min_midtones=0.02,
+                        max_midtones=0.45, fallback=0.15):
+    """按背景中值反解 midtones，使背景被映射到 target_bg。
+
+    令 `MTF(m, b) = t`（b = 图像背景中值，t = target_bg），解出
+        m = b(t-1) / (2bt - t - b)
+
+    底部增益为 `(1-m)/m`：m=0.15 → 5.7×，m=0.02 → 49×。
+
+    **必须 < 0.5**（m=0.5 是恒等映射，等于没拉伸）。clamp 到
+    `[min_midtones, max_midtones]` 防止病态放大噪声。
+
+    注意：极暗数据（b ~ 2.7e-4）算出的 m 会低于下限而被 clamp 到 0.02，
+    此时背景实际只能抬到 ~0.013 而非 target_bg —— target_bg 是方向而非保证。
+    """
+    arr = np.asarray(image, dtype=np.float32)
+    if arr.ndim == 3 and arr.shape[2] >= 3:
+        lum = (0.2126 * arr[..., 0] + 0.7152 * arr[..., 1]
+               + 0.0722 * arr[..., 2])
+    else:
+        lum = arr
+    b = float(np.median(lum))
+    if not np.isfinite(b) or b <= 0.0 or b >= float(target_bg):
+        return float(np.clip(fallback, min_midtones, max_midtones))
+    t = float(target_bg)
+    m = b * (t - 1.0) / (2.0 * t * b - t - b)
+    if not np.isfinite(m) or m <= 0.0:
+        return float(np.clip(fallback, min_midtones, max_midtones))
+    return float(np.clip(m, min_midtones, max_midtones))
 
 
 def masked_stretch(image, target_bg=0.1, factor=100.0):
@@ -194,14 +253,59 @@ def _lift_underfilled_highlights(luminance, target_bg, target_p99=0.5):
     return np.clip(luminance + signal_weight * lift, 0, 1)
 
 
-def very_dark_stretch(image, factor=25.0, gamma=0.45,
-                      shadow_pctl=0.1, highlight_pctl=99.5,
-                      target_bg=0.12, min_p99=0.5):
+def pi_mtf_stretch(image, target_bg=0.075, headroom=0.12, shadow_ratio=0.75):
     """
-    极暗数据专用保色拉伸。
+    PixInsight 标准 Linked MTF (Midtone Transfer Function) 拉伸。
+
+    采用 PixInsight 官方 STF 算法：
+    1. 测量全图或通道背景中位数与极大值；
+    2. shadows 锚定在背景下方 (保留噪声基底，杜绝黑点削波)；
+    3. highlights 锚定在极大值上方 (极大值 * (1.0 + headroom))，杜绝高光截断；
+    4. 反解 midtones 参数 m = b*(t-1) / (2*b*t - t - b)；
+    5. 应用 MTF 传递函数: MTF(m, x) = (m - 1)*x / ((2m - 1)*x - m)；
+    6. 通道关联保色，完美还原深空发射星云/星系真实色彩与微观纤维。
+    """
+    source = np.asarray(image, dtype=np.float32)
+    is_color = source.ndim == 3 and source.shape[2] >= 3
+    rgb = source[..., :3] if is_color else source
+
+    bg = float(np.median(rgb))
+    max_val = float(np.max(rgb))
+    if max_val <= 1e-9:
+        return np.zeros_like(source, dtype=np.float32)
+
+    shadows = bg * float(shadow_ratio)
+    highlights = max_val * (1.0 + float(headroom))
+
+    x = np.clip((rgb - shadows) / max(highlights - shadows, 1e-9), 0.0, 1.0)
+    bg_x = float(np.median(x))
+
+    t = float(target_bg)
+    b = bg_x
+    denom = 2.0 * b * t - t - b
+    if abs(denom) < 1e-9:
+        m = 0.5
+    else:
+        m = b * (t - 1.0) / denom
+    m = float(np.clip(m, 0.001, 0.999))
+
+    stretched = ((m - 1.0) * x) / ((2.0 * m - 1.0) * x - m)
+    result = np.clip(stretched, 0.0, 1.0)
+
+    if is_color and source.shape[2] > 3:
+        result = np.dstack([result, source[..., 3:]])
+    return result.astype(np.float32)
+
+
+def very_dark_stretch(image, factor=25.0, gamma=0.45,
+                      shadow_pctl=0.1, highlight_pctl=100.0,
+                      target_bg=0.12, min_p99=0.5, headroom=0.12):
+    """
+    极暗数据专用保色拉伸（带高光 Headroom 保护）。
 
     使用每通道保守黑点消除基线，但非线性曲线只从亮度生成，并将相同
     的逐像素增益应用回 RGB，避免独立通道归一化放大噪声或改写色相。
+    通过 headroom 机制保留高光动态空间，杜绝无星图上星云核心削顶。
     """
     source = np.asarray(image, dtype=np.float32)
     is_color = source.ndim == 3 and source.shape[2] >= 3
@@ -227,9 +331,14 @@ def very_dark_stretch(image, factor=25.0, gamma=0.45,
         corrected = np.clip(rgb - black_point, 0, None)
         luminance = corrected
 
-    scale_ref = float(np.percentile(luminance, highlight_pctl))
+    max_lum = float(np.max(luminance))
+    if float(highlight_pctl) >= 100.0:
+        scale_ref = max_lum
+    else:
+        p_val = float(np.percentile(luminance, highlight_pctl))
+        scale_ref = max_lum if max_lum < p_val * 1.5 else p_val
     if scale_ref <= 1e-9:
-        scale_ref = float(np.max(luminance))
+        scale_ref = max_lum
     if scale_ref <= 1e-9:
         return np.zeros_like(source, dtype=np.float32)
 
@@ -259,11 +368,25 @@ def very_dark_stretch(image, factor=25.0, gamma=0.45,
         target_p99=float(min_p99),
     )
 
+    # 预留高光 headroom 软肩压缩，避免 R 通道硬性撞墙
+    if headroom > 0:
+        target_max = 1.0 - float(headroom)
+        cur_max = float(np.max(stretched_luminance))
+        if cur_max > target_max:
+            ro_start = float(target_bg) + 0.25
+            if cur_max > ro_start:
+                above = stretched_luminance > ro_start
+                scale_h = (target_max - ro_start) / (cur_max - ro_start)
+                stretched_luminance = np.where(above, ro_start + (stretched_luminance - ro_start) * scale_h, stretched_luminance)
+
     if is_color:
         gain = stretched_luminance / np.maximum(luminance, 1e-9)
         result = corrected * gain[..., None]
         peak = np.max(result, axis=2, keepdims=True)
-        result = result / np.maximum(peak, 1.0)
+        # 平滑 rolloff 替代生硬截断
+        target_ceil = 1.0 - (float(headroom) if headroom > 0 else 0.0)
+        over = peak > target_ceil
+        result = np.where(over, result * (target_ceil / np.maximum(peak, 1e-6)), result)
         if source.shape[2] > 3:
             result = np.dstack([result, source[..., 3:]])
     else:
@@ -272,11 +395,11 @@ def very_dark_stretch(image, factor=25.0, gamma=0.45,
     return np.clip(result, 0, 1).astype(np.float32)
 
 
-def emission_stretch(image, shadow_pctl=0.5, highlight_pctl=99.9,
+def emission_stretch(image, shadow_pctl=0.5, highlight_pctl=99.94,
                      gamma=0.33, target_bg=0.08,
-                     min_p99=0.5):
+                     min_p99=0.5, headroom=0.0):
     """
-    发射星云自适应保色拉伸 (优化版)。
+    发射星云自适应保色拉伸 (优化版，支持高光 Headroom 保护)。
 
     每通道只校正暗部黑点，再从亮度通道生成一条共享拉伸曲线，并将
     同一亮度增益应用回 RGB。这样不会用独立通道归一化篡改 Hα/OIII
@@ -293,7 +416,6 @@ def emission_stretch(image, shadow_pctl=0.5, highlight_pctl=99.9,
         )
 
     flat = source[..., :3].reshape(-1, 3)
-    # 限制黑点不超过中位数的 30%，防止极暗数据二次剪切过度
     medians = np.percentile(flat, 50, axis=0)
     black_points = np.percentile(flat, shadow_pctl, axis=0)
     black_points = np.minimum(black_points, medians * 0.3)
@@ -301,22 +423,28 @@ def emission_stretch(image, shadow_pctl=0.5, highlight_pctl=99.9,
     diff = source[..., :3] - black_points
     corrected = np.clip(diff, 0, None)
     
-    # 从亮度生成共享曲线；RGB 最终只乘同一个逐像素增益。
     luminance = (
         0.2126 * corrected[..., 0]
         + 0.7152 * corrected[..., 1]
         + 0.0722 * corrected[..., 2]
     )
 
-    scale_ref = float(np.percentile(luminance, highlight_pctl))
+    max_lum = float(np.max(luminance))
+    if float(highlight_pctl) >= 100.0:
+        scale_ref = max_lum
+    else:
+        p_val = float(np.percentile(luminance, highlight_pctl))
+        scale_ref = max_lum if max_lum < p_val * 1.5 else p_val
     if scale_ref <= 1e-9:
-        scale_ref = float(np.max(luminance))
+        scale_ref = max_lum
     if scale_ref <= 1e-9:
         return np.zeros_like(source, dtype=np.float32)
 
-    stretched_luminance = np.power(
-        np.clip(luminance / scale_ref, 0, None),
-        gamma,
+    normalized_lum = np.clip(luminance / scale_ref, 0, None)
+    stretched_luminance = np.where(
+        normalized_lum <= 1.0,
+        np.power(normalized_lum, gamma),
+        1.0 + np.arcsinh(normalized_lum - 1.0) * float(gamma),
     )
 
     background_mask = luminance <= np.percentile(luminance, 50)
@@ -333,36 +461,95 @@ def emission_stretch(image, shadow_pctl=0.5, highlight_pctl=99.9,
         target_p99=float(min_p99),
     )
 
+    # 预留高光 headroom
+    if headroom > 0:
+        target_max = 1.0 - float(headroom)
+        cur_max = float(np.max(stretched_luminance))
+        if cur_max > target_max:
+            ro_start = float(target_bg) + 0.25
+            if cur_max > ro_start:
+                above = stretched_luminance > ro_start
+                scale_h = (target_max - ro_start) / (cur_max - ro_start)
+                stretched_luminance = np.where(above, ro_start + (stretched_luminance - ro_start) * scale_h, stretched_luminance)
+
     gain = stretched_luminance / np.maximum(luminance, 1e-9)
     result = corrected * gain[..., None]
 
-    # 对过亮像素做逐像素等比例 rolloff，避免单通道裁切改变色相。
     peak = np.max(result, axis=2, keepdims=True)
-    result = result / np.maximum(peak, 1.0)
+    target_ceil = 1.0 - (float(headroom) if headroom > 0 else 0.0)
+    over = peak > target_ceil
+    result = np.where(over, result * (target_ceil / np.maximum(peak, 1e-6)), result)
 
     if source.shape[2] > 3:
         result = np.dstack([result, source[..., 3:]])
     return np.clip(result, 0, 1).astype(np.float32)
-def ghs_stretch(image, sp=0.01, b=8.0, c=0.0):
-    """
-    Generalized Hyperbolic Stretch (GHS) 广义双曲拉伸。
 
-    数学模型:
+
+def _ghs_base(x, sp, b):
+    """GHS 基准 S 曲线，两端锚定在 0 与 1。"""
+    denom = np.sinh(b * (1.0 - sp)) - np.sinh(-b * sp)
+    if abs(denom) < 1e-9:
+        denom = 1e-9
+    return (np.sinh(b * (x - sp)) - np.sinh(-b * sp)) / denom
+
+
+def _ghs_base_slope(x, sp, b):
+    """基准曲线的一阶导数，用于在 LP/HP 边界构造切线。"""
+    denom = np.sinh(b * (1.0 - sp)) - np.sinh(-b * sp)
+    if abs(denom) < 1e-9:
+        denom = 1e-9
+    return b * np.cosh(b * (x - sp)) / denom
+
+
+def ghs_stretch(image, sp=0.01, b=8.0, c=0.0, lp=0.0, hp=1.0):
+    """
+    Generalized Hyperbolic Stretch (GHS) 广义双曲拉伸，带 LP/HP 两端保护。
+
+    窗口内基准曲线数学模型:
       f(x) = [sinh(b * (x - sp)) - sinh(-b * sp)] / [sinh(b * (1.0 - sp)) - sinh(-b * sp)]
+
     sp: 对称点（通常在背景中值附近，如 0.002 ~ 0.05）
     b: 拉伸强度因子（通常为 2 ~ 15，数值越大拉伸越强烈）
     c: 高光平滑 rolloff 因子，可选。
+    lp: 阴影锚点。曲线在 lp 以下改走 lp 处的切线，只做等比缩放、不引入非线性
+        扭曲。极暗数据把它设为背景水平，可避免暗部被压成一条窄带（拉伸坍缩）。
+    hp: 高光锚点。曲线在 hp 以上同样改走切线，为亮核留出高光 headroom，并让
+        离群亮像素不再主导整条曲线。
+
+    窗口 [lp, hp] 之外做切线延伸后整体仿射归一化，使 f(0)=0、f(1)=1。
+    默认 lp=0.0 / hp=1.0 时窗口覆盖全域，行为与不带 LP/HP 的旧实现逐位一致。
     """
     x = np.clip(image, 0, 1)
     b = max(float(b), 1e-5)
     sp = float(sp)
 
-    denom = np.sinh(b * (1.0 - sp)) - np.sinh(-b * sp)
-    if abs(denom) < 1e-9:
-        denom = 1e-9
+    lp = float(np.clip(lp, 0.0, 1.0))
+    hp = float(np.clip(hp, 0.0, 1.0))
+    if hp <= lp + 1e-6:
+        # 退化窗口无法定义曲线，回退到全域（等价于旧行为）
+        lp, hp = 0.0, 1.0
 
-    num = np.sinh(b * (x - sp)) - np.sinh(-b * sp)
-    stretched = num / denom
+    t_lp = float(_ghs_base(lp, sp, b))
+    t_hp = float(_ghs_base(hp, sp, b))
+    s_lp = float(_ghs_base_slope(lp, sp, b))
+    s_hp = float(_ghs_base_slope(hp, sp, b))
+
+    stretched = _ghs_base(x, sp, b)
+
+    # 窗口外以边界切线线性延伸：只做等比缩放，不产生非线性扭曲。
+    if lp > 0.0:
+        below = x < lp
+        if below.any():
+            stretched[below] = t_lp + s_lp * (x[below] - lp)
+    if hp < 1.0:
+        above = x >= hp
+        if above.any():
+            stretched[above] = t_hp + s_hp * (x[above] - hp)
+
+    # 仿射归一化，把两条切线在 0 / 1 处的截距钉回 [0, 1]
+    r0 = t_lp - s_lp * lp
+    r1 = t_hp + s_hp * (1.0 - hp)
+    stretched = (stretched - r0) / max(r1 - r0, 1e-12)
 
     # 压制高光核心 Rolloff 保护
     if c > 0:
@@ -374,12 +561,22 @@ def ghs_stretch(image, sp=0.01, b=8.0, c=0.0):
 
 def masked_ghs_stretch(image, sp=0.01, b=8.0, protect_strength=0.5,
                        smooth_sigma=5.0, target_bg=0.08,
-                       shadow_pctl=0.0, highlight_pctl=99.9, gamma=0.45):
+                       shadow_pctl=0.0, highlight_pctl=99.9, gamma=0.45,
+                       lp=None, hp=None,
+                       protect_lp=None, protect_hp=None, c=0.0):
     """
     基于亮度掩膜自适应保护的分区 GHS 拉伸。
 
     高光保护掩膜(Luminance Mask)使得高亮度核心和亮星主要应用温和的拉伸，而暗星云/背景主要
     应用激进的 GHS 拉伸，最后合并并自适应平移背景。
+
+    lp / hp: 可选的显式归一化锚点（绝对输入单位）。给出时直接作为低/高锚点，
+        跳过 shadow_pctl / highlight_pctl 推导与 max_val 兜底，用于精确控制暗部
+        拉伸起点与亮部 headroom。两者为 None（默认）时行为与旧实现逐位一致。
+    protect_lp / protect_hp: 内层 GHS 的两端切线保护锚点，**归一化 [0,1] 空间**。
+        取值 None（默认，禁用）/ "auto"（按归一化背景与 p99.5 自动推导）/ float。
+        默认 None 时内层调用等价于 lp=0、hp=1，输出与旧实现逐位一致。
+    c: GHS 输出后的高光 rolloff（域无关，作用在 [0,1] 的曲线输出上）。默认 0.0。
     """
     source = np.asarray(image, dtype=np.float32)
     is_color = source.ndim == 3 and source.shape[2] >= 3
@@ -387,12 +584,24 @@ def masked_ghs_stretch(image, sp=0.01, b=8.0, protect_strength=0.5,
 
     # 极暗线性数据先映射到可用动态范围。shadow_pctl=0 时不减黑位，
     # 所有原本大于零的微弱信号都会保留。
-    low = (
-        0.0
-        if float(shadow_pctl) <= 0
-        else float(np.percentile(source_gray, shadow_pctl))
-    )
-    high = float(np.percentile(source_gray, highlight_pctl))
+    if lp is not None:
+        low = float(lp)
+    else:
+        low = (
+            0.0
+            if float(shadow_pctl) <= 0
+            else float(np.percentile(source_gray, shadow_pctl))
+        )
+    if hp is not None:
+        # 显式高光锚点，跳过百分位推导与 max_val 兜底
+        high = float(hp)
+    elif float(highlight_pctl) >= 100.0:
+        high = float(np.max(source_gray))
+    else:
+        high = float(np.percentile(source_gray, highlight_pctl))
+        max_val = float(np.max(source_gray))
+        if max_val > high * 1.5:
+            high = max_val
     if high <= low + 1e-12:
         high = float(np.max(source_gray))
     if high <= low + 1e-12:
@@ -424,7 +633,45 @@ def masked_ghs_stretch(image, sp=0.01, b=8.0, protect_strength=0.5,
         # 自动取灰度中值作为 sp
         sp = float(np.median(img_gray))
 
-    stretched_strong = ghs_stretch(normalized, sp=sp, b=b)
+    # 内层 GHS 的两端切线保护：**归一化 [0,1] 空间**的锚点。
+    #
+    # 与外层 lp/hp 语义完全不同——外层 lp/hp 是「绝对输入单位的重锚点」
+    # （source=lp→0、source=hp→1），作用在归一化之前；内层 ghs_stretch 看到
+    # 的已经是 normalized，若把外层 lp/hp 原样透传则量纲不符，按
+    # ((v-low)/(high-low)) 换算又会退化为 (0,1)（等于无保护）。故必须用独立键。
+    #
+    # c 与之不同：它作用在曲线输出（已是 [0,1]）上，域无关，可以直接透传。
+    bg_norm = float(np.median(img_gray))          # 恒等于上面的自动 sp
+    auto_lp = float(np.clip(bg_norm, 0.005, 0.10))                       # ≈ 归一化背景水平
+    auto_hp = float(np.clip(np.percentile(img_gray, 99.5), 0.70, 0.95))
+
+    def _resolve_anchor(value, auto_value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            if value.strip().lower() != 'auto':
+                raise ValueError(f"内层保护锚点只接受 None / 'auto' / float，收到 {value!r}")
+            return auto_value
+        return float(np.clip(float(value), 0.0, 1.0))
+
+    protect_lp_val = _resolve_anchor(protect_lp, auto_lp)
+    protect_hp_val = _resolve_anchor(protect_hp, auto_hp)
+    if (protect_lp_val is not None and protect_hp_val is not None
+            and protect_hp_val <= protect_lp_val + 1e-6):
+        print(
+            f"  [WARN] 内层保护窗口退化 (hp {protect_hp_val:.4f} <= "
+            f"lp {protect_lp_val:.4f})，已禁用内层 LP/HP"
+        )
+        protect_lp_val = protect_hp_val = None
+
+    stretched_strong = ghs_stretch(
+        normalized,
+        sp=sp,
+        b=b,
+        c=c,
+        lp=0.0 if protect_lp_val is None else protect_lp_val,
+        hp=1.0 if protect_hp_val is None else protect_hp_val,
+    )
 
     # 3. 温和拉伸保护轨道（主要针对亮部核心和星点）
     stretched_weak = arcsinh_stretch(normalized, factor=5.0)
@@ -465,21 +712,29 @@ def luminance_range_health(image):
     }
 
 
-def is_stretch_collapsed(before, after, min_span=0.02, min_core_frac=0.5):
+def is_stretch_collapsed(before, after, min_span=0.02):
     """Detect a stretch that compressed the tonal range instead of expanding it.
 
-    病态输出（例如 masked_ghs 在黑点估计失准时）会把几乎所有像素挤进一条很窄的
-    亮度带里 —— 用 `p99 - p50` 判断最直接。
+    判据只有一条：拉伸后 `p99 - p50` 既不能低于绝对下限 `min_span`，也不能低于
+    拉伸前的 25%。病态输出（例如 masked_ghs 在黑点估计失准时）会把几乎所有像素
+    挤进一条很窄的亮度带里，用这个**绝对跨度**判断最直接。
 
-    注意 core_ratio = p999/p50 只在 p50 明显为正时才有意义：线性深空图的背景
-    常被 DBE clip 到 0，此时 p50≈1e-3，比值被 epsilon 主导（实测拉伸前算出
-    574，拉伸后 8.9），照此判定会误报。因此仅在参考 p50 足够大时才启用该判据。
+    历史说明：这里曾有一条 `p999/p50`（core_ratio）判据，要求拉伸后该比值不低于
+    拉伸前的一半（`min_core_frac=0.5`）。该判据在数学上不成立 —— p999/p50 是比值，
+    **任何抬升背景的拉伸都会让它下降**（实测 216 个正常拉伸样本的归一化比值分布
+    在 0.31~0.97，中位数 0.47），因此无法区分"正常的背景抬升"与"病态的对比度压塌"。
+    以 0.5 为阈值时实测误报率 40.3%；且它在暗数据上（拉伸前 p50 <= 0.01）本就处于
+    禁用状态，对人工构造的 4 个洗白病态检出 0/4，低于 span 判据的 3/4。已移除。
+
+    已知局限：把整幅图整体映射到高亮度区间（如 [0.50, 0.90]）的"洗白"病态**不会**
+    被本判据捕获。实测该情形的 span 比为 0.80，而健康的极暗拉伸为 0.95 —— 用 span
+    （无论绝对下限还是相对比例）都无法区分，把绝对下限从 0.02 提到 0.04 只会把两者
+    一起误判。真正的判别量是输出背景 p50（0.50 对 0.006，差两个数量级），但那需要
+    一个独立的背景电平门禁并经过真实数据校准，不在本判据的职责范围内。
     """
     hb = luminance_range_health(before)
     ha = luminance_range_health(after)
     collapsed = ha['span'] < max(min_span, hb['span'] * 0.25)
-    if not collapsed and hb['p50'] > 0.01:
-        collapsed = ha['core_ratio'] < hb['core_ratio'] * min_core_frac
     return bool(collapsed), hb, ha
 
 
@@ -508,6 +763,7 @@ def apply_luminance_stretch(image, method='arcsinh', **kwargs):
     if np.median(gray) < 0.001:
         stretch_func = {
             'arcsinh': arcsinh_stretch,
+            'luminance_arcsinh': arcsinh_stretch,
             'mtf': mtf_stretch,
             'masked': masked_stretch,
             'auto': auto_stretch,
@@ -525,6 +781,7 @@ def apply_luminance_stretch(image, method='arcsinh', **kwargs):
 
     stretch_func = {
         'arcsinh': arcsinh_stretch,
+        'luminance_arcsinh': arcsinh_stretch,
         'mtf': mtf_stretch,
         'masked': masked_stretch,
         'auto': auto_stretch,
@@ -554,14 +811,19 @@ def main():
     p.add_argument('output', help='输出图像路径')
     p.add_argument('--method', default='masked',
                    choices=['arcsinh', 'mtf', 'masked', 'auto', 'deep',
-                            'very_dark', 'emission', 'ghs', 'masked_ghs'],
+                            'very_dark', 'emission', 'ghs', 'masked_ghs', 'pi_mtf'],
                    help='拉伸方法 (默认: masked)')
     p.add_argument('--factor', type=float, default=30.0, help='arcsinh factor (默认: 30)')
     p.add_argument('--midtones', type=float, default=0.3, help='MTF midtones (默认: 0.3)')
     p.add_argument('--target-bg', type=float, default=0.08, help='目标背景亮度 (默认: 0.08)')
+    p.add_argument('--headroom', type=float, default=0.12, help='高光 Headroom 预留比例 (默认: 0.12)')
     p.add_argument('--sp', type=float, default=0.01, help='GHS 对称点 (默认: 0.01)')
     p.add_argument('--b', type=float, default=8.0, help='GHS 强度因子 (默认: 8.0)')
     p.add_argument('--protect-strength', type=float, default=0.5, help='Masked GHS 核心保护强度 (默认: 0.5)')
+    p.add_argument('--lp', type=float, default=None,
+                   help='GHS 阴影锚点，lp 以下只做等比缩放 (默认: 0.0 即不启用)')
+    p.add_argument('--hp', type=float, default=None,
+                   help='GHS 高光锚点，hp 以上只做等比缩放并为亮核留 headroom (默认: 1.0 即不启用)')
     p.add_argument('--luminance-only', action='store_true',
                    help='仅在亮度通道上拉伸')
     args = p.parse_args()
@@ -572,6 +834,8 @@ def main():
     kwargs = {'factor': args.factor}
     if args.method == 'mtf':
         kwargs = {'midtones': args.midtones}
+    elif args.method == 'pi_mtf':
+        kwargs = {'target_bg': args.target_bg, 'headroom': args.headroom}
     elif args.method == 'masked':
         kwargs = {'target_bg': args.target_bg, 'factor': args.factor}
     elif args.method == 'deep':
@@ -581,18 +845,26 @@ def main():
             'factor': args.factor,
             'gamma': 0.45,
             'target_bg': args.target_bg,
+            'headroom': args.headroom,
         }
     elif args.method == 'emission':
         kwargs = {
             'shadow_pctl': 1.0,
-            'highlight_pctl': 99.94,
+            'highlight_pctl': 100.0,
             'gamma': 0.43,
             'target_bg': args.target_bg,
+            'headroom': args.headroom,
         }
     elif args.method == 'ghs':
-        kwargs = {'sp': args.sp, 'b': args.b}
+        kwargs = {
+            'sp': args.sp,
+            'b': args.b,
+            'lp': 0.0 if args.lp is None else args.lp,
+            'hp': 1.0 if args.hp is None else args.hp,
+        }
     elif args.method == 'masked_ghs':
-        kwargs = {'sp': args.sp, 'b': args.b, 'protect_strength': args.protect_strength, 'target_bg': args.target_bg}
+        kwargs = {'sp': args.sp, 'b': args.b, 'protect_strength': args.protect_strength,
+                  'target_bg': args.target_bg, 'lp': args.lp, 'hp': args.hp}
 
     if args.luminance_only:
         result = apply_luminance_stretch(img, method=args.method, **kwargs)
@@ -600,6 +872,7 @@ def main():
         stretch_func = {
             'arcsinh': arcsinh_stretch,
             'mtf': mtf_stretch,
+            'pi_mtf': pi_mtf_stretch,
             'masked': masked_stretch,
             'auto': auto_stretch,
             'deep': deep_stretch,

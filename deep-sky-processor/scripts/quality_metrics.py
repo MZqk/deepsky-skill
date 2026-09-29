@@ -20,6 +20,131 @@ def grayscale(image):
     return np.mean(image[..., :3], axis=2, dtype=np.float32)
 
 
+def analyze_corner_uniformity(image, corner_size=None, manifest_data=None):
+    """
+    天体物理感知的四角均匀度分析器 (Celestial-Aware Corner Uniformity Analyzer)。
+
+    能够智能区分角区内的真实深空天体信号（弥散发射星云/旋臂/星团）与纯太空背景底电平，
+    消除天体靠边构图或视场弥漫所导致的四角不均匀假阳性误报。
+    """
+    source = np.asarray(image, dtype=np.float32)
+    gray = grayscale(source)
+    h, w = gray.shape[:2]
+    cs = corner_size or max(3, min(h, w) // 8)
+
+    corner_patches = {
+        "top_left": gray[:cs, :cs],
+        "top_right": gray[:cs, -cs:],
+        "bottom_left": gray[-cs:, :cs],
+        "bottom_right": gray[-cs:, -cs:],
+    }
+    corner_keys = ["top_left", "top_right", "bottom_left", "bottom_right"]
+    raw_means = [float(np.mean(corner_patches[k])) for k in corner_keys]
+    raw_min = max(min(raw_means), 1e-10)
+    raw_ratio = float(max(raw_means) / raw_min)
+
+    alive = (gray > 0) & np.isfinite(gray)
+    if np.count_nonzero(alive) < 100:
+        return {
+            "raw_means": [round(v, 6) for v in raw_means],
+            "raw_uniformity_ratio": round(raw_ratio, 6),
+            "effective_uniformity_ratio": round(raw_ratio, 6),
+            "sky_background_medians": [round(v, 6) for v in raw_means],
+            "celestial_coverage": {k: 0.0 for k in corner_keys},
+            "celestial_dominated_corners": [],
+            "pure_sky_corners": corner_keys,
+            "exemption_applied": False,
+            "exemption_reason": None,
+        }
+
+    # 基于暗部前 25% 稳健估算全局天空背景基线与噪声
+    pool = gray[alive]
+    p25 = float(np.percentile(pool, 25.0))
+    bg_pool = pool[pool <= p25]
+    bg_median = float(np.median(bg_pool))
+    bg_std = float(np.std(bg_pool))
+
+    # 3-sigma 天体物理信号检出门限
+    celestial_thresh = max(bg_median + 3.0 * bg_std, bg_median * 1.35)
+
+    # 检查画面主体区域 (Inner Core Region) 是否存在更强盛的天体核心
+    ch0, ch1 = int(h * 0.20), int(h * 0.80)
+    cw0, cw1 = int(w * 0.20), int(w * 0.80)
+    inner = gray[ch0:ch1, cw0:cw1]
+    inner_peak = float(np.percentile(inner, 99.0)) if inner.size > 0 else 0.0
+    core_contrast = inner_peak / max(bg_median, 1e-6)
+    has_celestial_core = (core_contrast >= 3.5)
+
+    sky_medians = []
+    coverage_dict = {}
+    celestial_dominated = []
+    pure_sky_corners = []
+
+    for k in corner_keys:
+        patch = corner_patches[k]
+        is_celestial = patch > celestial_thresh
+        cov = float(np.mean(is_celestial))
+        coverage_dict[k] = round(cov, 4)
+
+        # 提取角区内的纯背景像素
+        sky_pixels = patch[~is_celestial]
+        if sky_pixels.size >= max(30, int(patch.size * 0.15)):
+            med = float(np.median(sky_pixels))
+        else:
+            # 角区几乎完全被天体覆盖，取暗部分位保底
+            med = float(np.percentile(patch, 10.0))
+        sky_medians.append(med)
+
+        # 判定是否属于天体主导角：
+        # 必须满足双重物理准则：
+        # 1. 角区天体信号覆盖率显著 (cov >= 0.35) 且均值高于背景；
+        # 2. 全图中央/主体区域存在更强盛的天体核心 (inner_peak >= patch_mean * 1.20 且 core_contrast >= 3.5)，
+        #    证明角区是真实天体结构的自然延伸，杜绝将单纯的单角严重光害倾斜/漏光误认为天体！
+        is_extension = (
+            has_celestial_core
+            and (inner_peak >= float(np.mean(patch)) * 1.20)
+        )
+        if cov >= 0.35 and float(np.mean(patch)) > (bg_median * 1.35) and is_extension:
+            celestial_dominated.append(k)
+        else:
+            pure_sky_corners.append(k)
+
+    # 计算有效均匀度比值与豁免评定
+    exemption_applied = False
+    exemption_reason = None
+
+    if celestial_dominated and len(pure_sky_corners) >= 2:
+        pure_bg_vals = [
+            sky_medians[corner_keys.index(k)] for k in pure_sky_corners
+        ]
+        sky_ratio = float(max(pure_bg_vals) / max(min(pure_bg_vals), 1e-10))
+        if sky_ratio <= 3.0:
+            exemption_applied = True
+            effective_ratio = sky_ratio
+            dom_names = ", ".join(celestial_dominated)
+            exemption_reason = (
+                f"天体物理结构显著覆盖角区 ({dom_names})，"
+                f"纯背景角均匀度达标 ({sky_ratio:.2f}x <= 3.0x)"
+            )
+        else:
+            effective_ratio = sky_ratio
+    else:
+        # 无天体主导角，使用原始比值与背景中位比值
+        effective_ratio = raw_ratio
+
+    return {
+        "raw_means": [round(v, 6) for v in raw_means],
+        "raw_uniformity_ratio": round(raw_ratio, 6),
+        "sky_background_medians": [round(v, 6) for v in sky_medians],
+        "effective_uniformity_ratio": round(effective_ratio, 6),
+        "celestial_coverage": coverage_dict,
+        "celestial_dominated_corners": celestial_dominated,
+        "pure_sky_corners": pure_sky_corners,
+        "exemption_applied": exemption_applied,
+        "exemption_reason": exemption_reason,
+    }
+
+
 def calculate_metrics(image, manifest_data=None):
     source = np.asarray(image, dtype=np.float32)
     gray = grayscale(source)
@@ -28,14 +153,11 @@ def calculate_metrics(image, manifest_data=None):
         if manifest_data else "final"
     )
     corner_size = max(3, min(gray.shape[:2]) // 8)
-    corners = [
-        float(np.mean(gray[:corner_size, :corner_size])),
-        float(np.mean(gray[:corner_size, -corner_size:])),
-        float(np.mean(gray[-corner_size:, :corner_size])),
-        float(np.mean(gray[-corner_size:, -corner_size:])),
-    ]
-    corner_min = max(min(corners), 1e-10)
-    corner_ratio = float(max(corners) / corner_min)
+    corner_info = analyze_corner_uniformity(
+        gray, corner_size=corner_size, manifest_data=manifest_data
+    )
+    corners = corner_info["raw_means"]
+    corner_ratio = corner_info["effective_uniformity_ratio"]
 
     local_mean = uniform_filter(gray, size=5, mode="reflect")
     local_sq_mean = uniform_filter(gray * gray, size=5, mode="reflect")
@@ -78,6 +200,8 @@ def calculate_metrics(image, manifest_data=None):
         "nonpositive_pixel_ratio": round(float(np.mean(gray <= 0)), 6),
         "corner_means": [round(value, 6) for value in corners],
         "corner_uniformity_ratio": round(corner_ratio, 6),
+        "raw_corner_uniformity_ratio": round(corner_info["raw_uniformity_ratio"], 6),
+        "corner_analysis": corner_info,
         "uniform_5x5_dark_patch_ratio": round(uniform_patch_ratio, 6),
         "high_frequency_energy_ratio": round(high_frequency_ratio, 6),
         "star_area_ratio": round(star_area, 6),
@@ -145,6 +269,16 @@ def calculate_metrics(image, manifest_data=None):
             res['linear_estimated_fwhm_px'] = round(linear_metrics['estimated_fwhm'], 2)
         if linear_metrics.get('n_stars_detected') is not None:
             res['linear_n_stars_detected'] = linear_metrics['n_stars_detected']
+    # 风格色调曲线的局部黑位诊断：透传给 evaluate_quality_gates 的
+    # STYLE_LOCAL_BLACK_CLIP 门禁（无该字段时门禁不参与判定）。
+    style_diagnostics = (manifest_data or {}).get('style_diagnostics')
+    if style_diagnostics is not None:
+        res['style_diagnostics'] = style_diagnostics
+    # 去星修补足迹诊断：透传给 evaluate_quality_gates 的 INPAINT_FOOTPRINT 门禁
+    # （无该字段时门禁不参与判定）。
+    inpaint_footprint = (manifest_data or {}).get('inpaint_footprint')
+    if inpaint_footprint is not None:
+        res['inpaint_footprint'] = inpaint_footprint
     if star_metric_warning:
         res['warnings'] = [star_metric_warning]
 

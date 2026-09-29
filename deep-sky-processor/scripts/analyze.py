@@ -29,9 +29,13 @@ from scipy.signal import convolve2d
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from fits_io import read_image, build_physical_priors
+from fits_io import read_image, build_physical_priors, resolve_celestial_target
 from recognize import (analyze_starfield as recognize_starfield,
                        classify_scene, color_features, normalize_image)
+from neural_star_bridge import (
+    detect_neural_starnet_environment,
+    evaluate_neural_bridge_recommendation,
+)
 
 
 def analyze_image(filepath):
@@ -49,7 +53,30 @@ def analyze_image(filepath):
     else:
         gray = img.copy()
 
-    target_hint = _infer_target_type(img)
+    # 优先从 FITS/XISF Header 读取并解析天体真实身份，若无法识别再回退到纯像素启发式
+    header = meta.get('header')
+    target_resolved = resolve_celestial_target(header=header) if header else None
+    if target_resolved and target_resolved.get('resolved_type') != 'unknown_deep_sky':
+        target_hint = {
+            'target_type': target_resolved['resolved_type'],
+            'confidence': 1.0,
+            'backend': 'header_target_resolver',
+            'resolved_name': target_resolved.get('resolved_name'),
+            'provisional': False,
+        }
+    else:
+        capture_meta = meta.get('capture_metadata', {})
+        filter_class = capture_meta.get('filter_profile', {}).get('class')
+        if filter_class in ('dual_band', 'narrowband'):
+            target_hint = {
+                'target_type': 'emission_nebula',
+                'confidence': 0.90,
+                'backend': 'filter_prior_dual_band',
+                'resolved_name': target_resolved.get('resolved_name') if target_resolved else 'narrowband_emission_target',
+                'provisional': False,
+            }
+        else:
+            target_hint = _infer_target_type(img)
     color_report = _analyze_color(img) if img.ndim == 3 else None
     if color_report:
         _interpret_color_signal(color_report, target_hint)
@@ -700,6 +727,28 @@ def _analyze_sharpness(gray):
     }
 
 
+# 星点拉伸因子与主拉伸因子的**预设配对**（取自 pipeline.py 的 STRENGTH_PRESETS）：
+#   light 25→88、medium 45→132、strong 80→198、adaptive 120→264、emission 120→198
+# 两者同量纲，比值随拉伸增强而缓降（3.52 → 1.65）。`stretch_factor=120` 上
+# adaptive 与 emission 给出 264 / 198，取均值 231 作锚点。
+# 分析建议必须与预设同量纲，否则 `build_config_from_analysis` 会把一个偏小
+# 一个数量级的值写进 cfg。
+_STAR_STRETCH_PAIRS = ((25.0, 88.0), (45.0, 132.0), (80.0, 198.0), (120.0, 231.0))
+
+
+def _star_stretch_factor_for(stretch_factor):
+    """按预设配对关系插值/外推星点拉伸因子，并夹到预设取值范围 [88, 264]。
+
+    历史缺陷：这里曾写 `stretch_factor * 0.25`。某极暗母版的分析报告给出
+    `stretch_factor=25`（= light 预设同档）→ 得 6.25，经 pipeline 的 ×1.5 后为
+    **9.375**，而预设同档是 **88**。星点层亮度实测因此只有预设的 ~1/4.7
+    （星点像素均值 0.061 vs 0.287），成片星点中位亮度 0.561 vs 手动后期的 0.794。
+    """
+    xs = [p[0] for p in _STAR_STRETCH_PAIRS]
+    ys = [p[1] for p in _STAR_STRETCH_PAIRS]
+    return float(np.clip(np.interp(float(stretch_factor), xs, ys), 88.0, 264.0))
+
+
 def _generate_recommendations(r):
     """基于所有分析维度生成处理建议。"""
     b = r['brightness']
@@ -800,17 +849,17 @@ def _generate_recommendations(r):
         target_bg = 0.10
     elif darkness == 'dark':
         stretch_factor = 45.0 if is_linear else 30.0
-        stretch_method = 'luminance_arcsinh'
+        stretch_method = 'arcsinh'
         stretch_gamma = 0.45
         target_bg = 0.08
     elif darkness == 'moderate':
         stretch_factor = 25.0
-        stretch_method = 'luminance_arcsinh'
+        stretch_method = 'arcsinh'
         stretch_gamma = 0.48
         target_bg = 0.07
     else:
         stretch_factor = 12.0
-        stretch_method = 'luminance_arcsinh'
+        stretch_method = 'arcsinh'
         stretch_gamma = 0.5
         target_bg = 0.06
 
@@ -840,7 +889,7 @@ def _generate_recommendations(r):
     rec['star_tools'] = {
         'detection_threshold': star_threshold,
         'reduction': star_reduction,
-        'star_stretch_factor': stretch_factor * 0.25,
+        'star_stretch_factor': _star_stretch_factor_for(stretch_factor),
         'reason': f'星场密度: {density}',
     }
 
@@ -934,7 +983,22 @@ def _generate_recommendations(r):
         'expected_challenge': _identify_challenge(r),
     }
 
+    # --- 外部神经网络去星桥接评估 (Neural Star Removal Bridge) ---
+    env_info = detect_neural_starnet_environment()
+    target_type = (r.get('target_type_hint') or {}).get('target_type')
+    bridge_rec = evaluate_neural_bridge_recommendation(
+        image_shape=tuple(r.get('shape', ())),
+        star_density=s.get('star_density'),
+        star_area_ratio=s.get('star_coverage_pct', 0.0) / 100.0 if s.get('star_coverage_pct') is not None else None,
+        target_type=target_type,
+        env_info=env_info,
+    )
+    rec['neural_star_bridge'] = bridge_rec
+
     # --- AI 工具适用性评估 ---
+    ai_star_removal_rec = bool(bridge_rec.get('recommended', False))
+    ai_star_removal_reason = bridge_rec.get('reason', '')
+
     ai_assess = {
         'ai_denoise_recommended': n['noise_level'] in ('high', 'very_high'),
         'ai_denoise_reason': (
@@ -942,12 +1006,8 @@ def _generate_recommendations(r):
             if n['noise_level'] in ('high', 'very_high')
             else '噪声水平适中，内置降噪即可'
         ),
-        'ai_star_removal_recommended': s.get('star_density') in ('dense', 'very_dense'),
-        'ai_star_removal_reason': (
-            '密集星场适合 AI 去星工具（StarNet++ v2），形态学方法精度不足'
-            if s.get('star_density') in ('dense', 'very_dense')
-            else '星场密度适中，形态学去星可满足'
-        ),
+        'ai_star_removal_recommended': ai_star_removal_rec,
+        'ai_star_removal_reason': ai_star_removal_reason,
         'ai_superres_recommended': False,
         'ai_superres_reason': 'AI 超分辨率在天文摄影中禁止使用 — 会引入伪细节，等于数据造假',
         'ai_colorize_recommended': False,
@@ -1074,6 +1134,12 @@ def format_readable(report):
         lines.append('\n── AI 工具适用性评估 ──')
         lines.append(f'  AI降噪:   {"推荐" if ai["ai_denoise_recommended"] else "不需要"} — {ai["ai_denoise_reason"]}')
         lines.append(f'  AI去星:   {"推荐" if ai["ai_star_removal_recommended"] else "不需要"} — {ai["ai_star_removal_reason"]}')
+        nb = r.get('neural_star_bridge')
+        if nb:
+            env = nb.get('local_environment', {})
+            env_str = f"已就绪 ({env.get('backend', 'StarNet2')})" if env.get('available') else "未就绪"
+            lines.append(f'  去星桥接: 评级={nb.get("level", "N/A")} | 本地环境={env_str}')
+            lines.append(f'            建议: {nb.get("action_advice", "")}')
         lines.append(f'  AI超分:   ❌ 禁止 — {ai["ai_superres_reason"]}')
         lines.append(f'  AI着色:   ❌ 禁止 — {ai["ai_colorize_reason"]}')
 

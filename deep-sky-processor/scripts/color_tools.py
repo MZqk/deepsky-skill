@@ -21,6 +21,7 @@ Deep-Sky Color Tools (颜色校准与调色)
 
 import argparse
 import sys
+from typing import Optional, Dict, Tuple, Any, Union
 import numpy as np
 from scipy.ndimage import gaussian_filter, median_filter
 from skimage import img_as_float32, img_as_ubyte
@@ -87,6 +88,168 @@ def background_neutralize(image, bg_percentile=30, sample_radius=20):
     print(f"[背景中性化-加法] offsets={offsets.round(6).tolist()} "
           f"(保留共同黑位 {common:.6f})")
     return result
+
+
+def lock_background_neutrality(
+    image: np.ndarray,
+    bg_percentile: float = 25.0,
+    upper_percentile: float = 50.0,
+    star_mask: Optional[np.ndarray] = None,
+    exclusion_mask: Optional[np.ndarray] = None,
+    target_bg: Optional[float] = None,
+    max_iters: int = 2,
+    cast_tolerance: float = 0.05,
+    return_report: bool = False,
+) -> Union[np.ndarray, Tuple[np.ndarray, Dict[str, Any]]]:
+    """
+    深空暗背景中性灰锁定 (Background Neutralization Lock)。
+    精准消除通道间底电平色偏，自适应闭环对齐质量门禁，严格收敛 BACKGROUND_COLOR_CAST 指标至健康区间。
+
+    参数:
+      image: (H, W, 3) 浮点图像 [0, 1]
+      bg_percentile: 背景采样下界分位数 (默认 25.0)
+      upper_percentile: 平滑过渡上界分位数 (默认 50.0)
+      star_mask: 可选星点掩膜，保护恒星
+      exclusion_mask: 可选天体主体排除掩膜，避免星云/星系采样
+      target_bg: 可选目标背景中值，默认取 R/G/B 三通道当前中位数的均值
+      max_iters: 最大微调闭环迭代次数 (默认 2)
+      cast_tolerance: 闭环收敛目标色偏容差 (默认 0.05)
+      return_report: 是否返回量化分析字典
+    """
+    source = np.asarray(image, dtype=np.float32)
+    if source.ndim != 3 or source.shape[2] < 3:
+        report = {"applied": False, "reason": "not_rgb"}
+        return (source, report) if return_report else source
+
+    alpha = source[..., 3:] if source.shape[2] > 3 else None
+    current_rgb = source[..., :3].copy()
+
+    total_offsets = np.zeros(3, dtype=np.float32)
+    initial_medians = None
+    final_medians = None
+    initial_cast = None
+    final_cast = None
+    iterations_run = 0
+    t_low_val = 0.0
+    t_high_val = 0.0
+    bg_samples_count = 0
+
+    for iteration in range(max(1, max_iters)):
+        alive = np.min(current_rgb, axis=2) > 1e-6
+        if np.count_nonzero(alive) < 100:
+            if iteration == 0:
+                report = {"applied": False, "reason": "insufficient_alive_pixels"}
+                return (source, report) if return_report else source
+            break
+
+        valid_mask = alive.copy()
+        if exclusion_mask is not None:
+            em = np.asarray(exclusion_mask, dtype=bool)
+            if em.shape == valid_mask.shape:
+                valid_mask &= ~em
+
+        if star_mask is not None:
+            sm = np.asarray(star_mask, dtype=np.float32)
+            if sm.ndim == 3:
+                sm = np.mean(sm, axis=2)
+            valid_mask &= (sm < 0.2)
+
+        if np.count_nonzero(valid_mask) < 100:
+            valid_mask = alive
+
+        gray = current_rgb.mean(axis=2)
+        pool = gray[valid_mask]
+
+        t_low = float(np.percentile(pool, bg_percentile))
+        t_high = float(np.percentile(pool, max(upper_percentile, bg_percentile + 5.0)))
+        if iteration == 0:
+            t_low_val = t_low
+            t_high_val = t_high
+
+        bg_samples = valid_mask & (gray <= t_low)
+        if np.count_nonzero(bg_samples) < 100:
+            bg_samples = valid_mask & (gray <= t_high)
+        bg_samples_count = int(np.count_nonzero(bg_samples))
+
+        med_r = float(np.median(current_rgb[..., 0][bg_samples]))
+        med_g = float(np.median(current_rgb[..., 1][bg_samples]))
+        med_b = float(np.median(current_rgb[..., 2][bg_samples]))
+
+        curr_r_g = med_r / max(med_g, 1e-9)
+        curr_b_g = med_b / max(med_g, 1e-9)
+        curr_cast = max(abs(curr_r_g - 1.0), abs(curr_b_g - 1.0))
+
+        if iteration == 0:
+            initial_medians = [med_r, med_g, med_b]
+            initial_cast = curr_cast
+
+        if target_bg is not None:
+            target_val = float(target_bg)
+        else:
+            target_val = float((med_r + med_g + med_b) / 3.0)
+
+        offsets = np.array([target_val - med_r, target_val - med_g, target_val - med_b], dtype=np.float32)
+        total_offsets += offsets
+
+        span = max(t_high - t_low, 1e-6)
+        t = np.clip((gray - t_low) / span, 0.0, 1.0)
+        smooth_w = 1.0 - (3.0 * t * t - 2.0 * t * t * t)
+        smooth_w = smooth_w[..., None]
+
+        if star_mask is not None:
+            sm_clip = np.clip(np.asarray(star_mask, dtype=np.float32), 0.0, 1.0)
+            if sm_clip.ndim == 2:
+                sm_clip = sm_clip[..., None]
+            smooth_w = smooth_w * (1.0 - sm_clip)
+
+        current_rgb = np.clip(current_rgb + offsets * smooth_w, 0.0, 1.0)
+
+        p1_check = float(np.percentile(current_rgb[alive], 1.0))
+        if p1_check <= 1e-4:
+            pedestal_boost = float(1.5e-4 - p1_check)
+            current_rgb = np.clip(current_rgb + pedestal_boost * smooth_w, 0.0, 1.0)
+
+        iterations_run += 1
+
+        # 与 quality_metrics 严格一致的闭环背景色偏核验
+        gray_eval = current_rgb.mean(axis=2)
+        alive_eval = np.min(current_rgb, axis=2) > 0
+        if np.count_nonzero(alive_eval) >= 100:
+            pool_eval = gray_eval[alive_eval]
+            p_eval = float(np.percentile(pool_eval, bg_percentile))
+            bg_eval = alive_eval & (gray_eval <= p_eval)
+            if np.count_nonzero(bg_eval) >= 100:
+                eval_r = float(np.median(current_rgb[..., 0][bg_eval]))
+                eval_g = float(np.median(current_rgb[..., 1][bg_eval]))
+                eval_b = float(np.median(current_rgb[..., 2][bg_eval]))
+                final_medians = [eval_r, eval_g, eval_b]
+                rg = eval_r / max(eval_g, 1e-9)
+                bg = eval_b / max(eval_g, 1e-9)
+                final_cast = max(abs(rg - 1.0), abs(bg - 1.0))
+                if final_cast <= cast_tolerance:
+                    break
+        else:
+            final_medians = [med_r, med_g, med_b]
+            final_cast = curr_cast
+            break
+
+    if alpha is not None:
+        current_rgb = np.dstack([current_rgb, alpha])
+
+    report = {
+        "applied": True,
+        "iterations_run": iterations_run,
+        "bg_samples_count": bg_samples_count,
+        "t_low": round(t_low_val, 6),
+        "t_high": round(t_high_val, 6),
+        "pre_medians": [round(x, 6) for x in (initial_medians or [0, 0, 0])],
+        "post_medians": [round(x, 6) for x in (final_medians or [0, 0, 0])],
+        "offsets": total_offsets.round(6).tolist(),
+        "pre_cast_magnitude": round(initial_cast if initial_cast is not None else 0.0, 4),
+        "post_cast_magnitude": round(final_cast if final_cast is not None else 0.0, 4),
+    }
+
+    return (current_rgb.astype(np.float32), report) if return_report else current_rgb.astype(np.float32)
 
 
 def _reference_star_mask(rgb, sat_limit=0.995):
@@ -193,27 +356,52 @@ def _apply_gains(source, rgb, gains):
 def enhance_saturation(image, factor=1.5, protect_background=True,
                        bg_protection_percentile=20):
     """
-    增强色彩饱和度。
-    原理：在 HSV 色彩空间中，增加 S 通道的值。
-    protect_background: 保护暗区不被着色（保持背景纯净）。
+    增强色彩饱和度 —— **保比例**色度缩放，不是 HSV 的 S 乘法。
+
+    公式：以像素均值为轴缩放色度差，`new = mean + (x - mean) * k`。
+    未越界裁切时逐像素均值严格不变，弱通道只按偏离均值的比例缩放，不会塌到 0。
+
+    **为什么不用 HSV 的 S 乘法**（旧实现）：它保持 max 通道不变、把 (max−min)
+    拉开，当 G≠B 时两个非最大通道被**不等比例**压向 0。实测受控输入
+    `[0.25,0.10,0.06]` 经 ×1.32 后 B 直接归零（B/G 保留率 **0%**），
+    `[0.50,0.15,0.09]` 同样归零 —— 对发射星云即系统性破坏 OIII。
+    改用保比例公式后同样输入 B/G 保留 0.402 / 0.335。
+
+    protect_background: 保护暗区不被着色（保持背景纯净）。用三次 Hermite
+    (smoothstep) 在 V（= max 通道）的分位区间上做平滑滚降，避免暗部硬阶跃。
     """
-    hsv = rgb2hsv(image)
+    source = np.asarray(image, dtype=np.float32)
+    source_rgb = source[..., :3]
+    # V 就是 max 通道，直接取即可 —— 不再需要 RGB↔HSV 往返
+    v_channel = source_rgb.max(axis=2)
 
-    # 生成背景保护蒙版
+    # 生成背景保护权重（与旧实现同参数、同 Hermite 曲线）
     if protect_background:
-        v_channel = hsv[..., 2]
-        bg_threshold = np.percentile(v_channel, bg_protection_percentile)
-        bg_mask = (v_channel < bg_threshold).astype(np.float32)
-        bg_mask = gaussian_filter(bg_mask, sigma=5)
-
-        # 在背景区域降低饱和度增强
-        local_factor = 1.0 + (factor - 1.0) * (1.0 - bg_mask)
-        hsv[..., 1] = np.clip(hsv[..., 1] * local_factor, 0, 1)
+        p_low = float(np.percentile(v_channel, bg_protection_percentile))
+        p_high = float(np.percentile(v_channel, min(95.0, bg_protection_percentile + 30.0)))
+        span = max(p_high - p_low, 1e-5)
+        t = np.clip((v_channel - p_low) / span, 0.0, 1.0)
+        smooth_w = 3.0 * t * t - 2.0 * t * t * t
+        local_factor = 1.0 + (float(factor) - 1.0) * smooth_w
     else:
-        hsv[..., 1] = np.clip(hsv[..., 1] * factor, 0, 1)
+        local_factor = np.full(v_channel.shape, float(factor), dtype=np.float32)
 
-    result = hsv2rgb(hsv)
-    return np.clip(result, 0, 1)
+    neutral = source_rgb.mean(axis=2, keepdims=True)
+    deviation = source_rgb - neutral
+
+    # 每像素色度上限：保证缩放后不越出 [0,1]，从而均值**严格守恒**。
+    # 这替代了旧实现末尾的"底电平守护"（那是对 HSV 塌缩的补丁，会均匀抬亮像素、
+    # 破坏均值守恒）。到达色域边缘的像素本来也无法再提升色度。
+    safe = np.maximum(np.abs(deviation), 1e-9)
+    headroom = np.where(deviation > 0, (1.0 - neutral) / safe, neutral / safe)
+    k_max = np.min(headroom, axis=2)
+    k_eff = np.minimum(local_factor, np.maximum(k_max, 0.0))
+
+    result = np.clip(neutral + deviation * k_eff[..., None], 0.0, 1.0)
+
+    if source.shape[2] > 3:
+        result = np.dstack([result, source[..., 3:]])
+    return np.clip(result, 0.0, 1.0).astype(np.float32)
 
 
 def remove_green_noise(image, strength=0.3):
@@ -296,9 +484,16 @@ def emission_nebula_calibrate(image, background_percentile=1.0,
         return (source, {}) if return_report else source
 
     flat = source[..., :3].reshape(-1, 3)
-    black_points = np.percentile(flat, background_percentile, axis=0)
+    raw_black_points = np.percentile(flat, background_percentile, axis=0)
+    black_points = raw_black_points.copy()
     # 限制 B 通道背景剪除黑点，防止极暗的 B 通道被过度减除截断为 0
     black_points[2] = min(black_points[2], black_points[1])
+    # 当三通道黑点量级极小（如线性 FITS 数据的真实底电平在 0.005 以下），
+    # 通道间轻微噪声起伏会导致扣黑严重不平衡、底电平被人工制造出严重红偏。
+    # 此时应约束各通道扣黑差值，避免弱通道（G/B）被过度剪裁。
+    if float(np.max(black_points)) < 0.005:
+        min_bp = float(np.min(black_points))
+        black_points = np.minimum(black_points, min_bp + 0.00015)
     result = np.clip(source[..., :3] - black_points, 0, None)
 
     # 默认不从 G 人为构造 B。仅在用户明确知道输入是双窄带映射时，

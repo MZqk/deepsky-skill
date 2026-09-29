@@ -98,6 +98,44 @@ python scripts/pipeline.py input.tif output.jpg \
 
 要求外部无星图与原图尺寸、裁切、方向完全相同。若有暗环或修复伪影，只使用 `external_detail` 提取正向结构，不直接覆盖底图。
 
+### StarNet2 CLI 星点层语义（关键：不要混用）
+
+StarNet2 CLI 提供两种星点输出，语义**相反**，混用会导致合成失败：
+
+| 参数 | 输出语义 | 适用数据 | 重组方式 |
+|---|---|---|---|
+| `-m/--mask <file>` | **可加性星点层**（input − starless） | **线性数据** | 线性相加：`starless + mask` |
+| `-n/--unscreen <file>` | **Screen 混合星点层**（供 Screen 混合） | **非线性/已拉伸** | Screen 混合：`1 − (1−starless)·(1−stars)` |
+
+**规则**：
+- **线性数据**使用 `-m/--mask`，**禁用 `-n/--unscreen`**。线性数据的星点层是减法关系，Screen 混合会错误压缩动态范围。
+- **已拉伸数据**使用 `-n/--unscreen`，禁用 `-m/--mask`。非线性数据的星点层已适配显示域，需用 Screen 混合重建。
+- 这与 SXT（StarXTerminator）的复选框方向**一致**：SXT 的 "Unscreen stars" 同样表示"生成供 Screen 混合的星点层"，且 RC-Astro 官方明确说明"线性数据不要选 Unscreen"。
+- **GHS / 反正弦预拉伸会让 StarNet/SXT 误判星点为小星系**。若先做了 GHS 或 arcsinh 拉伸再去星，星点剖面会被压扁，神经网络可能将其识别为椭圆星系而漏除。去星应在线性阶段或标准 MTF 拉伸后执行。
+
+**桥接默认走「MTF 拉伸」域**（`--export-starnet-payload-domain` 默认 `mtf`）：载荷先做标准 MTF 拉伸再量化为 16-bit，因此用 `-n/--unscreen`（已拉伸语义）。回流时管线读 `work-dir/starnet_payload_meta.json`（记录 `domain` 与 `midtones`）自动做逆 MTF，无需手传参数。
+
+**为什么必须这样**：极暗线性数据直接量化时，弱色通道会被量化压成 0。实测某 Duo-Band 母版星云区 G 通道只有 23 counts（占 16-bit 满量程 0.035%、量化跨度仅 70 级），StarNet2 的输出在**所有低于 200 counts 的亮度档把 G 100% 归零**，而 R 存活 → 拉伸后整片星云变纯红。先做 MTF 拉伸（`midtones≈0.02`，底部增益 49×）后，同一命令下：
+
+| 阶段 | R/G | B/G | G 归零 |
+|---|---|---|---|
+| 源（线性母版） | 3.272 | 0.830 | 0.08% |
+| MTF 载荷 | 3.149 | 0.833 | 0.08% |
+| StarNet2 输出（MTF 域） | 3.175 | 0.839 | 0.05% |
+| 逆 MTF 回线性 | 3.294 | 0.837 | 0.05% |
+| 线性对照（同 CLI） | ∞ | — | **99.4%** |
+
+**回流硬校验**：外部无星层在星云信号区若大范围丢失某通道（相对强度掉到 <1/2，或归零比例上升 ≥25pp），管线 `raise ValueError` 并报出通道名与数值；原图该通道本来就近零（相对最强通道 <5%）的窄带图不判塌缩。此外还会检查无星层与原图的中位亮度比（应在 [0.1, 10] 内）以拦住未归一化的 FITS。
+
+**stride**：内置 `--use-starnet` 路径与外部桥接命令**共用** `--starnet-stride`，默认 **128**。
+
+**内置路径也走 MTF 域**（`--starnet-domain`，默认 `mtf`）：`run_starnet_cli` 在量化为
+16-bit 前先做 MTF 拉伸、读回后做逆 MTF，与外部桥接一致。实测同一极暗母版：旧版
+（线性域）输出 `nebula_damage_ratio = 0.5521` → 超过接受门 `≤ 0.20` → 回退形态学
+（StarNet2 白跑一次）；改 MTF 域后 `damage = 0.0`、`score = 0.996`、`accepted = True`、
+**不再回退**。**接受门（`score ≥ 0.45` 且 `damage ≤ 0.20`）没有被放宽**——是输出真的
+变健康了，所以能自然通过。
+
 ### 已拉伸 StarNet 分层美化与重组
 
 ```bash
@@ -130,6 +168,21 @@ python scripts/pipeline.py input.fit output.jpg \
 - 背景是否出现重复纹理。
 - 输出是否与原图形状一致。
 
+**NXT 最佳实践：多次轻量优于一次重手**。不要在一次处理中把 denoise 推到 0.7。推荐四个应用点各用轻量参数：
+
+| 阶段 | denoise | detail | 说明 |
+|---|---|---|---|
+| 线性 RGB 去星前 | 0.25 | 0.15 | 保护暗弱结构 |
+| 拉伸后 L | 0.25 | 0.15 | 亮度通道轻量降噪 |
+| 拉伸后 RGB | 0.25 | 0.15 | 色彩通道轻量降噪 |
+| LHE-HDRMT 后收尾 | 0.25 | 0.15 | 最终平滑，不压细节 |
+
+**过降噪症状自查**（出现任一即回退）：
+- 塑料感/油画感：背景失去自然颗粒纹理。
+- 暗星丢失：中等亮度星点被抹平为天空背景。
+- 边缘模糊：星云亮丝边界发虚。
+- 色彩涂抹：窄带区域（Hα/OIII）色块化。
+
 可使用 `denoise.py` 中的 `validate_external_denoise()` 做数值辅助，但不能替代视觉审查。
 
 ## BlurXTerminator / 外部反卷积
@@ -143,6 +196,13 @@ python scripts/pipeline.py deconvolved.tif output.jpg \
 ```
 
 检查星点黑环、双边和星云高频伪影。
+
+**BXT 两趟法**（RC-Astro 官方推荐）：
+
+1. **Pass 1 — `correctOnly=true`**：在**校色前**执行，只修正光学像差（彗差、像散、场曲），不锐化。此时色彩尚未校准，BXT 的像差修正不依赖色彩空间。
+2. **Pass 2 — 正常锐化**：在**校色后**执行，恢复高频细节。
+
+**外部 BXT 的 `adjustStarHalos` 必须设为 0.00**。本地管线已有 `--halo-guard` 等价物（去星后亮星周围 2~4×FWHM 色度平滑），外部工具的星晕调整会与之冲突，产生双重平滑或色偏。
 
 ## GraXpert
 
