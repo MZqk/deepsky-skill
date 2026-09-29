@@ -69,3 +69,5 @@ header 可读或仅有正确扩展名都不能成为成功证据。
 
 可选协议失败时保留父源并记录限制。必需的 Siril、stretch 或 delivery 失败时停止。可选工具缺失时跳过
 对应能力；必需工具缺失时返回 `review_required` 或结构化失败。
+
+Native astrometry is offline only: `platesolve -catalog=localgaia -noflip -nocrop`, with a frozen file in `core.catalogue_gaia_astro`. Nonlinear native denoise accepts only `-nocosmetic -mod=VALUE` with 0<VALUE≤0.35. No SOS, DA3D or VST. Recomposition permits no clipping or rescaling expressions that could conceal invalid residuals.

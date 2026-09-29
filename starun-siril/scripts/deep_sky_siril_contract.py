@@ -90,7 +90,7 @@ def classify_siril_network(
                 "unsafe_siril_script",
                 f"Cannot parse Siril command: {line[:120]}",
             ) from exc
-        if not tokens or tokens[0].lower() not in {"pcc", "spcc"}:
+        if not tokens or tokens[0].lower() not in {"pcc", "spcc", "platesolve"}:
             continue
         values = [
             token.split("=", 1)[1].lower()
@@ -102,9 +102,11 @@ def classify_siril_network(
                 "unsafe_siril_script",
                 "pcc/spcc requires exactly one -catalog=gaia|localgaia option",
             )
+        if tokens[0].lower() == "platesolve" and (protocol != "astrometry.solve" or values[0] != "localgaia"):
+            raise ContractError("network_forbidden", "Astrometry permits only native local Gaia")
         catalogues.add(values[0])
 
-    if catalogues and protocol != "color.calibrate":
+    if catalogues and protocol not in {"color.calibrate", "astrometry.solve"}:
         raise ContractError(
             "unsafe_siril_script",
             "Remote or local catalogue access is restricted to color.calibrate",

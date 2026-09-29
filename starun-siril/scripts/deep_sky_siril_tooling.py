@@ -318,6 +318,9 @@ def probe_tools(*, offline: bool = False) -> dict[str, Any]:
     gaia_raw = os.environ.get("DEEP_SKY_SIRIL_GAIA_DIR", "").strip()
     gaia = Path(gaia_raw).expanduser().resolve(strict=False) if gaia_raw else None
     gaia_ready = bool(gaia and gaia.is_dir() and not gaia.is_symlink())
+    astro_value = os.environ.get("DEEP_SKY_SIRIL_GAIA_ASTRO_FILE")
+    astro = Path(astro_value).expanduser() if astro_value else None
+    astro_ready = bool(astro and astro.is_file() and not astro.is_symlink() and astro.stat().st_size > 0)
     sirilpy_bridge = _probe_sirilpy_bridge()
     blocking_reasons = []
     if siril_path is None:
@@ -348,6 +351,8 @@ def probe_tools(*, offline: bool = False) -> dict[str, Any]:
             "siril_cli": siril,
             "starnet": starnet_record,
             "local_gaia": {"compatible": gaia_ready, "path": str(gaia) if gaia_ready else None},
+            "local_gaia_astro": {"compatible": astro_ready, "path": str(astro.resolve()) if astro_ready else None,
+                                 "fingerprint": fingerprint(astro) if astro_ready else None},
             "pillow": {"compatible": artifacts.Image is not None, "purpose": "decode_validation"},
             "sirilpy_bridge": sirilpy_bridge,
         },

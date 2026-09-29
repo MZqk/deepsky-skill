@@ -65,7 +65,7 @@ def test_protocol_documents_policy_and_manual_command_closure() -> None:
         assert protocol not in documents, f"duplicate protocol document for {protocol}"
         documents[protocol] = (path, text)
 
-    assert len(documents) == 12
+    assert len(documents) == 15
     assert set(documents) == set(protocol_commands)
 
     manual_commands = {
@@ -105,13 +105,16 @@ def test_default_stage_sequence_covers_protocol_catalog_in_order() -> None:
         "input.inspect",
         "geometry.crop-near-black",
         "background.subtract",
+        "astrometry.solve",
         "color.calibrate",
         "restoration.deconvolve",
         "restoration.denoise",
         "stars.separate",
         "stretch",
+        "structure.local-contrast",
         "color.map",
         "stars.recompose",
+        "restoration.denoise-nonlinear",
         "color.finish",
         "delivery.render",
     ]

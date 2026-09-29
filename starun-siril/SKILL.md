@@ -1,12 +1,12 @@
 ---
 name: starun-siril
 description: |
-  Processes a single calibrated and stacked deep-sky master using headless Siril 1.4 CLI sessions and audited .ssf scripts based on the offline Siril 1.4.4 manual. Use when the user requests Siril command execution/script generation, background extraction, photometric color calibration, deconvolution, StarNet star removal/recomposition, stretching, or narrowband color mapping. Do not use for RAW light frame stacking, GUI automation, or general photo retouching.
+  Processes a single calibrated and stacked deep-sky master using headless Siril 1.4 CLI sessions and audited .ssf scripts based on the offline Siril 1.4.4 manual. Use when the user requests Siril command execution/script generation, background extraction, offline local Gaia astrometry, luminance CLAHE, nonlinear denoising, photometric color calibration, deconvolution, StarNet star removal/recomposition, stretching, or narrowband color mapping. Do not use for RAW light frame stacking, GUI automation, or general photo retouching.
   使用 Siril 1.4 CLI 独立会话与可审计脚本处理单个已堆栈深空 master。用于背景扣除、光度校色与窄带映射、小波反卷积、StarNet 分星、拉伸、合星与调色交付。不用于原始帧堆栈或通用修图。
 license: Proprietary
 metadata:
   slug: starun-siril
-  version: "0.1.1"
+  version: "0.2.0"
   displayName: Starun-siril
   summary: 以独立、可审计的 Siril CLI 会话处理已堆栈深空 master，并由真实像素审查控制正式交付。
   tags: [astronomy, siril, deep-sky, image-processing]
@@ -87,6 +87,7 @@ SSF 的知识链分五层：当前 session、用户目标与实际像素证据�
      --session /abs/session --protocol restoration.denoise \
      --script /abs/session/scripts/055-denoise.ssf \
      --source /abs/session/artifacts/050-deconvolve.fit \
+     --primary-output /abs/session/artifacts/055-denoise.fit \
      --expect /abs/session/artifacts/055-denoise.fit \
      --expect /abs/session/previews/055-denoise.jpg
    ```
@@ -130,6 +131,7 @@ python3 /abs/starun-siril/scripts/deep_sky_siril.py finalize \
 - 选择处理步骤时从 [协议索引](references/protocol-index.md) 打开对应协议原文。
 - 审查候选或最终图时读 [质量协议](references/quality.md)。
 - 生成最终交付时读 [交付协议](references/delivery.md)。
+- 处理堆栈 Master 缺失 WCS 或需要从源头单帧/参考帧同步先验时读 [源头 FITS Header 保留协议](references/astrometry-source-preservation.md)。
 - 调试命令、路径、网络或适配器时读 [Siril 安全协议](references/siril-safety.md)。
 - 查询功能、参数或编写不熟悉的 `.ssf` 时读 [手册查询协议](references/manual-query.md)。
 

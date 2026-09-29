@@ -2,6 +2,14 @@
 
 本文件记录 `starun-siril` 的独立版本变更。
 
+## [0.2.0] - 2026-09-29
+
+- Make scientific metrics and automatic background sampling fail closed; remove inferred image domains and fabricated visual passes.
+- Add native GHS, offline local Gaia astrometry, protected luminance CLAHE and nonlinear denoise protocols.
+- Add Source FITS Header Preservation protocol and sync_fits_header.py tool for lossless WCS and prior metadata injection with pixel invariance verification.
+- Bind primary scientific outputs, explicit transfer chains, reviewed starless branches and display-domain recomposition closure.
+- Preserve standalone contract 1 and immutable session history; complete native and C50 acceptance with documented fallbacks.
+
 ## [0.1.1] - 2026-09-24
 
 - 例行补丁升级与元数据规范维护

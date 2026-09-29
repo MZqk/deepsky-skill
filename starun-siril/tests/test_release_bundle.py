@@ -20,7 +20,7 @@ SUBPROCESS_ENV = {
 
 
 def _build_release(tmp_path: Path) -> tuple[Path, dict[str, object]]:
-    archive = tmp_path / "starun-siril-0.1.0.zip"
+    archive = tmp_path / "starun-siril-0.2.0.zip"
     completed = subprocess.run(
         [sys.executable, str(PACKAGER), "--output", str(archive)],
         cwd=tmp_path,
@@ -40,7 +40,7 @@ def test_release_bundle_has_exact_runtime_inventory(tmp_path: Path) -> None:
     archive, report = _build_release(tmp_path)
 
     assert report["schema"] == "starun-siril.release-receipt/v2"
-    assert report["skill"] == {"slug": "starun-siril", "version": "0.1.0"}
+    assert report["skill"] == {"slug": "starun-siril", "version": "0.2.0"}
     assert report["publishable"] is False
     assert report["components"][0]["id"] == "siril-manual"
     assert report["archive"]["inventory"] == [item["path"] for item in report["files"]]
@@ -84,7 +84,9 @@ def test_release_bundle_has_exact_runtime_inventory(tmp_path: Path) -> None:
         "siril_background_samples.py",
         "siril_auto_samples.py",
         "deep_sky_siril_metrics.py",
+        "deep_sky_siril_processing.py",
         "siril_manual_bundle.py",
+        "sync_fits_header.py",
     }
 
 

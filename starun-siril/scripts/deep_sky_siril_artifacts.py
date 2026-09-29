@@ -428,6 +428,35 @@ def read_fits_header(path: Path) -> dict[str, Any]:
     raise ContractError("artifact_invalid", f"FITS END card was not found: {path}")
 
 
+def read_fits_pixels(path: Path):
+    """Read normalized scientific values without clipping, in channel/y/x order."""
+    import numpy as np
+
+    header = read_fits_header(path)
+    geometry = fits_geometry(path)
+    bitpix = geometry["bitpix"]
+    dtypes = {8: ">u1", 16: ">i2", 32: ">i4", -32: ">f4", -64: ">f8"}
+    if bitpix not in dtypes:
+        raise ValueError(f"Unsupported FITS BITPIX: {bitpix}")
+    with path.open("rb") as stream:
+        for _ in range(4096):
+            block = stream.read(2880)
+            if len(block) != 2880:
+                raise ValueError("Incomplete FITS header")
+            if any(block[i:i + 8].strip() == b"END" for i in range(0, 2880, 80)):
+                offset = stream.tell()
+                break
+        else:
+            raise ValueError("Missing FITS END")
+    shape = (geometry["channels"], geometry["height"], geometry["width"])
+    raw = np.memmap(path, dtype=dtypes[bitpix], mode="r", offset=offset, shape=shape)
+    # Integer Siril images use normalized unsigned storage; floating FITS are already normalized.
+    zero = float(header.get("BZERO", 0))
+    scale = float(header.get("BSCALE", 1))
+    norm = (2 ** bitpix - 1 if bitpix == 8 or zero else 2 ** (bitpix - 1) - 1) if bitpix > 0 else 1
+    return raw, scale / norm, zero / norm
+
+
 def fits_geometry(path: Path) -> dict[str, int]:
     header = read_fits_header(path)
     try:

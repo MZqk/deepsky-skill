@@ -96,3 +96,13 @@ unknown session 不允许非 failed finalization；它停在 Stage 1 诊断状�
 
 相同 selection 的重复调用只验证已提交内容，并恢复尚未完成的允许清理；不同 selection 与已有提交
 冲突。只有 `success|partial_success` 会触发默认阶段图像清理。
+
+## Native capabilities in 0.2.0
+
+`run --primary-output /abs/session/artifacts/candidate.fit` selects the scientific parent explicitly. It is required for multiple scientific artifacts; auxiliary PSF/report images are not candidates. A single scientific artifact can be selected automatically. Diagnostic previews cannot become scientific parents. New receipts retain contract 1 and record `primary_output`, `image_domain`, ordered `transfer_chain`, `branch_binding`, and processing checks. Domains come from verified successful receipts, never histograms. Initialize a new session for this policy; old sessions and receipts are not rewritten or exempted from knowledge drift.
+
+`stars.recompose` additionally requires `--separation-run NNN-name --stretch-run NNN-name`. The separation, stretch, and enhanced starless parents must have accepted actual reviews and match source lineage, geometry and explicit chain. Four scientific products must be declared and retained: full-stars display baseline, original stretched starless, display-domain star residual, and recomposed candidate (primary). Numerical closure does not validate star-layer target leakage.
+
+`DEEP_SKY_SIRIL_GAIA_ASTRO_FILE=/abs/gaia_astrometric.dat` freezes a local astrometric file separately from photometric `DEEP_SKY_SIRIL_GAIA_DIR`. `astrometry.solve` binds `core.catalogue_gaia_astro`; no remote catalogue or automatic download is allowed. Missing catalogue returns `local_gaia_astro_missing` with an explicit skipped message. Existing complete WCS uses a save-only protocol and records `preserved_existing_solution`.
+
+Automatic background sampling errors on unreadable data, nonfinite samples or fewer than 12 surviving distinct points. It never substitutes synthetic data or relaxes the exclusion mask. Manual hash-bound sampling remains available.

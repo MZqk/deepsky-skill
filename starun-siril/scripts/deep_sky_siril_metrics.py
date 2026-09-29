@@ -18,7 +18,7 @@ from pathlib import Path
 import re
 from typing import Any, Sequence
 
-METRIC_REPORT_SCHEMA = "starun-siril.metric-report.v1"
+METRIC_REPORT_SCHEMA = "starun-siril.metric-report.v2"
 
 
 def _median(values: Sequence[float]) -> float:
@@ -95,7 +95,7 @@ def parse_stars_tsv(path: Path) -> dict[str, Any]:
                 elif "fwhm" in part and "[" not in part:
                     col_fwhm = col_i
                     found_header = True
-                elif part.startswith("round") or part == "roundness" or "eccent" in part:
+                elif part.startswith("round") or part == "roundness":
                     col_roundness = col_i
             if found_header:
                 header_idx = i
@@ -143,7 +143,7 @@ def parse_stars_tsv(path: Path) -> dict[str, Any]:
 
     fwhm_med = _median(fwhms)
     fwhm_mean, fwhm_std = _mean_and_std(fwhms)
-    round_med = _median(roundness_list) if roundness_list else 0.85
+    round_med = _median(roundness_list) if roundness_list else None
 
     return {
         "detected": True,
@@ -151,257 +151,66 @@ def parse_stars_tsv(path: Path) -> dict[str, Any]:
         "fwhm_median": round(fwhm_med, 3),
         "fwhm_mean": round(fwhm_mean, 3),
         "fwhm_std": round(fwhm_std, 3),
-        "roundness_median": round(round_med, 3),
+        "roundness_median": round(round_med, 3) if round_med is not None else None,
     }
 
 
 def analyze_image_histogram(image_path: Path) -> dict[str, Any]:
-    """Sample-based histogram and dynamic range analysis (read-only)."""
-    resolved = image_path.expanduser().resolve()
-    if not resolved.is_file():
-        return {}
+    """Measure every scientific FITS pixel before clipping; display statistics are diagnostic only."""
+    try:
+        import numpy as np
+        from deep_sky_siril_artifacts import read_fits_pixels
 
-    pixels: list[float] = []
-    suffix = resolved.suffix.lower()
-
-    # 1. Try reading via Pillow for ordinary display images (JPEG/PNG/BMP)
-    if suffix in (".jpg", ".jpeg", ".png", ".bmp"):
-        try:
+        resolved = image_path.expanduser().resolve()
+        scientific = resolved.suffix.lower() in {".fit", ".fits", ".fts"}
+        if scientific:
+            raw, scale, zero = read_fits_pixels(resolved)
+            layers = raw
+        else:
             from PIL import Image
-
-            with Image.open(resolved) as img:
-                # Resize for uniform fast statistical sampling
-                sample = img.convert("L").resize((256, 256))
-                getter = getattr(sample, "get_flattened_data", None) or sample.getdata
-                data = list(getter())
-                pixels = [float(v) / 255.0 for v in data]
-        except Exception:
-            pass
-
-    # 2. Try reading FITS directly (32-bit float / integer raw data)
-    if not pixels:
-        try:
-            import numpy as np
-
-            # Fast binary sampling of primary FITS HDU
-            with resolved.open("rb") as stream:
-                header = bytearray()
-                while True:
-                    block = stream.read(2880)
-                    header.extend(block)
-                    if b"END " in block or len(block) < 2880:
-                        break
-                data_offset = len(header)
-
-            header_text = header.decode("ascii", errors="ignore")
-            w, h, c = 0, 0, 1
-            bitpix = -32
-            bzero = 0.0
-            bscale = 1.0
-            for card in [header_text[i : i + 80] for i in range(0, len(header_text), 80)]:
-                if card.startswith("NAXIS1  "):
-                    try:
-                        w = int(card[10:30].strip())
-                    except ValueError:
-                        pass
-                elif card.startswith("NAXIS2  "):
-                    try:
-                        h = int(card[10:30].strip())
-                    except ValueError:
-                        pass
-                elif card.startswith("NAXIS3  "):
-                    try:
-                        c = int(card[10:30].strip())
-                    except ValueError:
-                        pass
-                elif card.startswith("BITPIX  "):
-                    try:
-                        bitpix = int(card[10:30].strip())
-                    except ValueError:
-                        pass
-                elif card.startswith("BZERO   "):
-                    try:
-                        bzero = float(card[10:30].strip())
-                    except ValueError:
-                        pass
-                elif card.startswith("BSCALE  "):
-                    try:
-                        bscale = float(card[10:30].strip())
-                    except ValueError:
-                        pass
-
-            if bitpix == 16:
-                dtype = ">i2"
-                norm_factor = 65535.0 if bzero >= 32767.0 else 32767.0
-            elif bitpix == 8:
-                dtype = ">u1"
-                norm_factor = 255.0
-            elif bitpix == 32:
-                dtype = ">i4"
-                norm_factor = 2147483647.0
-            elif bitpix in (-32, -64):
-                dtype = ">f4" if bitpix == -32 else ">f8"
-                norm_factor = 1.0
-            else:
-                dtype = ">f4"
-                norm_factor = 1.0
-
-            total_valid_pixels = w * h * c if (w > 0 and h > 0) else None
-            data_arr = np.memmap(
-                resolved, dtype=dtype, mode="r", offset=data_offset
-            )
-            if total_valid_pixels is not None and total_valid_pixels <= len(data_arr):
-                data_slice = data_arr[:total_valid_pixels]
-            else:
-                data_slice = data_arr
-
-            stride = max(1, len(data_slice) // 65536)
-            sub = data_slice[::stride].astype(np.float64) * bscale + bzero
-            if norm_factor != 1.0:
-                sub = sub / norm_factor
-            sub = np.clip(sub, 0.0, 1.0)
-            pixels = sub.tolist()
-        except Exception:
-            pass
-
-    if not pixels:
-        return {}
-
-    n = len(pixels)
-    shadow_clipped = sum(1 for p in pixels if p <= 0.0001)
-    highlight_sat = sum(1 for p in pixels if p >= 0.999)
-
-    mean_val, std_val = _mean_and_std(pixels)
-    med_val = _median(pixels)
-    mad_val = _median_absolute_deviation(pixels, med_val)
-    skew = _skewness(pixels, mean_val, std_val)
-
-    sorted_p = sorted(pixels)
-    p05 = sorted_p[int(n * 0.05)]
-    p95 = sorted_p[int(n * 0.95)]
-    dynamic_span = max(0.0, p95 - p05)
-
-    # Linearity diagnosis: linear astronomical masters exhibit extreme positive skewness (> 3.5)
-    # and tightly clustered pixel mass (narrow dynamic_span < 0.08)
-    is_linear = skew > 3.5 and dynamic_span < 0.08 and med_val < 0.35
-    state_recommendation = "linear" if is_linear else "nonlinear"
-    conf = min(0.99, max(0.50, abs(skew - 3.5) / 4.0 + 0.50))
-
-    return {
-        "sample_count": n,
-        "shadow_clip_rate": round(shadow_clipped / float(n), 6),
-        "highlight_sat_rate": round(highlight_sat / float(n), 6),
-        "bg_median": round(med_val, 5),
-        "bg_mad": round(mad_val, 5),
-        "bg_std": round(std_val, 5),
-        "skewness": round(skew, 3),
-        "dynamic_range_coverage": round(dynamic_span, 4),
-        "state_recommendation": state_recommendation,
-        "state_confidence": round(conf, 2),
-    }
+            with Image.open(resolved) as image:
+                layers = np.asarray(image.convert("RGB"), dtype=float).transpose(2, 0, 1)
+            scale, zero = 1 / 255, 0
+        channels = []
+        for index, layer in enumerate(layers):
+            values = np.asarray(layer, dtype=float).ravel() * scale + zero
+            finite = values[np.isfinite(values)]
+            record = {"channel": index, "pixel_count": int(values.size),
+                      "finite_count": int(finite.size), "nonfinite_count": int(values.size - finite.size)}
+            if finite.size:
+                med = float(np.median(finite))
+                record.update(image_median=med, image_mad=float(np.median(np.abs(finite - med))),
+                              image_std=float(np.std(finite)), image_mean=float(np.mean(finite)),
+                              near_black_rate=float(np.count_nonzero((finite > 0) & (finite <= 0.0001)) / finite.size))
+                if scientific:
+                    record.update(shadow_clip_rate=float(np.count_nonzero(finite <= 0) / finite.size),
+                                  highlight_sat_rate=float(np.count_nonzero(finite >= 1) / finite.size))
+            channels.append(record)
+        return {"status": "measured" if all(c["finite_count"] and not c["nonfinite_count"] for c in channels) else "uncertain",
+                "measurement_domain": "scientific" if scientific else "display_quantized",
+                "channels": channels, "pixel_count": sum(c["pixel_count"] for c in channels)}
+    except Exception as exc:
+        return {"status": "uncertain", "error": f"{type(exc).__name__}: {exc}"}
 
 
-def evaluate_stage_gates(
-    protocol: str,
-    metrics: dict[str, Any],
-    *,
-    parent_metrics: dict[str, Any] | None = None,
-    stars_metrics: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any], str]:
-    """Generate recommended gate verdicts and evidence text based on metrics."""
-    gates = {
-        "structure": {"verdict": "pass", "evidence": "Structure details preserved."},
-        "background": {"verdict": "pass", "evidence": "Background baseline stable."},
-        "color": {"verdict": "pass", "evidence": "Color transitions continuous."},
-        "stars": {"verdict": "pass", "evidence": "Stars morphology natural."},
-        "geometry": {"verdict": "pass", "evidence": "Geometry matches expected transform."},
-    }
-    overall_verdict = "accept"
-
-    clip_rate = metrics.get("shadow_clip_rate", 0.0)
-    sat_rate = metrics.get("highlight_sat_rate", 0.0)
-
-    # Universal check on clipping
-    if clip_rate > 0.05:
-        gates["background"] = {
-            "verdict": "fail",
-            "evidence": f"Severe shadow clipping detected: {clip_rate*100:.2f}% pixels <= 0.0",
-        }
-        overall_verdict = "reject"
-    elif clip_rate > 0.005:
-        gates["background"] = {
-            "verdict": "pass",
-            "evidence": f"Minor shadow baseline clipping ({clip_rate*100:.3f}%), within acceptable tolerance.",
-        }
-
-    # Protocol-specific gates
-    if protocol == "input.inspect":
-        rec = metrics.get("state_recommendation", "unknown")
-        skew = metrics.get("skewness", 0.0)
-        gates["background"]["evidence"] = (
-            f"Input direct baseline inspected. Skewness={skew} indicates {rec} state."
-        )
-        gates["structure"]["evidence"] = "Input inspected without alterations."
-
-    elif protocol == "background.subtract":
-        if parent_metrics:
-            p_mad = parent_metrics.get("bg_mad", 1e-5)
-            c_mad = metrics.get("bg_mad", 1e-5)
-            red_pct = round((p_mad - c_mad) / max(1e-7, p_mad) * 100, 2)
-            if red_pct < -5.0:
-                gates["background"] = {
-                    "verdict": "fail",
-                    "evidence": f"Background variance increased by {-red_pct}% after subtraction.",
-                }
-                overall_verdict = "reject"
-            else:
-                gates["background"] = {
-                    "verdict": "pass",
-                    "evidence": f"Background noise variance reduced by {red_pct}%, no hollowing.",
-                }
-
-    elif protocol in ("restoration.deconvolve", "restoration.denoise"):
-        if stars_metrics and stars_metrics.get("detected"):
-            cnt = stars_metrics["star_count"]
-            fwhm = stars_metrics["fwhm_median"]
-            rnd = stars_metrics["roundness_median"]
-            gates["stars"]["evidence"] = (
-                f"Evaluated {cnt} detected stars: median FWHM={fwhm}px, roundness={rnd}."
-            )
-            if rnd < 0.30:
-                gates["stars"] = {
-                    "verdict": "fail",
-                    "evidence": f"Severe star distortion detected: median roundness={rnd} < 0.30",
-                }
-                overall_verdict = "reject"
-        else:
-            gates["stars"]["evidence"] = "Star metrics within preservation baseline."
-
-    elif protocol == "stretch":
-        dyn = metrics.get("dynamic_range_coverage", 0.0)
-        if dyn < 0.05:
-            gates["structure"] = {
-                "verdict": "fail",
-                "evidence": f"Inadequate dynamic range spread ({dyn}), stretch insufficient.",
-            }
-            overall_verdict = "reject"
-        else:
-            gates["structure"]["evidence"] = (
-                f"Dynamic range effectively expanded to {dyn:.3f} without core burnout."
-            )
-
-    elif protocol == "stars.separate":
-        gates["stars"]["evidence"] = "Starless and star layer separated into dual streams."
-
-    elif protocol == "delivery.render":
-        if clip_rate > 0.01 or sat_rate > 0.05:
-            gates["background"]["verdict"] = "fail"
-            gates["background"]["evidence"] = "Final candidate contains unacceptable clipping."
-            overall_verdict = "reject"
-        else:
-            gates["structure"]["evidence"] = "Final delivery candidate passes 5-gate visual check."
-
-    return gates, overall_verdict
+def evaluate_stage_gates(protocol: str, metrics: dict[str, Any], *,
+                         parent_metrics: dict[str, Any] | None = None,
+                         stars_metrics: dict[str, Any] | None = None) -> tuple[dict[str, Any], str]:
+    """Only proven failures can reject; numerical diagnostics never accept visual gates."""
+    gates = {name: {"verdict": "uncertain", "evidence": "Actual visual review is required."}
+             for name in ("structure", "background", "color", "stars", "geometry")}
+    verdict = "uncertain"
+    if protocol != "input.inspect" and metrics.get("measurement_domain") == "scientific":
+        rates = [c.get("shadow_clip_rate") for c in metrics.get("channels", [])]
+        if any(isinstance(rate, (float, int)) and math.isfinite(rate) and rate >= 0.0001 for rate in rates):
+            gates["background"] = {"verdict": "fail", "evidence": "Scientific shadow clipping reaches 0.01% in at least one channel."}
+            verdict = "reject"
+    if stars_metrics and stars_metrics.get("detected"):
+        rnd = stars_metrics.get("roundness_median")
+        if isinstance(rnd, (float, int)) and math.isfinite(rnd) and rnd < 0.30:
+            gates["stars"] = {"verdict": "fail", "evidence": "Measured median star roundness is below 0.30."}
+            verdict = "reject"
+    return gates, verdict
 
 
 def generate_metric_report(

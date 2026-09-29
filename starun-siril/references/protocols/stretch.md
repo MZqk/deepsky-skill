@@ -9,9 +9,9 @@ linear 父源变为非线性显示图时必需。nonlinear 和 unknown 不使用
 
 - 默认 `autostretch -linked SHADOW TARGET`；`-8.0<=SHADOW<=-2.8`，
   `0.08<=TARGET<=0.18`；
-- `asinh -human STRENGTH -clipmode=rgbblend` 只在亮核与微弱结构动态范围需要时使用，
+- `asinh -human STRENGTH OFFSET -clipmode=rgbblend` 只在亮核与微弱结构动态范围需要时使用，
   `20<=STRENGTH<=55`，之后仍执行 linked autostretch；
-- 有 StarNet 分支时必须使用可从日志记录 MTF 的 linked 路径，供星层同传递。
+- 有 StarNet 分支时使用全部参数显式的 MTF/Asinh/GHS 链，并分别传递原始 full/starless。
 
 ## SSF 知识关系
 
@@ -38,3 +38,22 @@ close
 
 检查黑位、亮核、微弱结构、噪声、星色与通道裁剪。星云被压平、核溢出、背景截断或噪声失控时
 reject；根据具体观察最多修订一次。
+
+## Explicit native transfer chains (0.2.0)
+
+Keep the linked autostretch full-stars baseline. Starless branches require explicit ordered commands; the executor records parameters from the verified SSF and does not generate scripts or accept incomplete auto-derived chains. GHS bounds: 0≤D≤10, -5≤B≤15, 0≤LP≤SP≤HP≤1. Apply all RGB channels with `-human -clipmode=rgbblend`; independent/saturation/channel-only stretches are forbidden. All five numeric GHS parameters are explicit for a starless branch.
+
+```ssf
+requires 1.4.4 1.5.0
+set32bits
+load "/abs/current-linear-parent.fit"
+mtf 0 0.01 1
+asinh -human 2 0 -clipmode=rgbblend
+ght -D=0.2 -B=0 -LP=0 -SP=0.2 -HP=1 -human -clipmode=rgbblend
+save "/abs/session/artifacts/070-explicit-stretch" -chksum
+stat main
+savejpg "/abs/session/previews/070-explicit-stretch" 95
+close
+```
+
+These values illustrate syntax, not image-independent defaults. Consult the frozen `mtf/asinh/ght` manuals for this chain and record evidence and actual parameter reasons. Recomposition applies the same chain independently to the original full and starless sources.

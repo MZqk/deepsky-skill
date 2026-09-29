@@ -31,159 +31,34 @@ def sha256_file(path: Path) -> str:
 
 
 def _read_fits_dimensions(path: Path) -> tuple[int, int]:
-    """Read NAXIS1 (width) and NAXIS2 (height) from the primary FITS header."""
-    header_bytes = bytearray()
-    with path.open("rb") as stream:
-        while True:
-            block = stream.read(2880)
-            if not block or len(block) < 2880:
-                break
-            header_bytes.extend(block)
-            if b"END " in block:
-                break
-            if len(header_bytes) > 2880 * 100:  # 100 blocks max
-                break
-
-    text = header_bytes.decode("ascii", errors="ignore")
-    cards = [text[i : i + 80] for i in range(0, len(text), 80)]
-    values: dict[str, int] = {}
-    for card in cards:
-        if card.startswith("NAXIS1 ") or card.startswith("NAXIS2 "):
-            key = card[:8].strip()
-            val_part = card[10:30].strip()
-            try:
-                values[key] = int(val_part)
-            except ValueError:
-                pass
-    if "NAXIS1" not in values or "NAXIS2" not in values:
-        raise ValueError(f"Could not read NAXIS1/NAXIS2 from FITS header: {path}")
-    return values["NAXIS1"], values["NAXIS2"]
+    from deep_sky_siril_artifacts import fits_geometry
+    geometry = fits_geometry(path)
+    return geometry["width"], geometry["height"]
 
 
-def _load_luminance_thumbnail(
-    source_path: Path,
-    preview_path: Path | None,
-    target_dim: int = 256,
-) -> tuple[list[list[float]], int, int]:
-    """Load a downsampled 2D float luminance map and return (map, orig_w, orig_h)."""
+def _load_luminance_thumbnail(source_path: Path, preview_path: Path | None, target_dim: int = 256):
+    """Sample the complete FITS extent and retain exact coordinates for backmapping."""
+    import numpy as np
+    from deep_sky_siril_artifacts import read_fits_pixels
+
     orig_w, orig_h = _read_fits_dimensions(source_path)
-
-    # 1. If a matching preview image exists and PIL is available, use it for super fast luminance
-    pil_loaded = False
-    lum_grid: list[list[float]] = []
-
-    if preview_path is not None and preview_path.is_file():
-        try:
-            from PIL import Image
-
-            with Image.open(preview_path) as img:
-                thumb = img.convert("L").resize(
-                    (target_dim, target_dim), Image.Resampling.BILINEAR
-                )
-                getter = getattr(thumb, "get_flattened_data", None) or thumb.getdata
-                raw_data = list(getter())
-                lum_grid = [
-                    [
-                        raw_data[y * target_dim + x] / 255.0
-                        for x in range(target_dim)
-                    ]
-                    for y in range(target_dim)
-                ]
-                pil_loaded = True
-        except Exception:
-            pil_loaded = False
-
-    if pil_loaded and lum_grid:
-        return lum_grid, orig_w, orig_h
-
-    # 2. Direct FITS sub-sampling (reads primary HDU without external dependencies)
-    try:
-        import numpy as np
-
-        # Fast path with numpy
-        with source_path.open("rb") as stream:
-            header_bytes = bytearray()
-            while True:
-                block = stream.read(2880)
-                header_bytes.extend(block)
-                if b"END " in block or len(block) < 2880:
-                    break
-            data_offset = len(header_bytes)
-
-        # Read dimensions, channels, bitpix, and bzero
-        header_text = header_bytes.decode("ascii", errors="ignore")
-        bitpix = -32
-        bzero = 0.0
-        bscale = 1.0
-        naxis3 = 1
-        for card in [header_text[i : i + 80] for i in range(0, len(header_text), 80)]:
-            if card.startswith("BITPIX  "):
-                try:
-                    bitpix = int(card[10:30].strip())
-                except ValueError:
-                    pass
-            elif card.startswith("BZERO   "):
-                try:
-                    bzero = float(card[10:30].strip())
-                except ValueError:
-                    pass
-            elif card.startswith("BSCALE  "):
-                try:
-                    bscale = float(card[10:30].strip())
-                except ValueError:
-                    pass
-            elif card.startswith("NAXIS3  "):
-                try:
-                    naxis3 = int(card[10:30].strip())
-                except ValueError:
-                    pass
-
-        # Select numpy dtype
-        if bitpix == 16:
-            dtype = ">i2"
-        elif bitpix == 8:
-            dtype = ">u1"
-        elif bitpix == 32:
-            dtype = ">i4"
-        elif bitpix in (-32, -64):
-            dtype = ">f4" if bitpix == -32 else ">f8"
-        else:
-            dtype = ">f4"
-
-        shape = (naxis3, orig_h, orig_w) if naxis3 > 1 else (orig_h, orig_w)
-        mmap_arr = np.memmap(
-            source_path,
-            dtype=dtype,
-            mode="r",
-            offset=data_offset,
-            shape=shape,
-        )
-
-        step_x = max(1, orig_w // target_dim)
-        step_y = max(1, orig_h // target_dim)
-
-        if naxis3 >= 3:
-            # Green channel (index 1) has best SNR for luminance
-            layer = mmap_arr[1]
-        elif naxis3 == 2:
-            layer = mmap_arr[0]
-        else:
-            layer = mmap_arr
-
-        raw_sub = layer[::step_y, ::step_x][:target_dim, :target_dim].astype(np.float64)
-        sub = raw_sub * bscale + bzero
-        # Normalize to 0..1
-        min_v = float(np.percentile(sub, 1))
-        max_v = float(np.percentile(sub, 99))
-        denom = max(1e-7, max_v - min_v)
-        norm_sub = np.clip((sub - min_v) / denom, 0.0, 1.0)
-        return norm_sub.tolist(), orig_w, orig_h
-    except Exception:
-        pass
-
-    # 3. Fallback: uniform synthetic map if image is unreadable (graceful degradation)
-    fallback = [[0.1 for _ in range(target_dim)] for _ in range(target_dim)]
-    return fallback, orig_w, orig_h
+    xs = np.rint(np.linspace(0, orig_w - 1, min(orig_w, target_dim))).astype(int)
+    ys = np.rint(np.linspace(0, orig_h - 1, min(orig_h, target_dim))).astype(int)
+    raw, scale, zero = read_fits_pixels(source_path)
+    if preview_path is not None:
+        from PIL import Image
+        with Image.open(preview_path) as image:
+            if image.size != (orig_w, orig_h):
+                raise ValueError("Preview geometry must match the scientific source")
+            values = np.asarray(image.convert("L"), dtype=float)[np.ix_(ys, xs)] / 255
+    else:
+        layer = raw[1 if raw.shape[0] == 3 else 0]
+        values = np.asarray(layer[np.ix_(ys, xs)], dtype=float) * scale + zero
+    if not np.isfinite(values).all():
+        raise ValueError("Non-finite background sampling data")
+    lo, hi = np.percentile(values, [1, 99])
+    values = np.clip((values - lo) / max(1e-7, hi - lo), 0, 1)
+    return values.tolist(), orig_w, orig_h, xs.tolist(), ys.tolist()
 
 
 def _median_and_mad(values: list[float]) -> tuple[float, float]:
@@ -233,8 +108,11 @@ def generate_background_samples(
     resolved_source = source_path.expanduser().resolve()
     resolved_preview = preview_path.expanduser().resolve() if preview_path else None
 
+    if not 12 <= target_count <= 256:
+        raise ValueError("Automatic sampling requires 12..256 target points")
+    source_sha = sha256_file(resolved_source)
     thumb_dim = 256
-    lum_grid, orig_w, orig_h = _load_luminance_thumbnail(
+    lum_grid, orig_w, orig_h, sample_xs, sample_ys = _load_luminance_thumbnail(
         resolved_source, resolved_preview, target_dim=thumb_dim
     )
     thumb_h = len(lum_grid)
@@ -329,29 +207,13 @@ def generate_background_samples(
             if best_point is not None:
                 candidates.append(best_point)
 
-    # If too few points due to dense nebula, relax dilation
-    if len(candidates) < min(12, target_count // 2):
-        candidates = []
-        for gy in range(grid_steps):
-            for gx in range(grid_steps):
-                x_mid = min(thumb_w - 1, max(0, int((gx + 0.5) * cell_w)))
-                y_mid = min(thumb_h - 1, max(0, int((gy + 0.5) * cell_h)))
-                if not mask[y_mid][x_mid]:
-                    candidates.append(
-                        (float(x_mid), float(y_mid), lum_grid[y_mid][x_mid])
-                    )
-
-    # Sigma clipping on candidate values
-    if len(candidates) > target_count:
-        vals = [c[2] for c in candidates]
-        c_med, c_mad = _median_and_mad(vals)
+    # Never relax the exclusion mask or restore outliers to satisfy a point count.
+    if candidates:
+        c_med, c_mad = _median_and_mad([c[2] for c in candidates])
         c_sig = max(1e-6, 1.4826 * c_mad)
-        # Filter outliers
-        filtered = [
-            c for c in candidates if abs(c[2] - c_med) <= 2.5 * c_sig
-        ]
-        if len(filtered) >= min(12, target_count // 2):
-            candidates = filtered
+        candidates = [c for c in candidates if abs(c[2] - c_med) <= 2.5 * c_sig]
+    if len(candidates) < 12:
+        raise ValueError(f"Only {len(candidates)} background points survive exclusion; at least 12 required. Use manual sampling.")
 
     # Limit to target_count evenly
     if len(candidates) > target_count:
@@ -363,23 +225,23 @@ def generate_background_samples(
         selected_candidates = candidates
 
     # Map back to original FITS coordinates
-    scale_x = orig_w / float(thumb_w)
-    scale_y = orig_h / float(thumb_h)
-
     fit_samples = []
     seen_coords: set[tuple[float, float]] = set()
 
     for idx, (tx, ty, _) in enumerate(selected_candidates, 1):
         # Center in original coordinate space (integer pixel center)
-        orig_x = float(int(min(orig_w - 1, max(0, (tx + 0.5) * scale_x))))
-        orig_y = float(int(min(orig_h - 1, max(0, (ty + 0.5) * scale_y))))
+        orig_x = float(sample_xs[int(tx)])
+        orig_y = float(sample_ys[int(ty)])
         coord = (orig_x, orig_y)
         if coord in seen_coords:
             continue
         seen_coords.add(coord)
         fit_samples.append({"id": f"bg-{idx:03d}", "x": orig_x, "y": orig_y})
 
-    source_sha = sha256_file(resolved_source)
+    if len(fit_samples) < 12:
+        raise ValueError("Fewer than 12 distinct background points; use manual sampling")
+    if sha256_file(resolved_source) != source_sha:
+        raise ValueError("Scientific source changed during sampling")
 
     return {
         "schema": CONTRACT_SCHEMA,

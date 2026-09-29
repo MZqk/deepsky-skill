@@ -470,6 +470,9 @@ def _replay_run_receipt(
     protocol: str,
     source_value: str,
     expected_values: Sequence[str],
+    primary_output_value: str | None = None,
+    separation_run: str | None = None,
+    stretch_run: str | None = None,
 ) -> dict[str, Any]:
     """Replay only an immutable receipt matching the complete requested lineage."""
     if receipt_path.is_symlink():
@@ -501,6 +504,14 @@ def _replay_run_receipt(
             f"Run receipt does not match the requested lineage: {run_id}",
         )
 
+    if "primary_output" in receipt:
+        from deep_sky_siril_processing import primary_output
+        requested = primary_output(session, [session_path(session, v) for v in expected_values], primary_output_value)
+        if (receipt["primary_output"] != (relative_session_path(session, requested) if requested else None)
+            or receipt.get("protocol") == "stars.recompose" and
+            (receipt.get("branch_binding", {}).get("separation_run") != separation_run
+             or receipt.get("branch_binding", {}).get("stretch_run") != stretch_run)):
+            raise ContractError("run_id_already_used", "Primary output or branch arguments differ from frozen receipt")
     source_raw = _absolute(source_value)
     if source_raw.is_symlink() or not source_raw.is_file():
         raise ContractError("source_missing", f"Run source is missing or unsafe: {source_raw}")
@@ -645,6 +656,9 @@ def run_script(
     expected_values: Sequence[str],
     timeout: int,
     validate_only: bool = False,
+    primary_output_value: str | None = None,
+    separation_run: str | None = None,
+    stretch_run: str | None = None,
 ) -> dict[str, Any]:
     session, payload, manifest = session_state.load_session(session_value)
     script = session_path(session, script_value, must_exist=True, allowed_roots=("scripts",))
@@ -664,6 +678,9 @@ def run_script(
             protocol=protocol,
             source_value=source_value,
             expected_values=expected_values,
+            primary_output_value=primary_output_value,
+            separation_run=separation_run,
+            stretch_run=stretch_run,
         )
     if not session_state.execution_policy_is_current(payload):
         raise ContractError(
@@ -713,6 +730,32 @@ def run_script(
         else tooling.probe_tools(offline=offline)
     )
     siril = probe.get("tools", {}).get("siril_cli", {})
+    from deep_sky_siril_processing import primary_output, prepare_processing, validate_processing_outputs
+    primary = primary_output(session, expected, primary_output_value)
+    review_bindings = []
+
+    def accepted_review(run_name):
+        matches = [p for p in (session / "reviews").glob("*.json") if load_json(p).get("run_id") == run_name]
+        if len(matches) != 1:
+            raise ContractError("review_required", f"Exactly one actual review is required for {run_name}")
+        review, binding = _validate_review(session, str(matches[0]), run_name)
+        if review["verdict"] != "accept":
+            raise ContractError("review_required", f"Accepted visual review is required for {run_name}")
+        if binding not in review_bindings:
+            review_bindings.append(binding)
+        return review
+
+    processing = prepare_processing(session, payload, protocol, source, primary,
+        script.read_text(encoding="utf-8"), frozen_probe, separation_run, stretch_run,
+        lambda name: _load_run(session, name), accepted_review)
+    if protocol == "stars.separate":
+        processing["branch_binding"]["separation_run"] = run_id
+    processing["review_bindings"] = review_bindings
+    if protocol == "astrometry.solve":
+        probe["tools"]["local_gaia_astro"] = frozen_probe["tools"].get("local_gaia_astro", {})
+        catalogue = processing.get("astrometry", {}).get("catalogue")
+        if catalogue and not fingerprint_matches(catalogue):
+            raise ContractError("runtime_dependency_changed", "Frozen astrometric catalogue changed")
     validation = validation_ops.validate_script_file(
         script,
         provenance=provenance,
@@ -769,6 +812,7 @@ def run_script(
                 else "@input"
             ),
             "expected_outputs": expected_relative,
+            **processing,
             "network": validation["network"],
             "validation": validation,
             "scope": {
@@ -987,6 +1031,18 @@ def run_script(
         and knowledge_bindings_unchanged
         and runtime_bindings_unchanged
     )
+    processing_checks = {"status": "not_run"}
+    if success:
+        try:
+            checks = validate_processing_outputs(session, source, primary, processing)
+            if processing.get("astrometry", {}).get("catalogue") and not fingerprint_matches(processing["astrometry"]["catalogue"]):
+                raise ContractError("runtime_dependency_changed", "Astrometric catalogue changed")
+            if any(sha256_file(session / b["path"]) != b["sha256"] for b in review_bindings):
+                raise ContractError("review_changed", "Parent visual review changed during execution")
+            processing_checks = {"status": "passed", **checks}
+        except (ContractError, ValueError, OSError) as exc:
+            success = False
+            processing_checks = {"status": "failed", "reason": str(exc)}
     receipt = {
         "schema": f"{SCHEMA_PREFIX}.run-receipt.v1",
         "contract_version": CONTRACT_VERSION,
@@ -1035,67 +1091,25 @@ def run_script(
         "runtime_bindings_unchanged": runtime_bindings_unchanged,
         "statistics_samples": artifacts.parse_statistics_samples(output),
         "autostretch_mtf": artifacts.parse_autostretch_mtf(output),
+        **processing,
+        "processing_checks": processing_checks,
     }
     atomic_write_json(receipt_path, receipt)
     session_state._append_run(session / "manifest.json", manifest, receipt_path, receipt)
     if success:
-        _try_generate_run_metrics(session, run_id, protocol, source, expected)
+        _try_generate_run_metrics(session, run_id, protocol, source, expected, primary)
     return receipt
 
 
-def _try_generate_run_metrics(
-    session: Path,
-    run_id: str,
-    protocol: str,
-    source: Path,
-    expected_paths: Sequence[Path],
-) -> None:
-    """Best-effort quantitative metrics generation for diagnostic reporting."""
-    try:
-        import deep_sky_siril_metrics as metrics_mod
-
-        candidate: Path | None = None
-        stars_tsv: Path | None = None
-        image_candidates: list[Path] = []
-        for out in expected_paths:
-            name_lower = out.name.lower()
-            if name_lower.endswith(".tsv") and "star" in name_lower and out.is_file():
-                stars_tsv = out
-            elif any(
-                name_lower.endswith(ext)
-                for ext in (".fit", ".fits", ".jpg", ".jpeg", ".png", ".tif", ".tiff")
-            ) and out.is_file():
-                image_candidates.append(out)
-
-        if stars_tsv is None:
-            c_stars = session / "reports" / run_id / "stars.tsv"
-            if c_stars.is_file():
-                stars_tsv = c_stars
-
-        if image_candidates:
-            def _candidate_rank(p: Path) -> tuple[int, int, int, int]:
-                s = p.as_posix()
-                is_report_or_psf = 1 if ("/reports/" in s or "psf" in p.name.lower()) else 0
-                is_preview = 1 if "/previews/" in s else 0
-                is_artifact = 0 if "/artifacts/" in s else 1
-                matches_run = 0 if p.name.startswith(run_id) else 1
-                return (is_report_or_psf, is_preview, is_artifact, matches_run)
-
-            image_candidates.sort(key=_candidate_rank)
-            candidate = image_candidates[0]
-
-        if candidate is not None and candidate.is_file():
-            metrics_out = session / "reports" / run_id / "metrics.json"
-            metrics_mod.generate_metric_report(
-                run_id=run_id,
-                protocol=protocol,
-                candidate_path=candidate,
-                parent_path=source if source.is_file() else None,
-                stars_tsv_path=stars_tsv,
-                output_path=metrics_out,
-            )
-    except Exception:
-        pass
+def _try_generate_run_metrics(session: Path, run_id: str, protocol: str, source: Path,
+                              expected_paths: Sequence[Path], primary: Path | None) -> None:
+    import deep_sky_siril_metrics as metrics_mod
+    stars_tsv = next((p for p in expected_paths if p.suffix == ".tsv" and "star" in p.name), None)
+    # input.inspect reports the scientific input, never the JPEG quantization as source clipping.
+    candidate = primary or source
+    metrics_mod.generate_metric_report(run_id=run_id, protocol=protocol, candidate_path=candidate,
+        parent_path=source, stars_tsv_path=stars_tsv,
+        output_path=session / "reports" / run_id / "metrics.json")
 
 
 def _validate_selection(selection: dict[str, Any]) -> None:

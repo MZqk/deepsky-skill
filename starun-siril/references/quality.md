@@ -15,10 +15,10 @@
 
 ## 通用门
  
-- `structure`：真实细节保留，无抹除、伪结构、振铃、泄漏或塑料感。可参考 `reports/<run-id>/metrics.json` 中的边缘保持与动态范围跨度。
-- `background`：渐变改善，无坑洞、误减、条纹或色块。暗部截断率 `shadow_clip_rate` 需低于 0.01%，背景方差平稳或下降。
-- `color`：过渡连续，无通道裁剪或无来源的真实性声明。背景中性度残差稳定。
-- `stars`：星核、星径、星色和光晕自然，无重复星或明显残留。可参考 `stars.tsv` 提取的平均 FWHM 变化与 roundness，振铃指数无异常下陷。
+- `structure`：真实细节保留，无抹除、伪结构、振铃、泄漏或塑料感。Metrics are measurements, not visual conclusions.
+- `background`：渐变改善，无坑洞、误减、条纹或色块。暗部截断率 `shadow_clip_rate` 需低于 0.01%，Only fixed, identical background regions can support a background comparison.
+- `color`：过渡连续，无通道裁剪或无来源的真实性声明。Inspect actual color transitions.
+- `stars`：星核、星径、星色和光晕自然，无重复星或明显残留。可参考 `stars.tsv` 提取的平均 FWHM 变化与 roundness。
 - `geometry`：构图、裁边、尺寸和 WCS 变化符合协议预期。
 
 候选没有明确优于父源时写 `reject` 并保留父源；证据无法可靠判断时写 `uncertain` 并安全停止。
@@ -39,3 +39,7 @@ direct 与 linked-autostretch 都只是可读性显示，不解析线性状态�
 `review_required`，不要伪装为成功。`delivery.render` 的 receipt 至少列这两份不同图像，五项门不得
 写 `not_applicable`。limitations 不豁免最终五门；明显强偏色背景、通道裁剪、梯度、结构伪影或星点
 异常必须 fail。unknown session 不进入本节的最终审查。
+
+## Metric report v2
+
+`starun-siril.metric-report.v2` records raw finite FITS pixels per channel before clipping: `shadow_clip_rate` counts ≤0; `highlight_sat_rate` counts ≥1; `near_black_rate` counts (0, 0.0001]. Global `image_median/image_mad/image_std` are not background statistics and never infer image domain or background improvement. Rates are fractions: 0.0001 means 0.01%. Shadow clipping at or above this threshold recommends reject except input inspection, which only reports. JPEG measurements have `measurement_domain=display_quantized` and cannot prove scientific clipping. Missing, unreadable or nonfinite measurements remain uncertain. No automatic metric report can recommend accept or claim that visual gates passed.

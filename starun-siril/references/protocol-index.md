@@ -27,15 +27,18 @@ receipt 的 `command_knowledge`；这是机器知识闭包校验，不等同于 
 | 1 | [input.inspect](protocols/input-inspect.md) | 所有执行模式的第一步；建立可读输入预览 |
 | 2 | [geometry.crop-near-black](protocols/geometry-crop-near-black.md) | 可见近黑边、堆栈边或构图边界需要保守裁切 |
 | 3 | [background.subtract](protocols/background-subtract.md) | 线性图存在可分离的大尺度渐变 |
-| 4 | [color.calibrate](protocols/color-calibrate.md) | 线性 broadband/dualband 具备所选校准方法需要的证据 |
+| 4a | [astrometry.solve](protocols/astrometry-solve.md) | Native local Gaia or preserve existing WCS |
+| 4b | [color.calibrate](protocols/color-calibrate.md) | 线性 broadband/dualband 具备所选校准方法需要的证据 |
 | 5a | [restoration.deconvolve](protocols/restoration-deconvolve.md) | 线性图有足够星点生成可靠 PSF |
 | 5b | [restoration.denoise](protocols/restoration-denoise.md) | 反卷积之后仍有影响后续拉伸的线性背景噪声 |
 | 6 | [stars.separate](protocols/stars-separate.md) | 明确需要 starless 分支且 StarNet2 可用 |
 | 7 | [stretch](protocols/stretch.md) | 线性父源需要变为非线性显示图 |
-| 8 | [color.map](protocols/color-map.md) | 已接受 starless 非线性父源且有可靠窄带来源角色 |
+| 8a | [structure.local-contrast](protocols/structure-local-contrast.md) | Reviewed nonlinear starless luminance enhancement |
+| 8b | [color.map](protocols/color-map.md) | 已接受 starless 非线性父源且有可靠窄带来源角色 |
 | 9 | [stars.recompose](protocols/stars-recompose.md) | 已接受 starless 分支，需要匹配传递合星 |
-| 10a | [color.finish](protocols/color-finish.md) | 最终非线性三通道父源需要轻量显示调色 |
-| 10b | [delivery.render](protocols/delivery-render.md) | 已选定并接受最终非线性父源，需要最终 JPEG |
+| 10a | [restoration.denoise-nonlinear](protocols/restoration-denoise-nonlinear.md) | Optional native nonlinear denoise before color |
+| 10b | [color.finish](protocols/color-finish.md) | 最终非线性三通道父源需要轻量显示调色 |
+| 10c | [delivery.render](protocols/delivery-render.md) | 已选定并接受最终非线性父源，需要最终 JPEG |
 
 ## 组合规则
 
@@ -45,6 +48,6 @@ receipt 的 `command_knowledge`；这是机器知识闭包校验，不等同于 
 - nonlinear 输入不得执行只接受 linear 的协议。
 - unknown 输入只执行 Stage 1 的 `input.inspect`，之后停止。获得可靠状态证据后创建新 session；诊断预览
   不是科学父源或交付父源。
-- `stars.recompose` 只接受同一 StarNet 分支和 stretch 记录的匹配 MTF。
+- `stars.recompose` 只接受同一 StarNet 分支和 stretch 记录的完整显式传递链。
 - 任意可选协议失败时保留父源；`stretch` 或 `delivery.render` 失败时停止。
 - 不执行没有可见证据或用户目标支持的协议。

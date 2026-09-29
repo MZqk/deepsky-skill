@@ -519,6 +519,23 @@ def _receipt_bindings_unchanged(
             == bool(current_network["effective_offline"])
         )
 
+    try:
+        for binding in receipt.get("review_bindings", []):
+            if not isinstance(binding, dict) or set(binding) != {"path", "sha256"}:
+                return False
+            reviewed = session_path(session, binding["path"], must_exist=True, allowed_roots=("reviews",))
+            if sha256_file(reviewed) != binding["sha256"]:
+                return False
+        if receipt.get("astrometry", {}).get("catalogue") and not fingerprint_matches(receipt["astrometry"]["catalogue"]):
+            return False
+        if receipt.get("protocol") == "stretch" and "transfer_chain" in receipt:
+            from deep_sky_siril_processing import transfer_chain
+            script = session_path(session, receipt["script"]["path"], must_exist=True, allowed_roots=("scripts",))
+            primary = session_path(session, receipt["primary_output"], must_exist=True, allowed_roots=("artifacts",))
+            if receipt["transfer_chain"] != transfer_chain(script.read_text(encoding="utf-8"), primary):
+                return False
+    except (ContractError, KeyError, TypeError, ValueError, OSError):
+        return False
     knowledge = receipt.get("knowledge_validation")
     current = _knowledge_record(payload)
     if (

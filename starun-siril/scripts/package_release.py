@@ -25,6 +25,7 @@ STATIC_RELEASE_FILES = (
     "LICENSE.md",
     "SKILL.md",
     "agents/openai.yaml",
+    "references/astrometry-source-preservation.md",
     "references/background-sample-contract.schema.json",
     "references/cli-contract.md",
     "references/command-policy.json",
@@ -44,6 +45,9 @@ STATIC_RELEASE_FILES = (
     "references/protocols/stars-recompose.md",
     "references/protocols/stars-separate.md",
     "references/protocols/stretch.md",
+    "references/protocols/astrometry-solve.md",
+    "references/protocols/structure-local-contrast.md",
+    "references/protocols/restoration-denoise-nonlinear.md",
     "references/quality.md",
     "references/review.schema.json",
     "references/session-contract.md",
@@ -59,6 +63,8 @@ STATIC_RELEASE_FILES = (
     "scripts/siril_background_samples.py",
     "scripts/siril_auto_samples.py",
     "scripts/deep_sky_siril_metrics.py",
+    "scripts/deep_sky_siril_processing.py",
+    "scripts/sync_fits_header.py",
     "THIRD_PARTY_NOTICES.md",
     "references/manual-query.md",
     "scripts/query_siril_manual.py",
@@ -85,7 +91,7 @@ EXPECTED_COMPONENT_MODIFICATIONS_PATH = "MODIFICATIONS.md"
 EXPECTED_NAME = "starun-siril"
 EXPECTED_SLUG = "starun-siril"
 EXPECTED_LICENSE = "Proprietary"
-EXPECTED_VERSION = "0.1.1"
+EXPECTED_VERSION = "0.2.0"
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 FIXED_FILE_MODE = stat.S_IFREG | 0o644
 RECEIPT_SCHEMA = "starun-siril.release-receipt/v2"

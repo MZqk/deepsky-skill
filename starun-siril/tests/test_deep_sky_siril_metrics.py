@@ -61,28 +61,20 @@ class TestDeepSkySirilMetrics(unittest.TestCase):
             fits_path.write_bytes(_make_test_fits(width=80, height=60, val_base=0.01))
 
             metrics = metrics_mod.analyze_image_histogram(fits_path)
-            self.assertIn("bg_median", metrics)
-            self.assertIn("shadow_clip_rate", metrics)
-            self.assertIn("highlight_sat_rate", metrics)
-            self.assertEqual(metrics["shadow_clip_rate"], 0.0)
-            self.assertEqual(metrics["highlight_sat_rate"], 0.0)
+            self.assertEqual(metrics["measurement_domain"], "scientific")
+            self.assertNotIn("state_recommendation", metrics)
+            self.assertNotIn("bg_median", metrics)
+            self.assertEqual(metrics["channels"][0]["shadow_clip_rate"], 0)
+            self.assertEqual(metrics["channels"][0]["highlight_sat_rate"], 0)
 
     def test_evaluate_stage_gates(self) -> None:
-        # 1. Background subtraction pass evaluation
-        parent_m = {"bg_mad": 0.005}
-        cand_m = {"bg_mad": 0.0035, "shadow_clip_rate": 0.0001, "highlight_sat_rate": 0.0}
-        gates, verdict = metrics_mod.evaluate_stage_gates(
-            "background.subtract", cand_m, parent_metrics=parent_m
-        )
-        self.assertEqual(verdict, "accept")
-        self.assertEqual(gates["background"]["verdict"], "pass")
-        self.assertIn("reduced by 30", gates["background"]["evidence"])
-
-        # 2. Severe clipping fail evaluation
-        bad_m = {"shadow_clip_rate": 0.08, "highlight_sat_rate": 0.0}
-        gates_bad, verdict_bad = metrics_mod.evaluate_stage_gates("stretch", bad_m)
-        self.assertEqual(verdict_bad, "reject")
-        self.assertEqual(gates_bad["background"]["verdict"], "fail")
+        for measurement in ({}, {"status": "uncertain"}, {"image_mad": .0035}):
+            gates, verdict = metrics_mod.evaluate_stage_gates("background.subtract", measurement)
+            self.assertEqual(verdict, "uncertain")
+            self.assertTrue(all(g["verdict"] == "uncertain" for g in gates.values()))
+        scientific = {"measurement_domain": "scientific", "channels": [{"shadow_clip_rate": .0001}]}
+        self.assertEqual(metrics_mod.evaluate_stage_gates("stretch", scientific)[1], "reject")
+        self.assertEqual(metrics_mod.evaluate_stage_gates("input.inspect", scientific)[1], "uncertain")
 
     def test_generate_metric_report_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -105,7 +97,7 @@ class TestDeepSkySirilMetrics(unittest.TestCase):
                 output_path=out_json,
             )
 
-            self.assertEqual(report["schema"], "starun-siril.metric-report.v1")
+            self.assertEqual(report["schema"], "starun-siril.metric-report.v2")
             self.assertEqual(report["run_id"], "050-deconvolve")
             self.assertEqual(report["protocol"], "restoration.deconvolve")
             self.assertIn("gate_evaluations", report)
@@ -113,7 +105,7 @@ class TestDeepSkySirilMetrics(unittest.TestCase):
             self.assertTrue(out_json.is_file())
 
             persisted = json.loads(out_json.read_text(encoding="utf-8"))
-            self.assertEqual(persisted["schema"], "starun-siril.metric-report.v1")
+            self.assertEqual(persisted["schema"], "starun-siril.metric-report.v2")
             self.assertEqual(persisted["stars"]["star_count"], 15)
 
 

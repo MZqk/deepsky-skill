@@ -68,3 +68,5 @@ session/
 
 保留脚本及 provenance、manual evidence、运行时重开脚本、initfile、JSON receipts、日志、tool probe、manifest、final result 和 final
 audit。恢复处理时从最后一个成功且被接受的 run 继续创建新编号脚本，不重用旧编号。
+
+New run receipts record an explicit primary scientific output, propagated image domain, replayable transfer chain and branch/review bindings. Only primary scientific outputs and retained full-stars baselines can serve as scientific parents. This metadata is additive to receipt v1; old records remain immutable. Hash drift still rejects reuse.

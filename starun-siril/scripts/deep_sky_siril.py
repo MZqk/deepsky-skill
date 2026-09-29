@@ -101,6 +101,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--script", required=True)
     run.add_argument("--source", required=True)
     run.add_argument("--expect", action="append", required=True)
+    run.add_argument("--primary-output")
+    run.add_argument("--separation-run")
+    run.add_argument("--stretch-run")
     run.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     run.add_argument(
         "--validate-only",
@@ -163,6 +166,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 script_value=args.script,
                 source_value=args.source,
                 expected_values=args.expect,
+                primary_output_value=args.primary_output,
+                separation_run=args.separation_run,
+                stretch_run=args.stretch_run,
                 timeout=args.timeout,
                 validate_only=bool(args.validate_only),
             )

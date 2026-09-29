@@ -12,7 +12,7 @@
     },
     "deep-sky-processor": {
       "path": "deep-sky-processor",
-      "version": "0.1.9"
+      "version": "0.1.20"
     },
     "siril-moon-stacking": {
       "path": "siril-moon-stacking",
@@ -24,7 +24,7 @@
     },
     "starun-siril": {
       "path": "starun-siril",
-      "version": "0.1.1"
+      "version": "0.2.0"
     }
   }
 }

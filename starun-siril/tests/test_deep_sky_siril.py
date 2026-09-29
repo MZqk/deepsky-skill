@@ -124,7 +124,7 @@ def _session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    input_state: str = "linear",
+    input_state: str = "nonlinear",
     keep_intermediates: bool = False,
     width: int = 12,
     height: int = 8,
@@ -338,6 +338,19 @@ def _delivery_run(
     input_state = core.load_json(session / "session.json")["context"]["input_state"]
     assert input_state != "unknown"
     delivery_source = source
+    if input_state == "linear":
+        parent = session / "artifacts" / "070-stretch.fit"
+        preview = session / "previews" / "070-stretch.jpg"
+        stretch_script = session / "scripts" / "070-stretch.ssf"
+        stretch_script.write_text(f'requires 1.4.4 1.5.0\nset32bits\nload "{source}"\nmtf 0 0.1 1\nsave "{parent}" -chksum\nsavejpg "{preview.with_suffix("")}" 95\nclose\n')
+        _write_ssf_provenance(session, stretch_script, "stretch")
+        def fake_stretch(command, **_kwargs):
+            _write_fits(parent); _write_jpeg(preview)
+            return subprocess.CompletedProcess(command, 0, "Reading FITS: file output.fit, 1 layer(s), 12x8 pixels, 16 bits\nGray layer: Mean: 100, Median: 90, Sigma: 5, Min: 0, Max: 255, bgnoise: 4, avgDev: 3, MAD: 2, sqrt(BWMV): 1\n")
+        monkeypatch.setattr(core.subprocess, "run", fake_stretch)
+        result = core.run_script(str(session), protocol="stretch", script_value=str(stretch_script), source_value=str(source), expected_values=[str(parent), str(preview)], timeout=30)
+        assert result["status"] == "success"
+        delivery_source = parent
     script, candidate = _delivery_script(
         session,
         delivery_source,
@@ -374,6 +387,8 @@ def _review(session: Path, run_id: str, candidate: Path, *, verdict: str = "acce
         if input_state == "nonlinear"
         else "010-input-autostretch.jpg"
     )
+    if (session / "previews" / "070-stretch.jpg").is_file():
+        parent_preview = session / "previews" / "070-stretch.jpg"
     gates = {
         "structure": "pass",
         "background": "pass",
@@ -930,7 +945,7 @@ def test_starnet_protocol_uses_native_siril_with_frozen_binary_and_model(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session, source, _siril = _session(tmp_path, monkeypatch)
+    session, source, _siril = _session(tmp_path, monkeypatch, input_state="linear")
     executable = tmp_path / "starnet2"
     executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     executable.chmod(0o755)
@@ -1011,6 +1026,7 @@ def test_starnet_protocol_uses_native_siril_with_frozen_binary_and_model(
         script_value=str(script),
         source_value=str(source),
         expected_values=[str(full), str(starless), str(layer)],
+        primary_output_value=str(starless),
         timeout=30,
     )
     assert receipt["status"] == "success"
@@ -1491,7 +1507,7 @@ def test_color_calibration_network_modes_are_explicit(
     session, source, _siril = _session(
         tmp_path,
         monkeypatch,
-        local_gaia=local_gaia,
+        input_state="linear",        local_gaia=local_gaia,
     )
     script, candidate = _color_calibration_script(
         session,
@@ -1520,7 +1536,7 @@ def test_offline_session_rejects_explicit_remote_gaia(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session, source, _siril = _session(tmp_path, monkeypatch, offline=True)
+    session, source, _siril = _session(tmp_path, monkeypatch, offline=True, input_state="linear")
     script, candidate = _color_calibration_script(
         session,
         source,
@@ -1544,7 +1560,7 @@ def test_pcc_requires_an_explicit_supported_catalogue(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session, source, _siril = _session(tmp_path, monkeypatch)
+    session, source, _siril = _session(tmp_path, monkeypatch, input_state="linear")
     script, candidate = _color_calibration_script(
         session,
         source,
@@ -1587,7 +1603,7 @@ def test_color_calibration_execution_uses_the_validated_network_mode(
     session, source, _siril = _session(
         tmp_path,
         monkeypatch,
-        local_gaia=local_gaia,
+        input_state="linear",        local_gaia=local_gaia,
     )
     script, candidate = _color_calibration_script(
         session,
@@ -1702,7 +1718,7 @@ def test_legacy_color_receipt_accepts_only_the_trusted_previous_reference_hash(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session, source, _siril = _session(tmp_path, monkeypatch)
+    session, source, _siril = _session(tmp_path, monkeypatch, input_state="linear")
     script, candidate = _color_calibration_script(
         session,
         source,
@@ -1942,7 +1958,7 @@ def test_background_bridge_requires_minimal_hash_bound_contract(
     session, source, _siril = _session(
         tmp_path,
         monkeypatch,
-        width=64,
+        input_state="linear",        width=64,
         height=64,
     )
 
@@ -2529,7 +2545,7 @@ def test_real_siril_strictly_reopens_a_small_fits_output(
     session_state.init_session(
         str(source),
         str(session),
-        input_state="linear",
+        input_state="nonlinear",
         state_evidence=["synthetic linear FITS fixture"],
         channel_mode="mono",
         channel_map=None,

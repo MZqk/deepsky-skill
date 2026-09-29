@@ -256,6 +256,11 @@ def _validate_runtime_setting(
         if not isinstance(local, dict) or local.get("compatible") is not True:
             raise ContractError("runtime_dependency_missing", "Local Gaia catalogue is unavailable")
         expected = local.get("path")
+    elif protocol == "astrometry.solve" and key == "core.catalogue_gaia_astro":
+        local = probe.get("tools", {}).get("local_gaia_astro", {})
+        if not local.get("compatible"):
+            raise ContractError("local_gaia_astro_missing", "Local Gaia astrometric catalogue is unavailable")
+        expected = local.get("path")
     elif protocol == "stars.separate" and key in {"core.starnet_exe", "core.starnet_weights"}:
         starnet = probe.get("tools", {}).get("starnet", {})
         if not isinstance(starnet, dict) or starnet.get("compatible") is not True:
@@ -726,6 +731,8 @@ def validate_script_file(
         if not tokens:
             continue
         command = tokens[0].lower()
+        from deep_sky_siril_processing import validate_parameters
+        validate_parameters(tokens, protocol)
         commands.append(command)
         if command not in allowed:
             raise ContractError("unsafe_siril_script", f"Command {command} is forbidden for {protocol}")
@@ -827,6 +834,8 @@ def validate_script_file(
         if runtime_settings != required_settings or commands.count("starnet") != 1:
             raise ContractError("unsafe_siril_script", "StarNet protocol lacks its frozen settings or single invocation")
 
+    if protocol == "astrometry.solve" and commands.count("platesolve") and "core.catalogue_gaia_astro" not in runtime_settings:
+        raise ContractError("unsafe_siril_script", "Local astrometry lacks its frozen catalogue setting")
     session_offline = bool(session_payload.get("context", {}).get("offline"))
     if session_state.execution_policy_is_current(session_payload):
         network = classify_siril_network(
