@@ -22,6 +22,7 @@ ALLOWED_FRONTMATTER_KEYS = {
     "name",
     "description",
     "license",
+    "compatibility",
     "allowed-tools",
     "metadata",
 }
@@ -159,6 +160,14 @@ def validate_skill_dir(skill_dir: Path) -> list[str]:
     if frontmatter.get("license") != "Proprietary":
         errors.append(f"{prefix} license must be Proprietary")
 
+    compatibility = frontmatter.get("compatibility")
+    if compatibility is not None and (
+        not isinstance(compatibility, str)
+        or not compatibility.strip()
+        or len(compatibility) > 500
+    ):
+        errors.append(f"{prefix} compatibility must be a non-empty string up to 500 characters")
+
     metadata = frontmatter.get("metadata")
     if not isinstance(metadata, dict):
         errors.append(f"{prefix} metadata must be a mapping")
@@ -184,10 +193,13 @@ def validate_skill_dir(skill_dir: Path) -> list[str]:
         if not isinstance(value, str) or not value.strip():
             errors.append(f"{prefix} metadata.{key} must be a non-empty string")
     tags = metadata.get("tags")
-    if not isinstance(tags, list) or not tags or not all(
-        isinstance(tag, str) and tag.strip() for tag in tags
+    if not (
+        isinstance(tags, str) and tags.strip()
+        or isinstance(tags, list) and tags and all(
+            isinstance(tag, str) and tag.strip() for tag in tags
+        )
     ):
-        errors.append(f"{prefix} metadata.tags must be a non-empty string list")
+        errors.append(f"{prefix} metadata.tags must be a non-empty string or legacy string list")
     homepage = metadata.get("homepage")
     if not isinstance(homepage, str) or not homepage.startswith("https://github.com/MZqk/"):
         errors.append(f"{prefix} metadata.homepage must be an MZqk GitHub HTTPS URL")

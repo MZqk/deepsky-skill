@@ -14,6 +14,10 @@
       "path": "deep-sky-processor",
       "version": "0.1.20"
     },
+    "siril-astra-stacking": {
+      "path": "siril-astra-stacking",
+      "version": "1.2.3"
+    },
     "siril-moon-stacking": {
       "path": "siril-moon-stacking",
       "version": "1.0.12"
