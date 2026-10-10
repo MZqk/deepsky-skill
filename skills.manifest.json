@@ -4,7 +4,7 @@
   "skills": {
     "deep-sky-advisor": {
       "path": "deep-sky-advisor",
-      "version": "0.2.1"
+      "version": "0.4.0"
     },
     "deep-sky-capture-advisor": {
       "path": "deep-sky-capture-advisor",
@@ -12,15 +12,19 @@
     },
     "deep-sky-processor": {
       "path": "deep-sky-processor",
-      "version": "0.1.20"
+      "version": "0.1.41"
+    },
+    "pws-stacking": {
+      "path": "pws-stacking",
+      "version": "1.0.0"
     },
     "siril-astra-stacking": {
       "path": "siril-astra-stacking",
-      "version": "1.2.3"
+      "version": "1.4.1"
     },
     "siril-moon-stacking": {
       "path": "siril-moon-stacking",
-      "version": "1.0.12"
+      "version": "1.1.0"
     },
     "siril-mosaic": {
       "path": "siril-mosaic",
@@ -28,7 +32,7 @@
     },
     "starun-siril": {
       "path": "starun-siril",
-      "version": "0.2.0"
+      "version": "0.3.3"
     }
   }
 }
