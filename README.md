@@ -2,7 +2,7 @@
 
 [![skills.sh](https://skills.sh/b/MZqk/deepsky-skill)](https://skills.sh/MZqk/deepsky-skill)
 
-面向 Codex 与各类 AI Coding Agent 的深空摄影 Skill 集合，覆盖拍摄知识、图像诊断、真实性约束下的后期处理，以及 Siril 天文马赛克拼接。
+面向 Codex 与各类 AI Coding Agent 的深空摄影 Skill 集合，覆盖拍摄知识、图像诊断、真实性约束下的后期处理、Siril 天文马赛克拼接，以及 PWS 分区加权叠加。
 
 本仓库采用“领域单仓、独立发布单元”的组织方式：每个顶层 Skill 独立维护依赖、虚拟环境、测试、版本、许可和发布记录；仓库根目录只维护索引、结构校验、CI 和轻量路由契约。
 
@@ -14,6 +14,7 @@
 | [`deep-sky-capture-advisor`](deep-sky-capture-advisor/) | 使用内置可追溯知识快照回答深空摄影器材、拍摄、后期与排障问题 | 带适用条件、审核状态与来源路径的建议 |
 | [`deep-sky-advisor`](deep-sky-advisor/) | 分析 FITS、XISF、TIFF、PNG 或 JPEG 深空图像，并给出有证据支持的后期建议 | 诊断数据、预览图、处理建议报告 |
 | [`deep-sky-processor`](deep-sky-processor/) | 在真实性约束下，通过分阶段审查完成深空图像后期 | 自然版和增强版 JPG，可选 TIFF 母版 |
+| [`pws-stacking`](pws-stacking/) | 无界面运行 PWS 分区加权叠加，开跑前强制预检已校准/已对齐前提 | 线性 Float32 XISF 成品、逐帧权重表与诊断场 |
 | [`siril-astra-stacking`](siril-astra-stacking/) | 使用 Siril 1.4 CLI 按 FITS 头签名识别设备并推导校准、配准与堆栈参数，无头叠加 FITS 序列 | 32bit 线性母版 FITS、MTF 预览 PNG 与可审计报告 |
 | [`siril-moon-stacking`](siril-moon-stacking/) | 融合 Siril 1.4.4 CLI 与亚像素频域配准，完成月面幸运成像堆叠与矿物月处理 | 32 位 FITS、TIFF 与高质量 JPG 成片 |
 | [`siril-mosaic`](siril-mosaic/) | 使用 Siril 自动解算、配准并拼接已堆栈天文面板 | 线性 32-bit FITS、显示预览和审计记录 |
@@ -30,6 +31,7 @@
 ├── deep-sky-capture-advisor/ # 自包含的深空摄影知识顾问
 ├── deep-sky-advisor/         # 深空图像诊断与后期建议
 ├── deep-sky-processor/       # AI 主导的深空图像处理工作流
+├── pws-stacking/             # PWS 分区加权叠加（无界面，开跑前强制预检）
 ├── siril-astra-stacking/     # Siril 1.4 无头叠加流水线（按设备元数据推导参数）
 ├── siril-moon-stacking/      # 月面幸运成像堆叠与矿物月处理
 ├── siril-mosaic/             # Siril 天文马赛克拼接与视觉验收
@@ -69,6 +71,7 @@ mkdir -p "$CODEX_SKILLS_DIR"
 ln -s "$(pwd)/deep-sky-capture-advisor" "$CODEX_SKILLS_DIR/deep-sky-capture-advisor"
 ln -s "$(pwd)/deep-sky-advisor" "$CODEX_SKILLS_DIR/deep-sky-advisor"
 ln -s "$(pwd)/deep-sky-processor" "$CODEX_SKILLS_DIR/deep-sky-processor"
+ln -s "$(pwd)/pws-stacking" "$CODEX_SKILLS_DIR/pws-stacking"
 ln -s "$(pwd)/siril-astra-stacking" "$CODEX_SKILLS_DIR/siril-astra-stacking"
 ln -s "$(pwd)/siril-moon-stacking" "$CODEX_SKILLS_DIR/siril-moon-stacking"
 ln -s "$(pwd)/siril-mosaic" "$CODEX_SKILLS_DIR/siril-mosaic"
@@ -76,7 +79,7 @@ ln -s "$(pwd)/starun-siril" "$CODEX_SKILLS_DIR/starun-siril"
 ```
 <!-- skills-install:end -->
 
-七个 Skill 使用彼此独立的 Python 虚拟环境。
+八个 Skill 使用彼此独立的 Python 虚拟环境。
 
 ## 使用
 
@@ -90,6 +93,7 @@ ln -s "$(pwd)/starun-siril" "$CODEX_SKILLS_DIR/starun-siril"
 
 使用 $deep-sky-processor 将这张星云图处理为自然版和增强版 JPG。
 
+使用 $pws-stacking 对这组已校准已对齐的单通道帧做分区加权叠加。
 使用 $siril-astra-stacking 将这批 Seestar 导出的 FITS 帧叠加成线性母版。
 
 使用 $siril-moon-stacking 对这组月面 RAW/SER 序列进行亚像素对齐与矿物月增强。
@@ -125,6 +129,7 @@ siril-mosaic/.venv/bin/python \
 deep-sky-capture-advisor/.venv/bin/python -B -m pytest -p no:cacheprovider deep-sky-capture-advisor/tests
 deep-sky-advisor/.venv/bin/python -B -m pytest -p no:cacheprovider deep-sky-advisor/tests
 deep-sky-processor/.venv/bin/python -B -m pytest -p no:cacheprovider deep-sky-processor/tests
+pws-stacking/.venv/bin/python -B -m pytest -p no:cacheprovider pws-stacking/tests
 siril-mosaic/.venv/bin/python -B -m pytest -p no:cacheprovider siril-mosaic/tests
 ```
 
