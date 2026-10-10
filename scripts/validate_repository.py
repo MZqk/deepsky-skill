@@ -110,6 +110,67 @@ def load_frontmatter(path: Path) -> dict[str, Any]:
     return value
 
 
+def validate_referenced_files(skill_dir: Path) -> list[str]:
+    """Return errors for referenced ``references/*.md`` and ``scripts/*.py`` paths.
+
+    Only mechanically decidable properties are checked: a referenced path must
+    exist, and every bundled reference must be reachable from SKILL.md through
+    reference-to-reference links.  Semantic agreement between prose and code is
+    deliberately out of scope — that is not decidable without false positives.
+    """
+
+    errors: list[str] = []
+    prefix = f"{skill_dir.name}:"
+    skill_md = skill_dir / "SKILL.md"
+    references_dir = skill_dir / "references"
+    scripts_dir = skill_dir / "scripts"
+
+    try:
+        skill_text = skill_md.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        errors.append(f"{prefix} cannot read SKILL.md as UTF-8: {exc}")
+        return errors
+
+    # Referenced paths must exist.  A dangling path sends the agent to a file
+    # that is not in the package, so it is a hard error rather than a warning.
+    referenced = {
+        "references": set(re.findall(r"references/([A-Za-z0-9._-]+\.md)", skill_text)),
+        "scripts": set(re.findall(r"scripts/([A-Za-z0-9._-]+\.py)", skill_text)),
+    }
+    for kind, names in referenced.items():
+        root = skill_dir / kind
+        for name in sorted(names):
+            if not (root / name).is_file():
+                errors.append(f"{prefix} SKILL.md references missing {kind}/{name}")
+
+    if not references_dir.is_dir():
+        return errors
+
+    bundled = {path.name for path in references_dir.glob("*.md")}
+    if not referenced["references"] and bundled:
+        errors.append(f"{prefix} SKILL.md links no references/ document")
+
+    # Reachability: a bundled reference is usable when SKILL.md names it, or
+    # when a reachable reference names it.  Unreachable files are dead weight
+    # the agent will never open, which is how a 40KB calibration record can sit
+    # outside the instructions while contradicting them.
+    reachable: set[str] = set()
+    frontier = sorted(referenced["references"])
+    while frontier:
+        name = frontier.pop()
+        if name in reachable or name not in bundled:
+            continue
+        reachable.add(name)
+        text = (references_dir / name).read_text(encoding="utf-8")
+        frontier.extend(
+            link for link in re.findall(r"([A-Za-z0-9._-]+\.md)", text) if link in bundled
+        )
+    for name in sorted(bundled - reachable):
+        errors.append(f"{prefix} references/{name} is unreachable from SKILL.md")
+
+    return errors
+
+
 def discover_skill_dirs(repo_root: Path = REPO_ROOT) -> dict[str, Path]:
     """Discover top-level Skill directories without a second manifest."""
 
@@ -193,6 +254,7 @@ def validate_skill_dir(skill_dir: Path) -> list[str]:
         if not isinstance(value, str) or not value.strip():
             errors.append(f"{prefix} metadata.{key} must be a non-empty string")
     tags = metadata.get("tags")
+    # ponytail: accept legacy tag lists until the remaining skills migrate to string metadata.
     if not (
         isinstance(tags, str) and tags.strip()
         or isinstance(tags, list) and tags and all(
@@ -553,6 +615,7 @@ def validate_repository(
 
     for skill_dir in targets:
         errors.extend(validate_skill_dir(skill_dir))
+        errors.extend(validate_referenced_files(skill_dir))
 
     if diff_base:
         errors.extend(validate_version_bump(repo_root, diff_base, diff_head))
