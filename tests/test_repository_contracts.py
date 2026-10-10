@@ -132,6 +132,21 @@ def _replace_skill_text(skill: Path, pattern: str, replacement: str) -> None:
     skill_md.write_text(text, encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    ("tags", "valid"),
+    (('"fixture, test"', True), ("[fixture, test]", True),
+     ('""', False), ("[]", False), ("[fixture, 1]", False), ("null", False)),
+)
+def test_structure_validation_checks_tags(tmp_path: Path, tags: str, valid: bool) -> None:
+    skill = _copy_governance_fixture(tmp_path)
+    _replace_skill_text(skill, r"^  tags: .*$", f"  tags: {tags}")
+    errors = validate_skill_dir(skill)
+    if valid:
+        assert errors == []
+    else:
+        assert any("metadata.tags" in error for error in errors)
+
+
 def test_structure_validation_rejects_invalid_version(tmp_path: Path) -> None:
     skill = _copy_governance_fixture(tmp_path)
     version = load_frontmatter(skill / "SKILL.md")["metadata"]["version"]
