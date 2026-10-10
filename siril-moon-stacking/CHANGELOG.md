@@ -2,6 +2,116 @@
 
 本文件记录 `siril-moon-stacking` 的独立版本变更。
 
+## [1.1.0] - 2026-10-02
+
+- Add fixed tracked lunar video crops and conservative peak disk budgets; reduce selected candidates when space is insufficient without rescaling source pixels.
+- Cache full-video multi-region, exposure/noise-aware scores and presentation timestamps; reuse generated FITS and registration with source and reference identity checks.
+- Select video quality once by default; add optional measured candidate doubling with full Siril rejection stacks, a fixed comparison region and sky mask, and best-round restoration.
+- Preserve relative transforms while avoiding Siril 1.4.4 zero-sum rejection; reconcile selected, exported and actually stacked frame counts.
+- Bound normalized MTF parameters, retain mono sharp FITS and QC, measure channel-wise sky noise, and handle normalized-float saturation.
+- Require trusted physical optics for Airy deconvolution, offer green luminance, restrain clipped-source mineral colors and pad square exports to preserve lunar cusps.
+- Add a runnable regression covering both video containers, pixel fidelity, budget failure, cache invalidation, incremental registration, native Siril transforms and two-round feedback.
+
+## [1.0.19] - 2026-10-02
+
+- Use adaptive two-pass sequential video import for MP4 and AVI: score every frame by default, reuse quality selection, and write only selected FITS frames. Preserve explicit top-K and full-import modes; track ROI drift and verify source-frame fidelity with both containers.
+
+## [1.0.18] - 2026-10-01
+
+- **移除 `scripts/mp4_to_ser.py`（Remove the bundled video→SER converter）**：
+  - **背景**：该文件在 v1.0.13 被写入 CHANGELOG 并被 SKILL.md 三处引用，但**从未 `git add`**（同目录另两个脚本均已跟踪，且它不在 `.gitignore` 中）。后果是任何人 clone 仓库后，SKILL.md 会让其运行一个不存在的文件——文档与仓库实际内容不一致。
+  - **决策依据（已实测）**：它唯一不可替代的能力是**产出 SER 交给外部工具**（`moon_stack.py import` 只产出 FITS，技能内没有其它 SER 输出路径）。但对本技能自身的流水线，SKILL.md 早已写明「mp4/avi 直解路径功能更全，转 SER 属负收益」——直解含 sidecar `DATE-OBS` 注入、Bayer 图案探测与设备识别，且 `import` 的 SER 分支不具备 `--sample-mode` 内容驱动抽帧能力（`--limit` 退化为顺序截断）。该能力被判定为超出本技能职责范围。
+  - **同时纠正一处站不住的文档理由**：原文把「Siril GUI 互通」列为转 SER 的动机之一。实测 Siril 1.4.4 CLI **连它自己写出的 SER 都读不了**（`load f` 对 Siril 自产的 `f.ser` 报 `file not found or not supported`），属 CLI 读取限制而非文件缺陷。真正需要 SER 的是 AutoStakkert / PIPP / SER Player 等外部工具。
+  - **附带消除一处维护隐患**：该文件内的 `probe_bayer_pattern` 与暖月 R/B 镜像消歧逻辑（原 168-215 行）与 `unpack_video_to_fits` 中的同类实现是**两份独立拷贝**，会各自漂移；移除后不再有此重复。
+  - **文档同步**：删除 SKILL.md 中「方式 D」整段用法示例、`mp4_to_ser.py --limit` 说明、「方式 D 位深说明」段（`--depth`/`--color` 均为该工具专有参数，`moon_stack.py` 无此选项），以及故障排查第 11 条的「SER 出口」小节。§5 第 11 条改写为保留经实测确认的事实——**Siril 自身不能做视频→SER 转换**（`convert` 只扫描静态图像，`load` 读不了 SER），需要时请用 ffmpeg 或 PIPP 自行转换。
+  - **CHANGELOG 历史不改写**：v1.0.13 / v1.0.15 中关于该文件的条目保留为历史记录，本条即为移除说明。
+  - **未移除的能力**：`import` 对**外部工具产出的** SER 的导入支持完全保留（`--format ser`、`unpack_ser_to_fits`、SER 头解析、Bayer ColorID 处理均不受影响）。
+- **移除后校验**：`validate_repository.py` → `validated`；全套 76 项测试（技能 57 + 仓库 19）保持全绿；自跑脚本退出码 0。移除前已确认该文件**未被任何代码 import、无任何测试覆盖**（CHANGELOG v1.0.13 所称的「已实测四条分支」为手工验证，非回归测试）。
+
+## [1.0.17] - 2026-10-01
+
+- **新增智能望远镜设备规格表（Built-in Smart-Telescope Specification Table）**：
+  - **动机**：智能望远镜的视频/SER 直出往往不写 `FOCALLEN`/`APERTURE`，导致 `--drizzle auto` 无判据可用、postprocess 光学推断退回 3.73µm / 80mm / 400mm 这类可能差数倍的硬编码默认值。
+  - **新增 `scripts/device_specs.py`**：**19 款智能望远镜**的规格表——ZWO Seestar（S50 / S50 Pro / S30 / S30 Pro）、DWARFLAB（DWARF 2 / 3 / mini / DRACO）、Vaonis（Stellina / Vespera / Vespera Pro / Vespera II / Vespera Pro 2）、Unistellar（eVscope 2 / eQuinox 2 / Odyssey / Odyssey Pro）、Celestron（Origin / Origin Mark II）。每项含焦距、口径、焦比、传感器、像元尺寸、**来源等级**与备注。
+  - **收录范围明确限定为智能望远镜**：不收行星相机机身、不收「望远镜 + 减焦 + 相机」套装、不收单反长焦组合——这些组合空间无穷，查表不可靠，只能靠月轮几何反推。
+  - **诚实标注存疑项**：Unistellar eVscope 2 / eQuinox 2 传感器厂商写 IMX224、第三方拆解认定 IMX347（2.9µm），标为 `disputed` 且**禁止参与传感器反推**；Seestar S50 Pro 与 Odyssey 的传感器厂商未公布，标为 `unpublished`；Vaonis Vespera 已停产，来源降级为 `dealer+third_party`；DRACO 同时记录原生 1.197µm 与 2×2 合并 2.394µm（写入头用合并值）。**Vaonis Hestia 被排除**——无内置传感器、经手机成像，像元尺度不是固定设备属性。
+  - **识别算法**：信号优先级 `--device` 覆盖 > FITS 头 `TELESCOP`/`INSTRUME`（`high`）> 采集侧车（`medium`）> 文件名（`medium`）> 传感器回退（`low`）。**取最长匹配 token**，因此 `Seestar S30 Pro` 不会退化成 `seestar-s30`，`Vespera Pro 2` / `Pro` / `II` / `base`、`Odyssey Pro` / `Odyssey`、`Origin Mark II` / `Origin` 同理；仅命中品牌（如只写 `DWARFLAB`）时**不注入任何先验**。
+  - **传感器歧义规则**：仅当共用该传感器的机型规格一致时采纳整组先验（IMX662 → Seestar S30 与 DWARF mini 均为 150/30/f5/2.9µm）；规格冲突但像元一致时只回退像元尺寸并标 `ambiguous`（IMX585 → S30 Pro 160/30 vs Vespera II 250/50）；品牌线索可收窄到唯一机型时采纳整组（IMX585 + `Seestar` → S30 Pro）；否则拒绝（IMX224/IMX347 因存疑直接不参与）。
+  - **溯源标记（关键设计）**：查表值写入 FITS 头时附带 `DEVICE`（设备 ID）、`DEVSRC`（匹配信号）、`DEVCONF`（置信度）、`OPTPRIOR`（**精确列出实际被填的键**）、`OPTISRC`（`device_table` / `sensor_pixel_only`）。`_infer_optical_parameters` 与 `_decide_drizzle` 的来源字符串随之显示为 `FITS Header (FOCALLEN) [device_table: seestar-s50]`，**先验绝不会被报告成实测**。`OPTPRIOR` 精确到键，所以侧车已给 `FOCALLEN` 时该键不会出现在其中，来源标注也保持普通头部来源。
+  - **侧车与实测永远优先**：设备表**只填缺失键**，且注入点位于侧车透传循环**之后**，实测视频侧车 `FOCALLEN=160` 胜过表值 250（已端到端验证）。
+  - **FITS 输入路径只识别不注入**：FITS 帧是用户原文件的软链接，技能红线禁止改写用户原始目录。识别结果只写入 `import_receipt.json` 的 `device` 字段（含 `injected` / `target`）并打日志；测试断言源文件 md5 不变。
+  - **新增 CLI**：`import` 与 `all` 的 `--device <id>`（未知 id 直接报错并提示 `devices` 命令）、以及 `devices` 子命令输出整表 JSON（含来源等级与排除清单）供 AI 直接查询规格。
+  - **交叉校验（advisory）**：当焦距同时来自设备表与几何反推时比较两者，偏差 > 15% 打告警并写入 `postprocess_receipt` 的 `focal_crosscheck`——可暴露机型误判或像元尺寸错误（反推结果与像元尺寸成正比）。**只告警不覆盖**，因为局部月盘的反推可能不可靠。
+  - **端到端实测**：侧车仅给 `TELESCOP=Seestar S50`（无任何光学参数）→ 识别为 `seestar-s50`（`source=sidecar, confidence=medium`），头写入 `FOCALLEN=250 / APERTURE=50 / XPIXSZ=2.9` 与全部溯源键；侧车另给 `FOCALLEN=160` 时该键由侧车胜出、`OPTPRIOR=APERTURE,XPIXSZ,YPIXSZ` 正确排除它；FITS 输入识别为 `dwarf-3` 且 `injected=False`、源文件 md5 未变。
+- **新增 `references/device_specs.md`**：来源等级图例、19 行主表、存疑与未公布说明、DRACO 双像元说明、未收录机型（Hestia）及原因、识别信号优先级、传感器歧义规则、溯源标记定义、各输入路径行为对照表。**SKILL.md 首次建立 `## 6. 参考文档` 章节**链接三份参考文档，解除此前 `references/` 完全未被引用的孤儿状态。
+- **修复 `CHANGELOG.md` 重复版本段**：v1.0.16 存在两个 `## [1.0.16]` 段（bump 脚本生成的占位条目 + 详细条目），已删除占位段。
+- **修复 `test_registration_math.py` 陈旧断言**：`test_adaptive_sharpening_math` 期望 `deconv_discount == 0.65`，但 `ee87a75`（v1.0.12「auto 锐化基准调整」）已将其改为 **0.80**，测试未同步更新，导致该测试长期失败。经 `git log -S` 核实为陈旧断言而非代码回归，已修正为 0.80。
+- **修复自跑测试注册列表**：`main()` 的 `tests=[...]` 只注册了 32 项，而文件中有 56 个 `def test_*`——v1.0.15/1.0.16 新增的全部 drizzle/sidecar 测试都不在自跑路径内（pytest 能收集，`python test_registration_math.py` 不能）。已补齐为全部 56 项，**自跑脚本首次返回 0**。
+- **修复 `cmd_register` 覆盖序列层数导致单色序列无法配准（Critical: mono sequences could not be registered）**：
+  - `cmd_register` 重写 `.seq` 时把 `L` 行**硬编码为 `L 3`**，覆盖了 `cmd_import` 按实际通道数写入的 `L 1`。单色来源（`--force-mono` 视频、单色 SER、单色 FITS）因此层数不符，Siril 报 `No registration data exists for this sequence` 且 `seqapplyreg` 直接中止——**单色采集走不完流水线**。
+  - 已改为从原 `.seq` 解析并保留真实层数。端到端实测：同一份单色 AVI 在修复前 `stack` 必然失败，修复后 `L 1` 被正确保留、`seqapplyreg` 立即成功。
+- **新增测试 11 项**：`test_device_specs_table_integrity`（字段完整性 + 来源等级合法性 + 焦比与焦距口径自洽 + Draco 双像元 + Hestia 必须缺席）、`test_identify_device_model_specificity`（17 组变体特异性，含 `moon_origin_2026.avi` 不得误匹配）、`test_identify_device_sensor_ambiguity_rejected`（IMX662 采纳 / IMX585 仅像元 / IMX178 仅像元 / 品牌收窄 / 存疑传感器拒绝）、`test_identify_device_cli_override_and_brand_only`、`test_device_priors_header_provenance`（含未知 `--device` 报错）、`test_sidecar_overrides_device_table`、`test_ser_device_priors_injection`、`test_fits_import_identify_only_no_injection`（断言源文件字节不变）、`test_optical_source_annotation_device_table`、`test_register_preserves_sequence_layer_count`。全套 57 项测试 **57 通过**，pytest 与自跑脚本双绿。
+- **说明（非目标）**：本次**不新增 `tests/` 目录**。CI（`.github/workflows/skills-ci.yml`）只执行技能下的 `tests/`，本技能没有该目录，故其测试目前不进 CI；引入 `tests/` 需先确认自跑路径长期稳定，作为后续单独事项。
+
+## [1.0.16] - 2026-10-01
+
+- **`--drizzle auto` 判据扩展：零光学元数据也能自动判定（Metadata-Free Drizzle Decision）**：
+  - **背景**：v1.0.15 的 `auto` 只读 FITS 头 + CLI 覆盖，对没有 `FOCALLEN`/`APERTURE` 的采集源（Seestar 等视频直出）一律返回 `insufficient_metadata` 并关闭，形同虚设。
+  - **判据①衍射极限**（`--drizzle-airy-threshold`，默认 1.5px）：需要焦距 + 口径 + 像元三者齐备。**口径在几何上无法从图像反推**，所以这条判据只在口径已知时可用。
+  - **判据②实测 PSF 宽度**（`--drizzle-psf-threshold`，默认 2.0px，新增）：任一元数据缺失时启用。两步都不需要设备信息：
+    1. **焦距几何反推**——复用 `_infer_optical_parameters` 在参考帧上做月轮 RANSAC 拟合，配合像元尺寸与 JPL 历表月球视直径反解 `f = D_px·px·1e-3 / (2·tan(θ/2))`。实测合成数据反推 192.3mm（理论 192.27mm）。**若头部没有像元尺寸则拒绝反推**——默认 3.73µm 会让焦距等比失真，宁可不用；
+    2. **月轮 ESF 实测 PSF 宽度**——月轮对黑空是近乎完美的阶跃边缘，其径向强度剖面就是整条光学+视宁度+采样链的边缘扩散函数。对高斯 PSF，10–90% 宽度 = 2.563σ，故 `FWHM = 0.919 × w10-90`。**对解析高斯模糊圆盘验证：FWHM 0.9–7.1px 全程误差 < 1.5%**。
+  - **为什么用实测 PSF 而不是衍射极限**：决定「更细网格能否恢复细节」的是**有效 PSF 宽度**（含视宁度），衍射极限只是下界。视宁度通常主导，所以实测判据在两者分歧时更可靠，且它完全不需要任何元数据。
+  - **绝不用默认值冒充真实值**：两条判据都不成立时关闭 drizzle 并给出可操作提示，`focal_len_mm`/`aperture_mm` 在回执中保持 `null`，绝不填 80mm / 400mm / 3.73µm 这类默认值。
+  - **回执全量溯源**：`stack_receipt.json` 的 `drizzle` 记录 `criterion`（`airy` / `psf_fwhm` / `forced` / `none`）、`psf_fwhm_px`、`psf_esf_width_px`、`limb_radius_px`、`limb_fit_residual_std`、`psf_possible_saturation`、`focal_source`、`pixel_size_source`、`aperture_source`、`probe_frame`。
+  - **已知边界（已写入文档）**：几何反推与 ESF 测量都要求**完整月盘在画面内**，月面局部特写 / 马赛克切片会失败并安全关闭；月轮过曝时 ESF 顶部被削平会低估 FWHM（偏向启用，安全方向），此时回执标注 `psf_possible_saturation`。
+  - **被否掉的方案（记录以免重走）**：曾考虑用径向功率谱截止频率 `k_cutoff` 作经验判据，实测发现它**非单调**——k_cutoff 在 PSF FWHM≈2.0px 处达到峰值（0.762），两侧同时下降（FWHM 0.71px → 0.525，FWHM 5.89px → 0.364），因为它同时受内容带宽与噪声水平影响，无法判别采样充分度，故弃用。
+  - **端到端实测**（4 帧 512×256，头部**只有** `XPIXSZ=2.9`）：`criterion=psf_fwhm`、实测 `FWHM 0.604px`、`limb_radius_px=89.39`（真值 90）、`limb_fit_residual_std=0.074`、`focal_len_mm=null`、`aperture_mm=null` → 自动启用 2× drizzle，母版 1022×512、`XPIXSZ` 1.45、`DRZSCALE` 2.0。另测「只有 `XPIXSZ` 但圆盘角直径反推焦距仅 58mm」的合成帧：几何反推被 100mm 下限正确拒绝，自动降级到 ESF 判据并仍给出正确结论。
+- **新增测试 4 项**（`scripts/test_registration_math.py`）：`test_limb_psf_fwhm_recovers_gaussian`（解析高斯圆盘，σ 0.5–2.0 误差 < 5% + 单调性）、`test_drizzle_psf_criterion_without_aperture`（无口径走 ESF 判据、阈值两侧翻转、显式 `--aperture` 恢复衍射判据、**断言默认 80mm 口径绝不被静默使用**）、`test_drizzle_geometric_inversion_recovers_focal`（反推焦距落在 180–205mm、来源含 `geometric inversion`、无像元尺寸时拒绝反推）、`test_probe_frame_prefers_register_reference`（优先用 `ranking.json` 选出的最锐帧）；`test_drizzle_auto_decision` 同步更新为新 reason（`insufficient_evidence` / `user_forced`）。全套 47 项测试 **46 通过**（`test_adaptive_sharpening_math` 为改动前即存在的既有失败，已用 `git show HEAD` 版本复现确认与本版无关）。
+- **文档同步**：`SKILL.md` §1 与 Step 3 改写为「两条判据 + 各自前提 + 已知边界」，并补充 `--drizzle-airy-threshold` / `--drizzle-psf-threshold` 用法。
+
+## [1.0.15] - 2026-10-01
+
+- **统一剔除均值堆叠 + 噪声加权（Unified Rejection-Mean Stacking with Noise Weighting）**：
+  - **背景**：用合成序列对 Siril 1.4.4 的 `stack sum` 做了行为实测，发现两个此前未被记录的缺陷——① **按全图最大值归一化**（两次实测输出峰值恒为 `1.000000`；两区域 100/200 的输出为 `0.4926 / 0.9852`，即 `sum / max(sum)`）；② **不做任何像素剔除**，也不支持 `-norm=` 与 `-weight=`。后果是单帧一个热噪点、宇宙线或视频压缩坏块即可让**整幅信号塌缩**：注入一个 60000 的像素后输出从 `0.4926 / 0.9852` 变为 `0.004984 / 0.009967`（约 **100×**）。
+  - **实测对照**：`rej w 3 3 -norm=addscale` 的相对对比度与 `sum` 完全一致（**2.0 vs 1.97**），二者经后处理归一化后等价，而 `rej` 额外提供像素剔除、帧间归一化与加权能力。故原「8-bit 用 sum 扩展动态范围」的论据不成立。
+  - **改动**：所有位深统一走 `stack rej w 3 3 -norm=addscale -filter-included -weight=noise`；`--stack-method sum` 保留为显式回退（此时忽略 `--weight`）。新增 `--weight {auto,none,noise}`（默认 `auto`）。
+  - **实测确认 `-weight=noise` 真实生效**：日志打印 `Computing weights based on noise...` → `Image weighting ........... from noise`，输出与无权重版本确有差异；非法取值会报 `Unknown argument to -weight=bogus, aborting.`。
+  - **失败自愈**：`-weight=noise` 因背景统计不可用（`MAD is null` / `Statistics cannot be computed.`）失败时，自动识别日志并去掉 `-weight=` 重跑一次，记入 `stack_receipt.json` 的 `weight_fallback`。
+- **HST Drizzle 超采样（HST Drizzle Supersampling，`--drizzle {auto,off,2,3}`，默认 `auto`）**：
+  - **CLI 语义已实测定案**：`seqapplydrizzle` 独立命令在 1.4.4 **不存在**（`Error: command seqapplydrizzle is not available`，上游手册属更新版本）；只能用 `seqapplyreg -scale=N -drizzle -pixfrac= -kernel=`。合成 3 帧 1024×512 序列实测：scale=2 输出 **2046×1024**，日志 `Drizzling parameters: scale: 2.000000`。注意**单独 `-scale=2`（无 `-drizzle`）也会放大到同样尺寸**，因此判断 drizzle 是否生效必须看日志而非尺寸。
+  - **Lanczos 限制是建议而非硬约束**：`-kernel=lanczos3 -scale=2` 实测**不报错**，故由技能主动回退为 `square`（手册规定 Lanczos 仅允许 `scale == pixfrac == 1.0`）。
+  - **auto 决策**：读取首帧 FITS 头的 `FOCALLEN`/`XPIXSZ`/`APERTURE`（可用 `--focal`/`--pixel-size`/`--aperture` 覆盖），计算理论艾里斑半径 `1.22·λ·F#/pixel`，**< 1.5px（欠采样光路）时自动启用 2×**。元数据缺失时 `auto` 关闭并给出可操作的提示；显式 `--drizzle 2` 仍可强制。`--mosaic-mode tile` 下 `auto` 默认关闭（保持各面板采样尺度一致，避免与 `siril-mosaic` 自有的 `-scale` 冲突）。
+  - **母版像素尺度校验**：实测 Siril 在 drizzle 时**会自动**把 `XPIXSZ`/`YPIXSZ` 除以缩放倍率（2.9µm → 1.45µm），且 `stack` 出的母版继承该值，`FOCALLEN`/`APERTURE` 原样透传。技能随后校验（`_verify_master_pixel_scale`），仅在未修正时代为改写，并写入 `DRIZZLE`/`DRZSCALE`/`DRZPIXFR`/`DRZKRENL`/`ORIGXPIX` 与 `HISTORY`。因 `FOCALLEN` 保持物理正确，下游 `siril-mosaic` 的 `seqplatesolve -focal= -pixelsize=` 自动获得正确尺度（此前若只改 XPIXSZ 而不改 FOCALLEN，plate solve 会差 2×）。
+  - **postprocess 像素常数缩放**：新增 `_px()`/`_odd()` 与 `_resolve_px_scale()`，把 drizzle 倍率从 `stack_receipt.json`（回退母版 `DRZSCALE`）贯通到后处理。缩放对象：月轮 RANSAC 拟合的射线步长与内点/残差阈值（不缩放会把内点判定静默收紧到等效 1.5 原生 px 导致拟合失败）、眩光抑制过渡带宽与月盘保护带、抗振铃阻尼的局部基线/膨胀/柔化核、深影调矿物月的月轮去色与清零宽度、以及 `_infer_optical_parameters` 的 user/default 像元尺寸分支（header 分支已由 Siril 修正，不重复缩放）。色度低通 σ 因已按图像尺寸表达而**不缩放**。
+  - **端到端实测**（4 帧 512×256，XPIXSZ=2.9µm / FOCALLEN=160mm / APERTURE=30mm）：auto 判定 Airy r=1.234px < 1.5px → 启用 2×；母版输出 1022×512，`XPIXSZ` 1.45µm、`FOCALLEN` 160.0 保持不变；postprocess 日志确认「working grid is 2x finer」、`px=1.45um`、`Airy radius = 2.47px`（物理上正确地翻倍）；verify 新增 Drizzle 状态行；`mosaic_tile_info.json` 新增 `px_scale`/`drizzle` 字段。
+  - **收尾**：新增清理 Siril 的 `drizztmp/` 中间目录。
+  - **运行失败自愈**：drizzle 堆叠失败且非强制时自动回退为插值路径重跑，记入 `stack_receipt.json` 的 `drizzle.fallback`。
+- **采集侧车光学元数据透传（Capture Sidecar Optical Metadata Passthrough）**：
+  - 视频导入原先只把侧车 `.txt` 里的 `SENSOR`/`DATE-OBS`/`SITELONG`/`SITELAT`/`OBJECT` 写进 FITS 头，`FOCALLEN`/`APERTURE` 等被解析后即丢弃。由于视频路径从不写 `FOCALLEN`，`--drizzle auto` 在最常见的采集源上会因缺元数据而永远关闭。
+  - 现将侧车的 `FOCALLEN`/`FOCAL`/`APERTURE`/`APTURE`/`XPIXSZ`/`PIXSIZE` 一并透传（仅取正值，已由传感器查表设定的键不被覆盖，设 `XPIXSZ` 时同步补 `YPIXSZ`），使 `auto` 决策与 postprocess 光学推断可用真实数值而非默认值。
+- **新增测试 11 项**（`scripts/test_registration_math.py`）：`test_video_8bit_stack_policy`（改为断言 rej + `-weight=noise`）、`test_rej_weight_noise_default_for_16bit`、`test_sum_method_ignores_weight`、`test_weight_fallback_on_failure`、`test_stack_all_attempts_fail_reports_count`、`test_drizzle_auto_decision`、`test_drizzle_script_lines_and_receipt`、`test_drizzle_runtime_fallback`、`test_video_sidecar_optical_metadata_passthrough`、`test_master_header_pixel_scale_repair_and_idempotency`、`test_px_scale_threading_scales_pixel_constants`、`test_resolve_px_scale_prefers_receipt_then_header`；全套 43 项测试 **42 通过**（`test_adaptive_sharpening_math` 为改动前即存在的既有失败，已用 `git show HEAD` 版本复现确认与本版无关）。
+- **文档同步**：`SKILL.md`（§1 堆叠原则、Step 3 重采样/堆叠/自愈/母版尺度、方式 C/D 描述）、`references/siril-144-cli.md`（新增 §3.1 Drizzle 实测表与 §4.1~4.3 堆叠分支/推荐组合/`sum` 缺陷）、`scripts/mp4_to_ser.py` 头部注释（位深不再是堆叠策略分叉）。
+
+## [1.0.14] - 2026-10-01
+
+- 补充视频抽帧策略文档：明确 --sample-mode（smart-top/smart-cluster/window/head）、--probe-stride、--start-frame 语义，澄清默认全帧导入与内容驱动选帧、非固定间隔抽帧
+- 补充 SER 路径 `--limit` 语义警示：`import` 的 SER 分支没有 `--sample-mode` 智能扫描，`--limit N` 退化为顺序截断（取前 N 帧，等价 `head` 模式），与视频路径的"全片最锐 N 帧"语义不同；转 SER 不免除选帧环节，但会削弱 import 阶段的内容驱动抽帧能力，推荐转 SER 后用 `--limit 0` 全帧导入交由 `register` 选帧
+
+## [1.0.13] - 2026-09-30
+
+- **修复 SER 读取小端序反转缺陷（Critical: all real-world SER files were byte-swapped）**：
+  - `parse_ser_header` 原先按字段名字面语义解释 `LittleEndian` 标志（`"<" if little_endian else ">"`），而 SER 生态的**事实标准与字段名相反**——`0 = 小端、1 = 大端`（SER Player / PIPP / Siril / GoQat 均如此，Siril 官方 wiki 明确记录此为规范遗留问题）。
+  - 后果：所有主流工具（Siril、FireCapture、SharpCap、PIPP）产出的 SER 被整体字节翻转。以 Siril 1.4.4 亲笔写出的 16 位 SER（实测 R=1000 / G=2000 / B=4000）为例，修复前被读成 59395 / 53255 / 40975 的乱码。
+  - 现已改为 `dt_endian = ">" if little_endian else "<"`，实测可正确解出 Siril 产出的 SER；单色/Bayer SER（单平面）不受影响，此前缺陷仅在 RGB/BGR 彩色 SER 上显性暴露。
+  - 单元测试辅助函数 `_make_synthetic_ser` 的 `little_endian` 默认值同步由 `1` 改为 `0`，使测试覆盖真实生态约定而非自洽的私有约定。
+- **新增 `scripts/mp4_to_ser.py`：MP4/MOV/MKV/AVI 直转 SER 容器**：
+  - 背景：Siril 的 `convert` 只扫描静态图像，实测**拒绝一切视频输入**（`convert moon -ser` 对现存的 `moon.mp4` / `moon.avi` 均报 "No files were found for conversion"，`load moon.mp4` 报 "file not found or not supported"）；PIPP 需 GUI 安装，ffmpeg 常缺失。
+  - 采用 OpenCV + NumPy 直转，零中间容器：写出 178 字节规范 SER 头（小端、`LittleEndian=0`、RGB 帧为**交织序** R,G,B,...，均以 Siril 1.4.4 实际产出为基准校准）。
+  - `--depth {8,16}`：8 位为解码结果忠实透传；16 位走 `(v << 8) | v` 无损扩展。注意二者会让下游走不同堆叠分支（8 位 → `stack sum`，16 位 → `stack rej w 3 3`）。
+  - `--color {auto,mono,rgb,bayer-*}`：`auto` 复刻 `unpack_video_to_fits` 的检测逻辑，对未解拜耳的 RAW 视频载体探测四种 Bayer 图案并做暖月 R/B 镜像消歧，以正确的 SER `ColorID` 保留 CFA 平面；`--verify` 可回读校验头部与载荷自洽。
+  - 已实测：彩色/单色/显式 Bayer/auto 探测四条分支、8 位与 16 位两种深度均通过；mp4 → SER → `unpack_ser_to_fits` 全 12 帧逐像素一致；合成 RGGB 马赛克被 auto 正确识别为 RGGB 而非镜像 BGGR。
+
 ## [1.0.12] - 2026-09-26
 
 - **超稳视宁度散布感知帧筛选（Spread-Aware）**：`otsu` 模式内置相对散布判定，当全序列极差 < 6% 时自动扩容保留至 75% 优质帧，兼顾极致信噪比与抗抖动。

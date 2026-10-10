@@ -1,12 +1,12 @@
 ---
 name: siril-moon-stacking
 description: |
-  AI-directed lunar lucky imaging and surface astrophotography processor combining Siril 1.4.4 CLI with Python sub-pixel FFT registration. Use when the user wants to align, stack, wavelet-deconvolve, and enhance lunar RAW/SER/FITS/AVI/MP4 image sequences or videos (such as from Seestar S50/S30, planetary cameras, or telephoto lenses), correct atmospheric dispersion, or produce mineral moon color images under authenticity constraints.
-  AI 主导的月面天文摄影与幸运成像处理助手。融合 Siril 1.4.4 CLI 与 Python 亚像素频域配准插件，支持月球单帧连拍与 SER/FITS/AVI/MP4 视频流（如 Seestar S50/S30、行星相机或单反长焦拍摄）的选帧堆叠、小波反卷积、色散校正、非标准视频自愈与矿物月色彩提取。
+  AI-directed lunar lucky imaging and surface astrophotography processor combining Siril 1.4.4 CLI with Python sub-pixel FFT registration. Use when the user wants to align, stack, wavelet-deconvolve, and enhance lunar RAW/SER/FITS/AVI/MP4 image sequences or videos (such as from Seestar S50/S30, planetary cameras, or telephoto lenses), correct atmospheric dispersion, or produce mineral moon color images under authenticity constraints. Includes a built-in smart-telescope specification table that identifies the capture device and supplies optics priors, plus HST drizzle supersampling with a metadata-free sampling criterion.
+  AI 主导的月面天文摄影与幸运成像处理助手。融合 Siril 1.4.4 CLI 与 Python 亚像素频域配准插件，支持月球单帧连拍与 SER/FITS/AVI/MP4 视频流（如 Seestar S50/S30、行星相机或单反长焦拍摄）的选帧堆叠、小波反卷积、色散校正、非标准视频自愈与矿物月色彩提取；内置智能望远镜规格表可自动识别采集设备并补齐光学参数，并支持 HST Drizzle 超采样（含零元数据实测判据）。
 license: Proprietary
 metadata:
   slug: siril-moon-stacking
-  version: "1.0.12"
+  version: "1.1.0"
   displayName: Siril Moon Stacking
   summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
   tags: [astronomy, lunar, siril, lucky-imaging]
@@ -23,7 +23,8 @@ metadata:
   * 相机 RAW 原生多线程解码与去马赛克（`convert -debayer` / 支持 `split_cfa`, `seqsplit_cfa`）；
   * 序列管理与安全工作目录隔离；
   * 基于单应性矩阵的多线程双三次（Bicubic）亚像素重采样与构图自适应（`seqapplyreg -framing=min/max -interp=cu`）；
-  * **按位深自适应堆叠（Vincent Hourdin 规范）**：8-bit（AVI/MP4/SER）采用加法叠加（`stack sum`）物理扩展动态范围；16-bit+（FITS/16-bit SER/RAW）采用带剔除的平均值叠加（`stack rej w 3 3`），严禁中位数/最值叠加；亦支持 `--stack-method {auto, sum, rej}` 显式指定；
+  * **统一剔除均值堆叠 + 噪声加权**：所有位深统一采用 Winsorized 剔除均值（`stack rej w 3 3 -norm=addscale -weight=noise`），严禁中位数/最值叠加。实测 Siril 1.4.4 的 `stack sum` 会**按全图最大值归一化且不做任何像素剔除**——单帧一个热噪点/宇宙线/压缩坏块即可让整幅信号塌缩约 100×（实测 0.4926 → 0.004984），而 `sum` 与 `rej` 的相对对比度完全一致（2.0 vs 1.97），故 `sum` 已降级为 `--stack-method sum` 的显式回退。`-weight=noise` 按背景噪声给帧加权，估计失败时自动去权重重试；
+  * **HST Drizzle 超采样（`--drizzle {auto,off,2,3}`，默认 `auto`）**：`auto` 按**两条独立判据**依次判定是否欠采样——① **衍射极限**：需要焦距/口径/像元三者齐备，理论艾里斑半径 `< 1.5px` 时启用；② **实测 PSF 宽度**：任一元数据缺失时改用，先由月轮几何反推焦距（月轮 RANSAC 半径 + 像元尺寸 + JPL 历表月球视直径），再从月轮边缘扩散函数（ESF）实测有效 PSF 的 FWHM，`< 2.0px` 时启用。口径在几何上无法从图像反推，故判据①只在口径已知时可用；判据②完全不依赖光学元数据，**零元数据也能判定**。所有分支都会把判据、取值与来源写进 `stack_receipt.json`，决策可审计。实测输出网格线性尺寸翻倍（512×256 → 1022×512）；Siril 会自动把母版 `XPIXSZ` 除以缩放倍率（2.9µm → 1.45µm），技能再行校验并补写 `DRIZZLE`/`DRZSCALE`/`DRZPIXFR`/`DRZKRENL`/`ORIGXPIX` 诊断关键字，postprocess 全链路的像素域容差与卷积核按该倍率同步缩放；
   * **物理艾里斑 Airy Disc 反卷积**（`makepsf manual -airy` + `sb -iters=2` Split Bregman / Wiener / RL），针对月面高斯噪声模型消除环形山暗环伪影；
   * 自适应行星通道中值传递函数（`mtf`）与双曲拉伸（`asinh` / `ght`）校正白平衡与底噪偏置；
   * 局部对比度自适应增强（`clahe`）；
@@ -31,7 +32,7 @@ metadata:
   * 色散校正与矿物月饱和度渐进式提升（`rmgreen 0` + `satu`）；
   * 32 位 FITS 母版、16 位 TIFF 母版及高质量 JPG 导出。
 * **Python 的职责（插件）**：
-  * **AVI / MP4 / MOV 通用视频原生直解（Direct-pass FITS）**：直接利用 OpenCV 硬件级解码逐帧抽取并平滑扩展至 16-bit FITS 序列，零中间容器转录，节省 50% 磁盘 I/O 写入带宽；自动注入 `BITPIX=16`, `ORIG_BIT=8` 并在下游与 Siril `stack sum` 联动；
+  * **AVI / MP4 / MOV 通用视频原生直解（Direct-pass FITS）**：直接利用 OpenCV 硬件级解码逐帧抽取并平滑扩展至 16-bit FITS 序列，零中间容器转录，节省 50% 磁盘 I/O 写入带宽；自动注入 `BITPIX=16`, `ORIG_BIT=8` 并在下游与 Siril 剔除均值堆叠联动；
   * **专业 SER 视频流原生直读与极速解压**：直接解析 178 字节规范头，零拷贝 `np.memmap` 提取帧数据，OpenCV 硬件级 demosaicing（1080p 单帧 <5ms），元数据（UTC 时间戳/相机/望远镜）无损注入 FITS；
   * **低仰角宏观大气消光一阶梯度补偿**：在 32 位浮点线性空间与对数色比空间鲁棒估计横跨月盘的 Rayleigh 消光红化坡度，平复“底暖顶冷、底暗顶亮”倾斜，杜绝矿物月被大气消光撕裂；
   * **单色（Mono）与彩色（RGB）全链路自适应**：智能生成 `L 1` 与 `L 3` 序列，单色输入（或 `--force-mono`）自动规避彩色专属滤镜；
@@ -66,11 +67,43 @@ python scripts/moon_stack.py import --input /path/to/moon_raws --work /path/to/w
 # 方式 B：直接传入单个 SER 视频文件（或包含 .ser 的录像目录），支持限制导入帧数
 python scripts/moon_stack.py import --input /path/to/moon_capture.ser --work /path/to/work --limit 500
 
-# 方式 C（新增）：直接传入 AVI / MP4 / MOV 视频文件，直出 16 位 FITS 序列并联动 stack sum
-python scripts/moon_stack.py import --input /path/to/moon_capture.avi --work /path/to/work --limit 500
+# Option C: Score every MP4 / AVI / MOV frame and import adaptive selections as 16-bit FITS
+python scripts/moon_stack.py import --input /path/to/moon_capture.avi --work /path/to/work
 ```
+> **视频两遍顺序读取（MP4 / AVI / MOV / MKV / M4V 共用同一路径）**：默认保留原始视频，先完整逐帧评分，再顺序读取并只将入选帧写成 FITS，最后交给 `register` / Siril 配准与堆叠。不会先把全片展开为 FITS，也不会为每张入选帧反复 seek。
+> * `adaptive`（**默认**）：复用 Otsu 自适应选帧决定导入数量；`--limit 0`（默认）表示**无数量上限，仍按质量筛选**，正数则是入选帧上限。可用 `--select-mode utility` / `relative` / `percent` 或 `--keep-percent` 调整导入筛选；`all` 默认只在导入时做一次主质量筛选，后续配准仅剔除低置信度或失败帧；`--register-selection reselect` 可显式重新筛选。
+> * `--probe-stride 1`（**默认**）：整段视频每帧都评分。显式设为更大值只减少评分次数，仍需逐帧解码，并可能漏掉好帧。评分使用绿色通道或单色平面，通过缩小图像的特征相关跟踪同一地貌 ROI，相关性不足时回退质心位移；月盘出框或无法可靠定位时会记录质量标记。
+> * `smart-top`：显式 `--limit N` 时从整段视频的已评分候选中取全局 Top N；`smart-cluster` 则按 10 个时间窗分散选帧。两者都顺序提取；`smart-cluster` 使用真实呈现时间戳分窗，无法验证时间戳时明确报错。
+> * **明确要求全帧落盘**：`--sample-mode head --limit 0` 跳过导入质量筛选；若还要求所有有效、可配准帧参与叠加，`all` 再加 `--keep-percent 100`。默认 `adaptive --keep-percent 100` 也会保留所有正清晰度候选，但解码失败、低信号或无有效结构帧不在其候选池中；空间不足仍会缩减落盘数量。
+> * `window` / `head`：自 `--start-frame` 起顺序读取，正数 `--limit` 控制片段帧数；智能模式始终扫描整片，不使用该起始偏移。
+> * `import_receipt.json` 的 `video_metadata.seeing_probe` 记录评分帧数、实际 stride、选择模式与入选数量；`adaptive` 另记录 `selection_meta`（阈值与决策原因）。这些是导入候选，`register` 默认复用主筛选并检查配准置信度，`stack` 只叠加 `I 1` 的帧，并从 Siril 日志和输出序列核对实际帧数。空间节省比例取决于实际入选数，配准输出与 Drizzle 仍需额外空间。
+> **自动裁剪与空间预算（1.1.0）**：`--video-roi auto` 默认用固定框覆盖月盘、可见月尖和候选漂移范围，`--roi-margin 64` 留出原始像素边距；不会缩放数据。无法可靠定位时回退全画幅，`--video-roi off` 可显式保留全画幅。默认提前估算 FITS、浮点重采样、Drizzle 临时文件及成片，增加 25% 估算余量，并保留至少 10 GiB 或磁盘可用空间 10%（取较大值）。空间不足按质量缩减候选，无法容纳最低数量时中止；`--disk-budget-gb` 可进一步限制工作目录体积，单位 GiB。
+>
+> **评分与复用**：在月面内部最多三个特征区域进行曝光归一化、局部噪声估计和饱和检查，以缩小图像的特征相关跟踪稳定 ROI，防止邻近亮点参与月面评分。`--min-signal-ratio 0.2` 默认排除月面信号低于片段第 90 百分位 20% 的帧，避免过暗 MP4 编码块被当成清晰细节；可按拍摄条件调整，0 关闭此额外门限。`video_scores.json` 缓存全片评分、PTS、位置及质量标记，并校验源 SHA-256、算法版本与参数。增加 `--limit` 只新增缺失 FITS，复用固定参考帧下的配准结果；源文件、裁剪或通道不兼容时使用新工作目录。
+>
+> **可选反馈扩容**：`all --candidate-mode feedback` 从最多 256 帧开始翻倍，使用每轮完整入选序列执行 Siril 全局剔除堆叠。固定公共区域与参考月盘之外的同一批天空像素，噪声至少降低 5%、细节下降不超过 3% 才接受新一轮，连续两轮无改善停止；候选、用户上限或空间预算也会终止扩容。`candidate_feedback.json` 保留各轮指标、实际帧数、获选轮与停止原因；默认仍为 `single`。背景或细节指标无法可靠测量时保留当前结果并明确停止，不宣称找到了最佳帧数。
+
+```bash
+# Reuse cached scores and grow only missing video candidates
+python scripts/moon_stack.py all --input /path/to/moon.mp4 --work /path/to/work --candidate-mode feedback --limit 2048
+
+# Preserve full dimensions, or select green luminance while retaining RGB chrominance
+python scripts/moon_stack.py import --input /path/to/moon.avi --work /path/to/full --video-roi off
+python scripts/moon_stack.py postprocess --work /path/to/work --luminance-channel green --deconv auto
+```
+
+> **⚠️ SER 路径的 `--limit` 语义不同（易踩坑）**：`import` 的 SER 分支**不具备** `--sample-mode` 的智能扫描能力，`--limit N` 退化为**顺序截断（取前 N 帧）**，等价于视频路径的 `head` 模式。因此外部工具转出的 `SER → import --limit 500` 拿到的是**前 500 帧**，而不是 MP4 / AVI `adaptive` 路径的**全片自适应择优候选**或 `smart-top --limit 500` 的 Top 500。
+> * 导入外部 SER 时若仍要保住 lucky imaging 的选帧收益，请用 `--limit 0` **全帧导入**，让 `register` 在完整候选池上做 Otsu 选帧——全片均有参与下游评估的机会，最终选帧仍由 `register` 决定；
+> * **转 SER 不会免除选帧环节**（换容器不改变视宁度造成的帧间质量差异），但会**削弱 `import` 阶段的内容驱动抽帧能力**。仅在本技能流水线内处理时，mp4/avi 直解路径功能更全（含 sidecar `DATE-OBS` 注入、Bayer 图案探测与设备识别），转 SER 属负收益；仅在需要与 AutoStakkert / PIPP / SER Player 等外部工具互通时才转 SER——**本技能不内置视频转 SER 工具**，请用 ffmpeg 或 PIPP 自行转换。
 > **前置条件**：需已安装 Siril 1.4.4+（macOS 默认路径 `/Applications/Siril.app/Contents/MacOS/siril-cli`，可用 `--siril` 覆盖）。
 > `probe` 输出的 `numpy` / `astropy` / `cv2` / `skimage` 四项必须均非 `null`，否则对应步骤会以 `ModuleNotFoundError` 中断。
+
+> **采集设备识别与光学先验（`--device`）**：智能望远镜的视频/SER 往往不写 `FOCALLEN`/`APERTURE`，此时内置规格表会兜底提供像元尺寸/焦距/口径。
+> * 自动识别信号优先级：FITS 头 `TELESCOP`/`INSTRUME`（`high`）→ 采集侧车 `SENSOR`/`TELESCOP`（`medium`）→ 文件名（`medium`）→ 传感器型号回退（`low`，仅当共用该传感器的机型规格一致时才采纳整组，否则最多只回退像元尺寸）。仅命中品牌（如只写 `DWARFLAB`）时不注入任何先验。
+> * `--device <id>` 强制指定（如 `--device seestar-s50`）；`--device none` 完全关闭。`python scripts/moon_stack.py devices` 打印全部 19 个机型的 JSON 规格表（含来源等级与存疑标注）。
+> * **先验永远不是实测**：由表写入的 FITS 头会带 `DEVICE`/`DEVSRC`/`DEVCONF`/`OPTPRIOR`/`OPTISRC` 溯源标记，来源标注显示为 `FITS Header (FOCALLEN) [device_table: seestar-s50]`。**侧车显式值与实测永远优先**——只有缺失的键才会被填，且 `OPTPRIOR` 精确列出被填的键。
+> * **FITS 输入路径只识别不注入**：FITS 帧是用户原文件的软链接，技能红线禁止改写用户原始目录；识别结果只写入 `import_receipt.json` 的 `device` 字段并打日志。此时若需要这些先验，请显式传 `--focal`/`--pixel-size`/`--aperture`，或依赖 `--drizzle auto` 的月轮 ESF 实测判据（无需任何光学元数据）。
+> * 完整规格表、来源等级、存疑说明与识别规则见 [`references/device_specs.md`](references/device_specs.md)。
 
 ### Step 2: 智能选帧与刚体亚像素配准
 自动识别月面反差特征，通过双锚点互相关解算亚像素视场旋转角 $\theta$ 与平移 $(dx, dy)$：
@@ -88,24 +121,45 @@ python scripts/moon_stack.py register --work /path/to/work --select-mode utility
   * `percent`：固定/经验分级百分比（`--keep-percent <val>`）。
 * Python 会自动生成包含 `R0 ... H cosθ -sinθ h13 sinθ cosθ h23 0 0 1` 刚体单应性矩阵（遵循 FITS 图像原点在左下角的坐标系约定）及 `I <index> 1/0` 选帧标记的 Siril 标准 `.seq` 文件，彻底根除长间隔连拍带来的月盘外围视旋转模糊与劣质帧污染。
 
-### Step 3: Siril 原生插值重采样与堆叠
-由 Siril CLI 原生执行多线程重采样与高动态堆叠（严格保持 Clamping，绝不加 `-noclamp` 避免数值越界）：
+### Step 3: Siril 原生重采样（插值 / Drizzle）与剔除均值堆叠
+由 Siril CLI 原生执行多线程重采样与高动态堆叠（插值路径严格保持 Clamping，绝不加 `-noclamp` 避免数值越界）：
 ```bash
 # 自动生成并执行 02_align_stack.ssf
 # 模式 A（默认全月盘）：--mosaic-mode disc（默认 framing=min，统一裁切画幅）
 # 模式 B（全景马赛克面板）：--mosaic-mode tile（自动缺省 framing=max，保留完整交叠区域）
 python scripts/moon_stack.py stack --work /path/to/work --mosaic-mode disc --interp cu
+
+# Drizzle 超采样：auto（默认，自动判定欠采样）/ off / 强制 2 或 3
+python scripts/moon_stack.py stack --work /path/to/work --drizzle auto
+# 头部缺 FOCALLEN/XPIXSZ 时，可显式喂给 auto 决策
+python scripts/moon_stack.py stack --work /path/to/work --drizzle auto --focal 160 --pixel-size 2.9 --aperture 30
+# 判据阈值可调（默认艾里斑 1.5px / 实测 PSF FWHM 2.0px）
+python scripts/moon_stack.py stack --work /path/to/work --drizzle-psf-threshold 2.5
 ```
-* Siril 调用 `seqapplyreg -framing={min|max} -interp={cu|li} -filter-incl` 完成亚像素重采样；
-* Siril 调用 `stack rej w 3 3 -norm=addscale -filter-included` 生成 32 位 `moon_master.fit`；
-* 若指定 `--mosaic-mode tile`，自动默认启用最大画幅（`framing=max` 并带 `-maximize` 标记），最大化保留与邻近切片的重叠对齐特征，杜绝误裁切。
+* **重采样两条互斥路径**：
+  * 插值（默认）：`seqapplyreg -framing={min|max} -interp={cu|li} -filter-incl`；
+  * Drizzle（`--drizzle` 启用时）：`seqapplyreg -framing={min|max} -scale={2|3} -drizzle -pixfrac={1/scale} -kernel=square -filter-incl`，**自动去掉 `-interp=`**。scale=2 时输出网格线性尺寸翻倍（512×256 → 1022×512），代价是约 4× 像素量、体积与耗时，以及更高的噪声（需更多帧补偿）；
+  * `--drizzle-kernel` 默认 `square`（保通量、任意 scale 稳健）；`turbo` 更快但易留 null pixel（Moiré 花纹）；**Lanczos 核仅允许 `scale == pixfrac == 1.0`，用于超采样时会被自动降级为 `square`**；
+  * `--mosaic-mode tile` 下 `auto` 默认关闭 drizzle（保持各面板采样尺度一致，避免与 `siril-mosaic` 自有的 `-scale` 冲突），需显式 `--drizzle 2` 才启用；
+* **`auto` 的两条判据（按序尝试，全部可溯源）**：
+  1. **衍射极限**（`--drizzle-airy-threshold`，默认 1.5px）：需要焦距 + 口径 + 像元三者齐备（来自 CLI 或 FITS 头）。理论艾里斑半径 `r = 1.22·λ·F#/px` 低于阈值即启用。**口径无法从图像反推**，故这条判据只在口径已知时可用；
+  2. **实测 PSF 宽度**（`--drizzle-psf-threshold`，默认 2.0px）：任一元数据缺失时启用。先从参考帧（`ranking.json` 选出的最锐帧）用月轮几何反推焦距，再以月轮边缘扩散函数（ESF）实测有效 PSF 的 FWHM（`FWHM = 0.919 × w10-90`），低于阈值即启用。**不需要任何光学元数据**，零元数据也能判定；
+  * 两条判据都无法成立时关闭 drizzle，并给出可操作的提示，**绝不使用默认口径 80mm / 默认像元 3.73µm 冒充真实值**；
+  * 判据②的两个已知边界：几何反推要求**完整月盘在画面内**（局部特写 / 马赛克切片会失败），且若头部没有像元尺寸则拒绝反推（默认值会让焦距等比失真）；月轮过曝时 ESF 顶部被削平会低估 FWHM，此时回执标注 `psf_possible_saturation`；
+* **堆叠策略**：统一 `stack rej w {sigma} -norm={norm} -filter-included [-weight=noise]` 生成 32 位 `moon_master.fit`。`--weight {auto,none,noise}` 默认 `auto`（rej 路径启用噪声加权）；`--stack-method sum` 保留为显式回退（`sum` 无剔除、无加权、按最大值归一化）；
+* **失败自愈**：`-weight=noise` 因背景统计不可用（`MAD is null` 等）失败时，自动去掉 `-weight=` 重跑一次；drizzle 运行失败且非强制时自动回退为插值路径重跑，两者均记入 `stack_receipt.json`；
+* **母版像素尺度**：Siril 在 drizzle 时会自动把 `XPIXSZ` 除以缩放倍率；技能随后校验，若未修正则代为改写，并写入 `DRIZZLE`/`DRZSCALE`/`DRZPIXFR`/`DRZKRENL`/`ORIGXPIX` 与 `HISTORY`。`FOCALLEN` 作为物理量始终不动，因此 `siril-mosaic` 的 `seqplatesolve -focal= -pixelsize=` 自动获得正确尺度；
+* 若指定 `--mosaic-mode tile`，自动默认启用最大画幅（`framing=max` 并带 `-maximize` 标记），最大化保留与邻近切片的重叠对齐特征，杜绝误裁切；
+* `stack_receipt.json` 记录 `px_scale`、`weight`、`drizzle` 决策明细与 `drizzle.header` 校验结果，供 postprocess 与 verify 消费。
 
 ### Step 4: ADC 大气色散对齐与插值联动小波重构
 自动执行光学参数智能推断、通道亚像素对准、Airy 物理反卷积与插值自适应细节重构：
 ```bash
-# 自动生成并执行 03_postprocess.ssf (自动推断光学焦距与像元，亦支持显式 --focal/--aperture 覆盖)
-python scripts/moon_stack.py postprocess --work /path/to/work --deconv sb
+# Generate postprocessing commands from trusted optics, or bypass physical deconvolution
+python scripts/moon_stack.py postprocess --work /path/to/work --deconv auto
 ```
+
+默认 `--deconv auto` 仅在可信焦距、口径和像元齐备时启用 Airy 反卷积，未知参数保持空值并跳过；显式 `sb` / `wiener` 缺少参数时给出错误。MTF 命令保持合法单位范围，必要时按同一系数归一化线性明度与色度，保留高光余量。饱和像素不参与自动白平衡，源通道严重截断时采用保守矿物色处理并记录警告；增益无法恢复已截断颜色。单色保存锐化 FITS 并生成 DHR/CSI/GKM；背景噪声按通道在月盘外计算，无可靠空背景时标注不可用。方形导出覆盖完整可见月面及拟合月轮，边界不足补黑边，不缩小框切掉月尖。
 * 自动执行：
   * **智能光学参数推断 (Intelligent Optical Parameter Inference)**：
     * **FITS Header 自动挖掘**：优先自动解析 `XPIXSZ` / `PIXSIZE` 像元尺寸（如 $3.73\ \mu\text{m}$），摆脱死板硬编码；
@@ -271,3 +325,24 @@ python scripts/moon_stack.py verify --work /path/to/work
 11. **非标准视频解码失败与损坏容器自愈 (Non-Standard Video Codec & Corrupted Container Recovery)**：
     * 原因：拍摄中途断电/App崩溃致 MP4 缺失关键 `moov` 索引原子；视频采用 H.265/HEVC、AV1 或 Apple ProRes 高规格编码，而当前 Python OpenCV 缺少解码器后端；行星相机特殊未压缩调色板（FourCC 如 `Y800`, `GREY`, `DIB `）未被映射；天文专用 SER 文件或 FITS 图像被误命为 `.mp4/.avi` 扩展名。
     * 规范：脚本内置全套智能文件头与 OpenCV 状态诊断器（`format_video_decode_error`），在解码受阻时自动输出包含文件大小、魔数、FourCC、捕获状态及确凿根因的报告；针对未闭合 MP4 自动生成快速修复指令（`ffmpeg -err_detect ignore_err -i input.mp4 -c copy fixed.mp4`）；针对非标准编码自动生成无损转码指令（`ffmpeg -i input.mp4 -c:v rawvideo -pix_fmt bgr24 converted.avi`）；识别到真实 SER/FITS 头时自动引导使用 `--format ser` 或 `--format fits`。
+    * **Siril 自身不能做「视频 → SER」转换**：`convert` 只扫描静态图像，实测对现存的 `.mp4`/`.avi` 一律报 "No files were found for conversion"；CLI 的 `load` 也读不了 SER（实测对 Siril **自己写出**的 `.ser` 同样报 "file not found or not supported"，属 CLI 读取限制而非文件缺陷）。若需把 MP4 交给 AutoStakkert / PIPP / SER Player 等外部工具，请用 ffmpeg 或 PIPP 自行转换——**本技能不内置视频转 SER 工具**（mp4/avi 直解路径功能更全，转换属负收益）。
+
+---
+
+## 6. 参考文档
+
+按需加载，不必一次性读入：
+
+| 文档 | 内容 |
+| :--- | :--- |
+| [`references/device_specs.md`](references/device_specs.md) | 19 款智能望远镜的焦距/口径/像元规格表、来源等级、存疑与未公布说明、识别信号优先级、溯源标记定义 |
+| [`references/siril-144-cli.md`](references/siril-144-cli.md) | Siril 1.4.4 CLI 权威语法与实测行为（`convert` / `seqapplyreg` / `-drizzle` / `stack` 分支与 `-weight=`） |
+| [`references/lunar_processing_guide.md`](references/lunar_processing_guide.md) | 月面处理原理：叠加 SNR、反卷积、小波、色彩的真实性边界 |
+
+命令行自省（无需读文档即可查询）：
+
+```bash
+python scripts/moon_stack.py devices            # 设备规格表（JSON）
+python scripts/moon_stack.py devices --id dwarf-3
+python scripts/moon_stack.py stack --help       # 含 --drizzle / --weight 全部选项
+```

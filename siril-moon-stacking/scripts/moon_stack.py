@@ -20,6 +20,7 @@ Architecture:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -28,6 +29,28 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+try:
+    from device_specs import (
+        DEVICE_SPECS,
+        EXCLUDED_DEVICES,
+        SENSOR_STATUS,
+        SOURCE_GRADES,
+        get_device,
+        identify_device,
+        list_devices,
+    )
+except ImportError:  # pragma: no cover - script dir not yet on sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from device_specs import (  # type: ignore[no-redef]
+        DEVICE_SPECS,
+        EXCLUDED_DEVICES,
+        SENSOR_STATUS,
+        SOURCE_GRADES,
+        get_device,
+        identify_device,
+        list_devices,
+    )
 
 import numpy as np
 
@@ -83,7 +106,19 @@ def run_siril_script(siril: str, script_lines: list[str], cwd: Path, log_path: P
     if script_lines[-1] != "exit":
         script_lines.append("exit")
 
-    ssf_file.write_text("\n".join(script_lines) + "\n", encoding="utf-8")
+    bounded = []
+    for line in script_lines:
+        if line.startswith("mtf "):
+            fields = line.split()
+            low, middle, high = map(float,fields[1:4])
+            if not all(np.isfinite([low,middle,high])) or not 0 < middle < 1:
+                die(f"invalid MTF parameters: {line}")
+            low = min(max(low,0.0),0.999998)
+            high = min(max(high,low+0.000001),1.0)
+            fields[1:4] = [f"{low:.6f}",f"{middle:.6f}",f"{high:.6f}"]
+            line = " ".join(fields)
+        bounded.append(line)
+    ssf_file.write_text("\n".join(bounded) + "\n", encoding="utf-8")
     cmd = [siril, "-s", str(ssf_file), "-d", str(cwd)]
     env = dict(os.environ, LANG="C")
     started = time.time()
@@ -116,9 +151,99 @@ def fits_header_info(path: Path) -> dict:
             "bayer": h.get("BAYERPAT"),
             "exptime": h.get("EXPTIME"),
             "instrument": h.get("INSTRUME"),
+            "telescope": h.get("TELESCOP"),
             "date_obs": h.get("DATE-OBS"),
         }
 
+
+# --- capture device priors ---------------------------------------------------
+# Smart-telescope specifications live in scripts/device_specs.py.  Any value that
+# reaches a FITS header from that table is tagged, so downstream code and reports
+# can always tell a lookup apart from a measurement:
+#   DEVICE    device id the header was matched to
+#   DEVSRC    signal used (cli / header / sidecar / filename / sensor)
+#   DEVCONF   user / high / medium / low
+#   OPTPRIOR  comma-separated optical keys actually filled from the table
+#   OPTISRC   device_table | sensor_pixel_only
+OPTICAL_PRIOR_KEYS = ("FOCALLEN", "APERTURE", "XPIXSZ", "YPIXSZ")
+
+
+def _apply_device_priors(header, ident, *, overwrite: bool = False) -> dict:
+    """Write device-table priors plus their provenance into a FITS header.
+
+    Only keywords that are still missing get filled unless ``overwrite`` is set,
+    so an explicit sidecar value or a real measurement always beats a lookup.
+    """
+    if not ident:
+        return {"injected": False, "target": "none"}
+
+    if ident.get("id"):
+        header["DEVICE"] = str(ident["id"])
+        header["DEVSRC"] = str(ident.get("match_source") or "unknown")
+        header["DEVCONF"] = str(ident.get("confidence") or "unknown")
+
+    applied = {}
+    for key, value in (ident.get("priors") or {}).items():
+        if value is None or (key in header and not overwrite):
+            continue
+        header[key] = float(value)
+        applied[key] = float(value)
+
+    if not applied:
+        return {"injected": False, "target": "none",
+                "reason": "all optical keywords already present"}
+
+    header["OPTPRIOR"] = ",".join(sorted(applied))
+    header["OPTISRC"] = "device_table" if ident.get("id") else "sensor_pixel_only"
+    return {"injected": True, "target": "fits_header", "applied": applied}
+
+
+def _device_ident_summary(ident) -> dict:
+    """Compact, JSON-safe description of an identification result for receipts."""
+    if not ident:
+        return {"id": None, "label": None, "match_source": None, "confidence": None,
+                "ambiguous": False, "brand_only": False, "source_grade": None,
+                "sensor": None, "sensor_status": None, "priors": {}, "notes": ""}
+    return {
+        "id": ident.get("id"),
+        "label": ident.get("label"),
+        "match_source": ident.get("match_source"),
+        "confidence": ident.get("confidence"),
+        "ambiguous": bool(ident.get("ambiguous")),
+        "brand_only": bool(ident.get("brand_only")),
+        "source_grade": ident.get("source_grade"),
+        "sensor": ident.get("sensor"),
+        "sensor_status": ident.get("sensor_status"),
+        "priors": dict(ident.get("priors") or {}),
+        "notes": ident.get("notes", ""),
+    }
+
+
+def _hdr_source_label(hdr, key: str, base: str) -> str:
+    """Label where an optical value came from, flagging device-table priors.
+
+    ``OPTPRIOR`` lists exactly which optical keywords the built-in device table
+    filled, so a lookup is never reported as if it were a measurement (and a real
+    header value is never blamed on the table).
+    """
+    priors = str((hdr or {}).get("OPTPRIOR") or "")
+    if key not in priors:
+        return base
+    device = (hdr or {}).get("DEVICE")
+    src = (hdr or {}).get("OPTISRC") or "device_table"
+    tag = f"{src}: {device}" if device and device != "unknown" else src
+    return f"{base} [{tag}]"
+
+
+def _resolve_device_arg(args) -> str:
+    """Validate --device, exiting with an actionable message on an unknown id."""
+    requested = str(getattr(args, "device", "auto") or "auto").strip()
+    if requested in ("auto", "none", ""):
+        return requested
+    if requested not in DEVICE_SPECS:
+        die(f"unknown --device '{requested}'; run `moon_stack.py devices` to list "
+            f"the {len(DEVICE_SPECS)} supported ids, or use 'auto'/'none'")
+    return requested
 
 
 def parse_ser_header(path: Path) -> dict:
@@ -203,12 +328,24 @@ def unpack_ser_to_fits(
     seq_name: str = "moon_",
     limit: int = 0,
     debayer: bool = True,
+    device_override: str | None = None,
 ) -> dict:
     """Extract frames from SER file into individual 16-bit FITS files with metadata."""
     from astropy.io import fits
     import cv2
 
     hdr = parse_ser_header(ser_path)
+
+    ident = identify_device(
+        cli_device=device_override,
+        header={"TELESCOP": hdr.get("telescope"), "INSTRUME": hdr.get("instrument")},
+        filename=ser_path.name,
+        sensor=hdr.get("instrument"),
+    )
+    if ident:
+        log(f"device: {ident.get('label') or ident.get('id')} "
+            f"(source={ident.get('match_source')}, confidence={ident.get('confidence')}"
+            + (f", priors={ident.get('priors')}" if ident.get("priors") else "") + ")")
     w, h = hdr["width"], hdr["height"]
     depth = hdr["pixel_depth"]
     color_id = hdr["color_id"]
@@ -231,7 +368,13 @@ def unpack_ser_to_fits(
     extract_count = min(total_frames, limit) if limit > 0 else total_frames
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    dt_endian = "<" if hdr["little_endian"] else ">"
+    # De-facto SER convention (SER Player / PIPP / Siril / GoQat): the
+    # LittleEndian header flag means the OPPOSITE of its name -- 0 is
+    # little-endian, 1 is big-endian.  The specification's literal wording is
+    # the other way round, but no mainstream writer follows it, so honouring
+    # the flag literally byte-swaps every real-world capture.
+    # https://free-astro.org/index.php?title=SER/en#Specification_issue_with_endianness
+    dt_endian = ">" if hdr["little_endian"] else "<"
     dt_type = f"{dt_endian}u2" if bytes_per_sample == 2 else "u1"
 
     # Memory map the video payload
@@ -290,6 +433,8 @@ def unpack_ser_to_fits(
         if hdr["bayer_pattern"] and not debayer:
             hdu.header["BAYERPAT"] = hdr["bayer_pattern"]
 
+        _apply_device_priors(hdu.header, ident)
+
         hdu.writeto(target_fit, overwrite=True)
 
     return {
@@ -299,6 +444,7 @@ def unpack_ser_to_fits(
         "width": w,
         "height": h,
         "metadata": hdr,
+        "device": _device_ident_summary(ident),
     }
 
 
@@ -603,71 +749,374 @@ def format_video_decode_error(
     return "\n".join(lines)
 
 
-def probe_video_seeing_profile(
-    video_path: Path,
-    stride: int = 2,
-    roi_size: int = 400,
-) -> list[tuple[int, float]]:
-    """Pass 1: Lightweight stream probe without disk I/O.
+VIDEO_SCORE_VERSION = 5
 
-    Computes high-frequency seeing sharpness on central lunar surface ROI
-    across the entire video container to generate an objective seeing timeline.
-    """
+
+def _source_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _structure_quality(patch, background: float, noise: float, full_scale: float) -> float:
+    """Exposure-normalized structure with a low-SNR gate and clipped-pixel mask."""
     import cv2
-    import numpy as np
+    f = np.asarray(patch, dtype=np.float32)
+    hh = (f[0:f.shape[0]//2*2:2,0:f.shape[1]//2*2:2]-f[0:f.shape[0]//2*2:2,1:f.shape[1]//2*2:2]
+          -f[1:f.shape[0]//2*2:2,0:f.shape[1]//2*2:2]+f[1:f.shape[0]//2*2:2,1:f.shape[1]//2*2:2])/2
+    local = hh[f[0:f.shape[0]//2*2:2,0:f.shape[1]//2*2:2] > background+5*noise]
+    if local.size >= 32:
+        noise = max(noise,1.4826*float(np.median(np.abs(local-np.median(local)))))
+    mask = ((f > background + 5 * noise) & (f < full_scale - full_scale / 510)).astype(np.uint8)
+    mask = cv2.erode(mask, np.ones((3, 3), np.uint8)).astype(bool)
+    if np.count_nonzero(mask) < max(32, int(f.size*0.35)):
+        return 0.0
+    signal = float(np.median(f[mask])) - background
+    if signal <= 5 * noise:
+        return 0.0
+    smooth = cv2.GaussianBlur(f, (3, 3), 0.6)
+    energy = float(np.mean(cv2.Laplacian(smooth, cv2.CV_32F)[mask] ** 2))
+    # ponytail: approximate residual noise after smoothing; upgrade only against measured scoring failures.
+    return max(1e-12, energy - noise ** 2) / max(signal ** 2, 1e-12) * signal ** 2 / (signal ** 2 + 25 * noise ** 2)
 
-    if not video_path.is_file():
-        raise FileNotFoundError(f"Video file not found: {video_path}")
 
+def _video_component(gray, previous=None):
+    import cv2
+    step = 4 if min(gray.shape) >= 128 else 1
+    small = np.ascontiguousarray(gray[::step, ::step])
+    samples = small.ravel()[::8]
+    bg = float(np.percentile(samples,25))
+    sky = samples[samples <= bg+2].astype(np.float32)
+    noise = max(0.25, 1.4826 * float(np.median(np.abs(sky - np.median(sky))))) if sky.size else 0.25
+    mask = (small > bg + max(5, 5 * noise)).astype(np.uint8)
+    count, labels, stats, centers = cv2.connectedComponentsWithStats(mask)
+    if count <= 1:
+        return None, bg, noise
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    index = int(np.argmax(areas)) + 1
+    if stats[index, cv2.CC_STAT_AREA] < 8:
+        return None, bg, noise
+    if previous and stats[index, cv2.CC_STAT_AREA] * step * step < previous[2] * 0.15:
+        return None, bg, noise
+    x, y, w, h, area = stats[index]
+    center = [float(centers[index][0] * step), float(centers[index][1] * step), int(area * step * step)]
+    box = [int(x * step), int(y * step), min(gray.shape[1], int((x + w) * step)), min(gray.shape[0], int((y + h) * step))]
+    return (center, box, labels == index, step), bg, noise
+
+
+def _scan_video_profile(video_path: Path, stride=1, roi_size=400, min_signal_ratio=0.2) -> dict:
+    import cv2
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         cap.release()
         raise ValueError(format_video_decode_error(video_path, "probe_open"))
-
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-
-    # 1. Localize lunar center on first valid frame
-    ret, frame = cap.read()
-    if not ret or frame is None:
+    rows, anchors = [], []
+    initial_center = circle = last_center = None
+    fitted_box = None
+    tracking_reference = tracking_box = None
+    track_dx = track_dy = 0.0
+    total = 0
+    started = time.monotonic()
+    profile = {"width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}
+    log(f"pass 1: scanning every {stride} frame(s), tracked lunar features, {video_path.name}")
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            index = total
+            total += 1
+            if index % stride:
+                continue
+            gray = frame[..., 1] if frame.ndim == 3 else frame
+            component = None
+            if fitted_box is not None and last_center and initial_center:
+                sx,sy = last_center[0]-initial_center[0],last_center[1]-initial_center[1]
+                tx,ty = max(0,int(fitted_box[0]+sx)-96),max(0,int(fitted_box[1]+sy)-96)
+                ux,uy = min(gray.shape[1],int(fitted_box[2]+sx)+96),min(gray.shape[0],int(fitted_box[3]+sy)+96)
+                component,bg,noise = _video_component(gray[ty:uy,tx:ux],initial_center)
+                if component:
+                    center,box,target,step = component
+                    if box[0] <= 0 or box[1] <= 0 or box[2] >= ux-tx or box[3] >= uy-ty:
+                        component = None
+                    else:
+                        center = [center[0]+tx,center[1]+ty,center[2]]
+                        box = [box[0]+tx,box[1]+ty,box[2]+tx,box[3]+ty]
+                        component = (center,box,target,step)
+            if component is None:
+                tx=ty=0;ux,uy=gray.shape[1],gray.shape[0]
+                component,bg,noise = _video_component(gray,initial_center)
+            center = component[0] if component else None
+            if not anchors or (component and (initial_center is None or (fitted_box is None and center[2] > initial_center[2]*4))):
+                fitted_box = None
+                tracking_reference = None
+                initial_center = center
+                if component:
+                    x0, y0, x1, y1 = component[1]
+                    pad = max(x1-x0, y1-y0)
+                    ax, ay = max(0, x0-pad), max(0, y0-pad)
+                    bx, by = min(gray.shape[1], x1+pad), min(gray.shape[0], y1+pad)
+                    local = gray[ay:by, ax:bx].astype(np.float32)
+                    fit = _fit_lunar_limb_circle(local)
+                    if fit is not None:
+                        cx, cy, radius, residual = fit
+                        circle = [cx+ax, cy+ay, radius, residual]
+                        fitted_box = [cx+ax-radius, cy+ay-radius, cx+ax+radius, cy+ay+radius]
+                        if min(fitted_box) < 0 or fitted_box[2] > gray.shape[1] or fitted_box[3] > gray.shape[0]:
+                            fitted_box = None
+                        psf = _measure_limb_psf_fwhm(local, circle=fit, full_scale=255.0)
+                        profile["psf_fwhm"] = psf.get("fwhm_px") if psf else None
+                bounds = fitted_box if fitted_box is not None else component[1] if component else [0,0,gray.shape[1],gray.shape[0]]
+                ax,ay = max(0,int(bounds[0])),max(0,int(bounds[1]))
+                bx,by = min(gray.shape[1],int(np.ceil(bounds[2]))),min(gray.shape[0],int(np.ceil(bounds[3])))
+                lunar = gray[ay:by,ax:bx]
+                size = min(128,roi_size,max(32,min(lunar.shape)//3),*lunar.shape)
+                downsample = max(1,min(4,size//32))
+                primary = _locate_high_contrast_roi(lunar,roi_size=size,downsample=downsample)
+                first,second = _locate_dual_anchor_rois(lunar,roi_size=size,downsample=downsample)
+                local_anchors = [first]
+                if second is not None and (second[2] <= first[0] or second[0] >= first[2] or second[3] <= first[1] or second[1] >= first[3]):
+                    local_anchors.append(second)
+                if all(primary[2] <= r[0] or primary[0] >= r[2] or primary[3] <= r[1] or primary[1] >= r[3] for r in local_anchors):
+                    local_anchors.append(primary)
+                anchors = [(r[0]+ax,r[1]+ay,r[2]+ax,r[3]+ay) for r in local_anchors]
+            if center:
+                last_center = center
+            dx = center[0]-initial_center[0] if center and initial_center else 0
+            dy = center[1]-initial_center[1] if center and initial_center else 0
+            tracking_response = None
+            if fitted_box is not None:
+                if tracking_reference is None:
+                    lx,ly = max(0,int(fitted_box[0])-96),max(0,int(fitted_box[1])-96)
+                    rx,ry = min(gray.shape[1],int(fitted_box[2])+96),min(gray.shape[0],int(fitted_box[3])+96)
+                    tracking_box = [lx,ly,rx-lx,ry-ly]
+                    tracking_reference = np.ascontiguousarray(gray[ly:ry:4,lx:rx:4],dtype=np.float32)
+                lx,ly,tw,th = tracking_box
+                px = max(0,min(int(round(lx+track_dx)),gray.shape[1]-tw))
+                py = max(0,min(int(round(ly+track_dy)),gray.shape[0]-th))
+                sample = np.ascontiguousarray(gray[py:py+th:4,px:px+tw:4],dtype=np.float32)
+                fx,fy,tracking_response = _subpixel_phase_correlation(tracking_reference,sample,upsample_factor=4)
+                if tracking_response >= 0.25:
+                    dx,dy = px-lx+fx*4,py-ly+fy*4
+                    track_dx,track_dy = dx,dy
+            scores = []
+            for x0, y0, x1, y1 in anchors:
+                width, height = x1-x0, y1-y0
+                sx = max(0, min(int(round(x0+dx)), gray.shape[1]-width))
+                sy = max(0, min(int(round(y0+dy)), gray.shape[0]-height))
+                scores.append(_structure_quality(gray[sy:sy+height, sx:sx+width], bg, noise, 255.0))
+            box = None
+            saturation = [0.0] * 3
+            brightness = None
+            if component:
+                center, visible, target, step = component
+                sample = frame[ty:uy:step,tx:ux:step]
+                pixels = sample[target]
+                if pixels.size:
+                    brightness = float(np.median(pixels[..., 1] if pixels.ndim == 2 else pixels))
+                    saturation = (np.mean(pixels >= 255, axis=0)[::-1].tolist() if pixels.ndim == 2 else [float(np.mean(pixels >= 255))]*3)
+                if fitted_box is not None:
+                    box = [min(fitted_box[0]+dx, visible[0]), min(fitted_box[1]+dy, visible[1]), max(fitted_box[2]+dx, visible[2]), max(fitted_box[3]+dy, visible[3])]
+            quality = float(np.median(scores)) if component or initial_center is None else 0.0
+            if index and index % 1000 == 0:
+                log(f"pass 1: decoded {total} frames")
+            rows.append({"index": index, "sharpness": quality, "roi_scores": scores, "center": center,
+                         "box": box, "background": bg, "noise": noise, "brightness": brightness, "tracking_response":tracking_response, "tracking_shift":[dx,dy],
+                         "saturation_rgb": saturation, "pts": float(cap.get(cv2.CAP_PROP_POS_MSEC))/1000})
+    finally:
         cap.release()
-        raise ValueError(format_video_decode_error(video_path, "probe_initial_frame", cap=cap, total_reported=total_frames))
+    if not rows:
+        raise ValueError(format_video_decode_error(video_path, "probe_initial_frame"))
+    signals = [max(0,r["brightness"]-r["background"]) for r in rows if r["brightness"] is not None]
+    reference_signal = float(np.percentile(signals,90)) if signals else 0.0
+    for row in rows:
+        signal = max(0,(row["brightness"] or 0)-row["background"])
+        row["signal_ratio"] = signal/reference_signal if reference_signal else 0.0
+        row["quality_flags"] = []
+        if row["signal_ratio"] < min_signal_ratio:
+            row["quality_flags"].append("low_lunar_signal")
+            row["sharpness"] = 0.0
+        if row["center"] is None:
+            row["quality_flags"].append("target_lost")
+        if max(row["saturation_rgb"]) > 0.05:
+            row["quality_flags"].append("channel_clipping")
+    profile.update(rows=rows, decoded_frames=total, anchors=anchors, circle=circle, reference_signal=reference_signal, scan_seconds=time.monotonic()-started)
+    profile["timestamp_source"] = "opencv" if all(b["pts"] > a["pts"] for a,b in zip(rows,rows[1:])) else "unavailable"
+    if shutil.which("ffprobe"):
+        result = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_packets", "-show_entries", "packet=pts_time", "-of", "json", str(video_path)], capture_output=True, text=True)
+        if result.returncode == 0:
+            try:
+                timestamps = sorted(float(packet["pts_time"]) for packet in json.loads(result.stdout)["packets"])
+                if len(timestamps) == total and all(b>a for a,b in zip(timestamps,timestamps[1:])):
+                    for row in rows:
+                        row["pts"] = timestamps[row["index"]]
+                    profile["timestamp_source"] = "ffprobe packet PTS (presentation order)"
+            except (KeyError, ValueError, TypeError):
+                pass
+    if profile["timestamp_source"] == "unavailable":
+        for row in rows:
+            row["pts"] = None
+    log(f"pass 1 complete: scored {len(rows)}/{total} frames in {profile['scan_seconds']:.2f}s")
+    return profile
 
-    gray_init = frame[..., 0] if frame.ndim == 3 else frame
-    mask = gray_init > 20
-    ys, xs = np.nonzero(mask)
-    if len(xs) > 100:
-        cx, cy = int(round(xs.mean())), int(round(ys.mean()))
+
+def probe_video_seeing_profile(video_path: Path, stride=1, roi_size=400) -> list[tuple[int, float]]:
+    return [(r["index"], r["sharpness"]) for r in _scan_video_profile(video_path, max(1, stride), roi_size)["rows"]]
+
+
+def _cached_video_profile(video: Path, work: Path, stride: int, min_signal_ratio=0.2) -> dict:
+    if not np.isfinite(min_signal_ratio) or not 0 <= min_signal_ratio <= 1:
+        die("--min-signal-ratio must be between 0 and 1")
+    identity = {"sha256": _source_sha256(video), "version": VIDEO_SCORE_VERSION, "stride": stride, "roi_size": 400,"min_signal_ratio":min_signal_ratio}
+    path = work / "video_scores.json"
+    if path.exists():
+        try:
+            cached = load_json(path)
+            if cached.get("identity") == identity:
+                log("reusing full-video scores (source hash and scoring parameters verified)")
+                return {**cached, "cache_hit": True}
+        except (OSError, ValueError):
+            pass
+    profile = _scan_video_profile(video,stride,min_signal_ratio=min_signal_ratio)
+    profile.update(identity=identity, cache_hit=False)
+    dump_json(path, profile)
+    return profile
+
+
+def _video_crop(profile, indices, margin: int, mode: str):
+    if mode == "off":
+        return None, "disabled"
+    boxes = [r["box"] for r in profile["rows"] if r["index"] in indices]
+    if not boxes or any(b is None for b in boxes):
+        return None, "unreliable lunar localization; using full frame"
+    box = [max(0, int(np.floor(min(b[0] for b in boxes)))-margin), max(0, int(np.floor(min(b[1] for b in boxes)))-margin),
+           min(profile["width"], int(np.ceil(max(b[2] for b in boxes)))+margin), min(profile["height"], int(np.ceil(max(b[3] for b in boxes)))+margin)]
+    # Even origins preserve Bayer parity before demosaicing; no pixels are rescaled.
+    box[0] -= box[0] % 2
+    box[1] -= box[1] % 2
+    return box, "tracked lunar disc and visible limb union"
+
+
+def _disk_frame_budget(work, args, width, height, channels, requested, existing=0, scale=1.0, importing=True):
+    free = shutil.disk_usage(work).free
+    reserve = max(10*1024**3, int(free*0.1))
+    available = max(0, free-reserve)
+    cap = getattr(args, "disk_budget_gb", None)
+    if cap is not None:
+        if not np.isfinite(cap) or cap <= 0:
+            die("--disk-budget-gb must be positive and finite")
+        used = sum(p.stat().st_size for p in work.iterdir() if p.is_file())
+        available = min(available, max(0, int(cap*1024**3)-used))
+    pixels = width*height*channels
+    raw = ((pixels*2+2879)//2880+1)*2880
+    aligned = ((int(pixels*4*scale**2)+2879)//2880+1)*2880
+    drizzle_scratch = aligned if scale > 1 else 0
+    def peak(n):
+        return int(1.25*((max(0,n-existing)*raw if importing else 0) + n*(aligned+drizzle_scratch)+6*aligned))
+    low, high = 0, requested
+    while low < high:
+        middle = (low+high+1)//2
+        if peak(middle) <= available:
+            low = middle
+        else:
+            high = middle-1
+    if low < min(3, requested):
+        die(f"insufficient disk budget: need {peak(min(3,requested))} bytes, available {available}, shortfall {max(0,peak(min(3,requested))-available)} bytes; use a new work directory, smaller ROI or more disk space")
+    return low, {"free_bytes": free, "reserve_bytes": reserve, "available_bytes": available,
+                 "requested_frames": requested, "allowed_frames": low, "estimated_peak_additional_bytes": peak(low),
+                 "estimated_requested_bytes": peak(requested), "scale": scale, "reduced": low < requested}
+
+
+def _import_scored_video(video, work, args, seq_name):
+    from astropy.io import fits
+    stride = max(1, int(getattr(args, "probe_stride", 1)))
+    profile = _cached_video_profile(video,work,stride,getattr(args,"min_signal_ratio",0.2))
+    mode = getattr(args, "sample_mode", "adaptive")
+    limit = int(getattr(args, "limit", 0))
+    if limit < 0 or int(getattr(args, "roi_margin", 64)) < 0:
+        die("--limit and --roi-margin must be non-negative")
+    valid = [{"index": r["index"], "sharpness": r["sharpness"]} for r in profile["rows"] if r["sharpness"] > 0 and np.isfinite(r["sharpness"])]
+    valid.sort(key=lambda r: r["sharpness"], reverse=True)
+    selection = None
+    primary = mode == "adaptive" or (mode in ("smart-top", "smart-cluster") and limit > 0)
+    if mode == "adaptive":
+        kept, selection = _select_frames_by_quality(valid, len(profile["rows"]), getattr(args,"select_mode","otsu"), getattr(args,"keep_percent",None), getattr(args,"quality_threshold",0.75), getattr(args,"utility_alpha",2.0), getattr(args,"utility_beta",1.0))
+        pool = [r["index"] for r in valid if r["index"] in kept]
+    elif mode in ("smart-top", "smart-cluster") and limit > 0:
+        pool = [r["index"] for r in valid]
     else:
-        cx, cy = w // 2, h // 2
-
-    half = roi_size // 2
-    x0, x1 = max(0, cx - half), min(w, cx + half)
-    y0, y1 = max(0, cy - half), min(h, cy + half)
-
-    stride = max(1, int(stride))
-    log(f"pass 1 seeing probe: scanning video container [{video_path.name}] (total={total_frames if total_frames > 0 else 'stream'} frames, stride={stride}, ROI=[{x0}:{x1}, {y0}:{y1}])...")
-
-    results: list[tuple[int, float]] = []
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-    frame_idx = 0
-
-    while True:
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            break
-
-        if frame_idx % stride == 0:
-            gray_roi = frame[y0:y1, x0:x1, 0] if frame.ndim == 3 else frame[y0:y1, x0:x1]
-            lap_val = float(cv2.Laplacian(gray_roi, cv2.CV_32F).var())
-            results.append((frame_idx, lap_val))
-
-        frame_idx += 1
-
-    cap.release()
-    log(f"pass 1 seeing probe complete: sampled {len(results)} frames across {frame_idx} total frames")
-    return results
+        start = max(0, int(getattr(args,"start_frame",0)))
+        pool = list(range(start, profile["decoded_frames"]))
+    if not pool:
+        die("no video frames passed the import quality filter")
+    crop, crop_reason = _video_crop(profile, set(pool), int(getattr(args,"roi_margin",64)), getattr(args,"video_roi","auto"))
+    width, height = (crop[2]-crop[0], crop[3]-crop[1]) if crop else (profile["width"], profile["height"])
+    signature = {"source": profile["identity"]["sha256"], "crop": crop, "force_mono": bool(getattr(args,"force_mono",False)), "debayer": getattr(args,"video_debayer","auto"), "device": _resolve_device_arg(args)}
+    previous = load_json(work/"import_receipt.json") if (work/"import_receipt.json").exists() else {}
+    old_video = previous.get("video_metadata",{})
+    frames = _seq_frame_paths(work, seq_name)
+    if frames and old_video.get("processing_signature") != signature:
+        die("existing FITS use another source, ROI or channel configuration; use a new --work directory")
+    mapping = dict(old_video.get("source_mapping",{}))
+    if len(mapping) != len(frames) or any(not (work/f"{seq_name}{int(k):05d}.fit").exists() for k in mapping):
+        die("incomplete source-frame mapping; use a new --work directory")
+    for number,index in mapping.items():
+        path = work/f"{seq_name}{int(number):05d}.fit"
+        saved = old_video.get("source_files",{}).get(number)
+        if saved and saved != _frame_identity(path):
+            die("a generated source FITS was modified; use a new --work directory")
+        if not saved:
+            header = fits.getheader(path)
+            if header.get("SRC_FRM") != index or header.get("CROP_X",0) != (crop[0] if crop else 0) or header.get("CROP_Y",0) != (crop[1] if crop else 0):
+                die("source-frame metadata does not match the import receipt; use a new --work directory")
+    channels = int(previous.get("channels", 1 if getattr(args,"force_mono",False) else 3))
+    drizzle = str(getattr(args,"drizzle","off"))
+    scale = float(drizzle) if drizzle in ("2","3") else (2.0 if drizzle == "auto" and (profile.get("psf_fwhm") is None or profile["psf_fwhm"] < 2) else 1.0)
+    requested = min(limit,len(pool)) if limit > 0 else len(pool)
+    count, budget = _disk_frame_budget(work,args,width,height,channels,requested,len(mapping),scale)
+    if count < requested and not primary:
+        scores = {r["index"]:r["sharpness"] for r in profile["rows"]}
+        pool = sorted(pool[:requested],key=lambda index:scores.get(index,0),reverse=True)
+    chosen = pool[:count]
+    if mode == "smart-cluster" and primary:
+        by_index = {r["index"]: r for r in profile["rows"]}
+        times = [by_index[i]["pts"] for i in pool]
+        if all(t is not None for t in times):
+            lo, hi = min(times), max(times)
+            bins = [[] for _ in range(10)]
+            for i in pool:
+                bins[min(9,int((by_index[i]["pts"]-lo)/max(hi-lo,1e-9)*10))].append(i)
+            chosen = []
+            while len(chosen) < count and any(bins):
+                for group in bins:
+                    if group and len(chosen) < count:
+                        chosen.append(group.pop(0))
+        else:
+            die("smart-cluster requires reliable presentation timestamps; use smart-top")
+    missing = sorted(set(chosen)-set(mapping.values()))
+    if missing:
+        info = unpack_video_to_fits(video,work,seq_name,force_mono=getattr(args,"force_mono",False), debayer=getattr(args,"video_debayer","auto"), target_indices=missing, device_override=_resolve_device_arg(args), crop_box=crop, output_start=len(mapping)+1)
+        for number, index in enumerate(missing,len(mapping)+1):
+            mapping[str(number)] = index
+    else:
+        info = dict(old_video)
+    scores = {r["index"]:r for r in profile["rows"]}
+    selected_rows = [scores[i] for i in chosen if i in scores]
+    info.update(extracted_frames=len(mapping), width=width,height=height, source_width=profile["width"],source_height=profile["height"],
+                processing_signature=signature, source_mapping=mapping,
+                source_files={key:_frame_identity(work/f"{seq_name}{int(key):05d}.fit") for key in mapping},
+                active_sources=chosen, primary_selected=primary,
+                crop_box=crop,crop_reason=crop_reason, budget=budget, candidate_pool_count=len(pool), newly_extracted=len(missing),
+                score_identity=profile["identity"], score_cache_hit=profile["cache_hit"], timestamp_source=profile["timestamp_source"],
+                source_saturation_rgb=np.median([r["saturation_rgb"] for r in selected_rows],axis=0).tolist() if selected_rows else None)
+    values = [r["sharpness"] for r in profile["rows"]]
+    info["seeing_probe"] = {"total_probed":len(values), "sample_mode":mode,"probe_stride":stride,"selection_meta":selection,
+                            "chosen_frame_count":len(chosen),"min_sharpness":min(values),"max_sharpness":max(values),
+                            "p50_sharpness":float(np.median(values)),"p90_sharpness":float(np.percentile(values,90))}
+    log(f"video ROI: {crop or 'full frame'} ({crop_reason}); selected {len(chosen)}/{len(pool)}, new FITS {len(missing)}")
+    return info
 
 
 def unpack_video_to_fits(
@@ -679,11 +1128,14 @@ def unpack_video_to_fits(
     debayer: str = "auto",
     start_frame: int = 0,
     target_indices: list[int] | None = None,
+    device_override: str | None = None,
+    crop_box: list[int] | None = None,
+    output_start: int = 1,
 ) -> dict:
     """Extract frames from an AVI/MP4/MOV video container directly into 16-bit FITS files.
 
     Direct-pass architecture:
-      - Reads frames sequentially or via targeted direct-seek (FFmpeg/OpenCV).
+      - Reads frames sequentially, writing only selected source indices when provided.
       - Autodetects RAW Bayer CFA videos (e.g. Seestar/planetary camera RAW.avi) and applies hardware demosaicing.
       - Converts BGR to RGB and normalizes 8-bit [0, 255] to 16-bit [0, 65535] ((val << 8) | val).
       - Injects standard astronomical FITS metadata (BITPIX=16, ORIG_BIT=8, FPS, etc.).
@@ -712,18 +1164,18 @@ def unpack_video_to_fits(
         cap.release()
         raise ValueError(format_video_decode_error(video_path, "invalid_resolution", cap=cap, total_reported=total_in_file))
 
-    if target_indices is not None and len(target_indices) > 0:
-        mode_seek = True
-        frame_queue = sorted(list(target_indices))
+    frame_queue = None
+    if target_indices is not None:
+        frame_queue = sorted(set(target_indices))
+        if not frame_queue or frame_queue[0] < 0:
+            cap.release()
+            raise ValueError("target_indices must contain non-negative source frame indices")
         if limit > 0:
             frame_queue = frame_queue[:limit]
-        log(f"unpacking video in targeted direct-seek mode: extracting {len(frame_queue)} optimal frames...")
-    else:
-        mode_seek = False
-        frame_queue = None
-        if start_frame > 0:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-            log(f"seeking video stream to start_frame={start_frame} (of {total_in_file} total frames)...")
+        log(f"pass 2 sequential extraction: writing {len(frame_queue)} selected frames...")
+    elif start_frame > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        log(f"seeking video stream to start_frame={start_frame} (of {total_in_file} total frames)...")
 
     out_dir.mkdir(parents=True, exist_ok=True)
     extract_count = 0
@@ -755,30 +1207,38 @@ def unpack_video_to_fits(
 
     log(f"unpacking video [{video_path.name}]: {w}x{h} @ {fps:.1f} fps (reported frames: {total_in_file if total_in_file > 0 else 'stream'}, fourcc={fourcc_str})")
 
+    # Identify the capture device once; priors are applied per frame further down
+    # (after the sidecar passthrough, so explicit sidecar values still win).
+    ident = identify_device(
+        cli_device=device_override,
+        sidecar=sidecar_meta,
+        filename=video_path.name,
+        sensor=sidecar_meta.get("SENSOR"),
+    )
+    if ident:
+        log(f"device: {ident.get('label') or ident.get('id')} "
+            f"(source={ident.get('match_source')}, confidence={ident.get('confidence')}"
+            + (f", priors={ident.get('priors')}" if ident.get("priors") else "") + ")")
+
     out_channels = 1 if force_mono else 3
     detected_mode = None  # "mono", "rgb", or debayer cv2 code
 
-    seek_ptr = 0
+    selected_ptr = 0
+    next_src_frame = 0 if frame_queue is not None else max(0, start_frame)
     while True:
-        if mode_seek:
-            if seek_ptr >= len(frame_queue):
-                break
-            target_fno = frame_queue[seek_ptr]
-            seek_ptr += 1
-            cap.set(cv2.CAP_PROP_POS_FRAMES, target_fno)
-            current_src_frame = target_fno
-            ret, frame = cap.read()
-        else:
-            if limit > 0 and extract_count >= limit:
-                break
-            current_src_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            ret, frame = cap.read()
-
+        if frame_queue is not None and selected_ptr >= len(frame_queue):
+            break
+        if limit > 0 and extract_count >= limit:
+            break
+        ret, frame = cap.read()
         if not ret or frame is None:
-            if mode_seek:
+            break
+        current_src_frame = next_src_frame
+        next_src_frame += 1
+        if frame_queue is not None:
+            if current_src_frame < frame_queue[selected_ptr]:
                 continue
-            else:
-                break
+            selected_ptr += 1
 
         # Check mode on first valid frame
         if detected_mode is None:
@@ -887,6 +1347,14 @@ def unpack_video_to_fits(
                         detected_mode = "rgb"
                         out_channels = 3
 
+        crop_applied = False
+        if crop_box is not None and detected_mode in ("mono","rgb"):
+            x0,y0,x1,y1 = crop_box
+            if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
+                cap.release()
+                raise ValueError("crop_box is outside source dimensions")
+            frame = frame[y0:y1,x0:x1]
+            crop_applied = True
         if detected_mode == "mono":
             if frame.ndim == 3:
                 mono_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -908,12 +1376,25 @@ def unpack_video_to_fits(
             u16_rgb = (rgb.astype(np.uint16) << 8) | rgb.astype(np.uint16)
             fits_data = np.transpose(u16_rgb, (2, 0, 1))
 
+        if crop_box is not None and not crop_applied:
+            x0, y0, x1, y1 = crop_box
+            if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
+                cap.release()
+                raise ValueError("crop_box is outside source dimensions")
+            fits_data = fits_data[..., y0:y1, x0:x1]
         extract_count += 1
-        target_fit = out_dir / f"{seq_name}{extract_count:05d}.fit"
+        target_fit = out_dir / f"{seq_name}{output_start+extract_count-1:05d}.fit"
+        if target_fit.exists():
+            cap.release()
+            raise ValueError(f"refusing to overwrite existing video frame: {target_fit}")
 
         hdu = fits.PrimaryHDU(fits_data)
         hdu.header["BITPIX"] = 16
         hdu.header["ORIG_BIT"] = 8
+        hdu.header["SRC_W"] = w
+        hdu.header["SRC_H"] = h
+        hdu.header["CROP_X"] = crop_box[0] if crop_box else 0
+        hdu.header["CROP_Y"] = crop_box[1] if crop_box else 0
         hdu.header["SRC_FMT"] = video_path.suffix.upper().lstrip(".")
         if fps > 0:
             hdu.header["FPS"] = fps
@@ -924,10 +1405,6 @@ def unpack_video_to_fits(
 
         if "SENSOR" in sidecar_meta:
             hdu.header["INSTRUME"] = sidecar_meta["SENSOR"]
-            sens = sidecar_meta["SENSOR"].lower()
-            if "imx585" in sens or "imx462" in sens or "imx662" in sens:
-                hdu.header["XPIXSZ"] = 2.9
-                hdu.header["YPIXSZ"] = 2.9
         if "DATE-OBS" in sidecar_meta:
             hdu.header["DATE-OBS"] = sidecar_meta["DATE-OBS"]
         if "SITELONG" in sidecar_meta:
@@ -943,12 +1420,37 @@ def unpack_video_to_fits(
         if "OBJECT" in sidecar_meta:
             hdu.header["OBJECT"] = sidecar_meta["OBJECT"]
 
+        # Forward optical metadata from the capture sidecar when present, so the
+        # drizzle auto-decision and the postprocess optical inference work from
+        # real numbers instead of falling back to defaults.  Values already set
+        # by the device lookup are never overwritten.
+        for sc_key, fits_key in (("FOCALLEN", "FOCALLEN"), ("FOCAL", "FOCALLEN"),
+                                 ("APERTURE", "APERTURE"), ("APTURE", "APERTURE"),
+                                 ("XPIXSZ", "XPIXSZ"), ("PIXSIZE", "XPIXSZ")):
+            if sc_key not in sidecar_meta or fits_key in hdu.header:
+                continue
+            try:
+                val = float(sidecar_meta[sc_key])
+            except (TypeError, ValueError):
+                continue
+            if val <= 0:
+                continue
+            hdu.header[fits_key] = val
+            if fits_key == "XPIXSZ":
+                hdu.header["YPIXSZ"] = val
+
+        # Device-table priors fill whatever is still missing after the sidecar,
+        # and tag themselves so they are never mistaken for measurements.
+        _apply_device_priors(hdu.header, ident)
+
         hdu.writeto(target_fit, overwrite=True)
 
     cap.release()
 
     if extract_count <= 0:
         raise ValueError(format_video_decode_error(video_path, "unpack_zero_frames", total_reported=total_in_file))
+    if frame_queue is not None and extract_count != len(frame_queue):
+        raise ValueError(f"video ended before all selected frames were read: {extract_count}/{len(frame_queue)} extracted")
 
     return {
         "extracted_frames": extract_count,
@@ -959,6 +1461,7 @@ def unpack_video_to_fits(
         "fps": fps,
         "fourcc": fourcc_str,
         "orig_bit_depth": 8,
+        "device": _device_ident_summary(ident),
     }
 
 
@@ -971,6 +1474,8 @@ def cmd_import(args) -> None:
     if not src.exists():
         die(f"input path not found: {src}")
 
+    if work == src or work == src.parent or (src.is_dir() and work.is_relative_to(src)):
+        die("--work must be isolated from the original input directory")
     work.mkdir(parents=True, exist_ok=True)
     logs_dir = work / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -979,6 +1484,9 @@ def cmd_import(args) -> None:
     limit = getattr(args, "limit", 0)
     ser_debayer = getattr(args, "ser_debayer", True)
     force_mono = getattr(args, "force_mono", False)
+    device_arg = _resolve_device_arg(args)
+    device_override = device_arg   # 'auto' and 'none' are handled by identify_device
+    device_ident = None
 
     fits_files, raw_files, ser_files, video_files = [], [], [], []
 
@@ -1044,85 +1552,11 @@ def cmd_import(args) -> None:
         video_path = video_files[0]
         if len(video_files) > 1:
             log(f"inventory: found {len(video_files)} video files in {src}; selecting primary video: {video_path.name}")
-        sample_mode = getattr(args, "sample_mode", "smart-top") or "smart-top"
-        probe_stride = max(1, int(getattr(args, "probe_stride", 2) or 2))
-        target_indices = None
-        probe_stats = None
-
-        if sample_mode in ("smart-top", "smart-cluster") and limit > 0:
-            import cv2
-            cap_probe = cv2.VideoCapture(str(video_path))
-            if not cap_probe.isOpened():
-                cap_probe.release()
-                die(format_video_decode_error(video_path, "probe_open"))
-            v_total = int(cap_probe.get(cv2.CAP_PROP_FRAME_COUNT))
-            cap_probe.release()
-
-            if v_total > 0 and v_total <= limit:
-                log(f"video has {v_total} frames <= limit {limit}: importing all frames without subsampling")
-            else:
-                effective_stride = probe_stride
-                if v_total > 0 and v_total // effective_stride < limit:
-                    effective_stride = max(1, v_total // limit)
-
-                try:
-                    scored = probe_video_seeing_profile(video_path, stride=effective_stride)
-                except ValueError as exc:
-                    die(str(exc))
-                if scored:
-                    all_vals = [s[1] for s in scored]
-                    k_limit = min(limit, len(scored))
-
-                    if sample_mode == "smart-top":
-                        scored_sorted = sorted(scored, key=lambda x: x[1], reverse=True)
-                        chosen = scored_sorted[:k_limit]
-                        target_indices = sorted([x[0] for x in chosen])
-                        chosen_scores = [x[1] for x in chosen]
-                        log(f"smart-top selection complete: picked {len(target_indices)} frames (avg sharpness={np.mean(chosen_scores):.1f}, range=[{min(chosen_scores):.1f}, {max(chosen_scores):.1f}], frame span=[{target_indices[0]} - {target_indices[-1]}])")
-                    elif sample_mode == "smart-cluster":
-                        n_bins = 10
-                        bin_size = max(1, len(scored) // n_bins)
-                        per_bin_k = max(1, k_limit // n_bins)
-                        chosen = []
-                        for b in range(n_bins):
-                            sub = scored[b * bin_size : (b + 1) * bin_size]
-                            sub_sorted = sorted(sub, key=lambda x: x[1], reverse=True)
-                            chosen.extend(sub_sorted[:per_bin_k])
-                        if len(chosen) < k_limit:
-                            remaining = [x for x in scored if x not in chosen]
-                            remaining.sort(key=lambda x: x[1], reverse=True)
-                            chosen.extend(remaining[: (k_limit - len(chosen))])
-                        target_indices = sorted([x[0] for x in chosen[:k_limit]])
-                        chosen_scores = [x[1] for x in chosen[:k_limit]]
-                        log(f"smart-cluster selection complete: picked {len(target_indices)} frames across {n_bins} time windows (avg sharpness={np.mean(chosen_scores):.1f})")
-
-                    probe_stats = {
-                        "total_probed": len(scored),
-                        "sample_mode": sample_mode,
-                        "min_sharpness": float(np.min(all_vals)),
-                        "p50_sharpness": float(np.percentile(all_vals, 50)),
-                        "p90_sharpness": float(np.percentile(all_vals, 90)),
-                        "max_sharpness": float(np.max(all_vals)),
-                        "chosen_avg_sharpness": float(np.mean(chosen_scores)),
-                        "chosen_frame_count": len(target_indices),
-                    }
-
-        start_frame = int(getattr(args, "start_frame", 0) or 0)
         try:
-            video_info = unpack_video_to_fits(
-                video_path=video_path,
-                out_dir=work,
-                seq_name=seq_name,
-                limit=limit,
-                force_mono=force_mono,
-                debayer=video_debayer,
-                start_frame=start_frame,
-                target_indices=target_indices,
-            )
+            video_info = _import_scored_video(video_path, work, args, seq_name)
         except ValueError as exc:
             die(str(exc))
-        if probe_stats:
-            video_info["seeing_probe"] = probe_stats
+        device_ident = video_info.get("device")
         total_frames = video_info["extracted_frames"]
         channels = video_info["channels"]
         log(f"video import complete: extracted {total_frames} frames ({channels} channel{'s' if channels > 1 else ''})")
@@ -1137,7 +1571,9 @@ def cmd_import(args) -> None:
             seq_name=seq_name,
             limit=limit,
             debayer=ser_debayer,
+            device_override=device_override,
         )
+        device_ident = ser_info.get("device")
         total_frames = ser_info["extracted_frames"]
         channels = ser_info["channels"]
         log(f"SER import complete: extracted {total_frames} frames ({channels} channel{'s' if channels > 1 else ''})")
@@ -1201,6 +1637,21 @@ def cmd_import(args) -> None:
         if first_h.get("naxis") == 2:
             channels = 1
 
+        # Identify the capture device from the frames themselves.  These files are
+        # the user's originals behind symlinks, so nothing is written back: the
+        # identification is recorded in the receipt for the caller to act on.
+        device_ident = _device_ident_summary(identify_device(
+            cli_device=device_override,
+            header={"TELESCOP": first_h.get("telescope"), "INSTRUME": first_h.get("instrument")},
+            filename=usable_fits[0].name,
+            sensor=first_h.get("instrument"),
+        ))
+        if device_ident.get("id") or device_ident.get("label"):
+            log(f"device: {device_ident.get('label') or device_ident.get('id')} "
+                f"(source={device_ident.get('match_source')}, "
+                f"confidence={device_ident.get('confidence')}) - read-only identification, "
+                f"source FITS headers are left untouched")
+
         log(f"importing {len(usable_fits)} FITS frames ({channels} channel{'s' if channels > 1 else ''}) via safe symlinks...")
         for i, f in enumerate(usable_fits, 1):
             target_link = work / f"{seq_name}{i:05d}.fit"
@@ -1218,8 +1669,13 @@ def cmd_import(args) -> None:
         f"S '{seq_name}' 1 {total_frames} {total_frames} 5 -1 6 0 0 0",
         f"L {channels}",
     ]
+    active_sources = set(video_info.get("active_sources", [])) if video_info else None
+    selected_count = 0
     for i in range(1, total_frames + 1):
-        seq_lines.append(f"I {i} 1")
+        included = active_sources is None or video_info["source_mapping"][str(i)] in active_sources
+        selected_count += int(included)
+        seq_lines.append(f"I {i} {int(included)}")
+    seq_lines[1] = f"S '{seq_name}' 1 {total_frames} {selected_count} 5 -1 6 0 0 0"
 
     seq_path = work / f"{seq_name}.seq"
     seq_path.write_text("\n".join(seq_lines) + "\n", encoding="utf-8")
@@ -1229,6 +1685,12 @@ def cmd_import(args) -> None:
         orig_bit_depth = 8
     elif is_ser and ser_info:
         orig_bit_depth = ser_info.get("metadata", {}).get("pixel_depth", 16)
+
+    device_record = dict(device_ident or {})
+    if device_record:
+        injected = bool(is_video or is_ser) and bool(device_record.get("priors"))
+        device_record["injected"] = injected
+        device_record["target"] = "fits_header" if injected else "none"
 
     import_info = {
         "input": str(src),
@@ -1242,6 +1704,7 @@ def cmd_import(args) -> None:
         "sequence_name": seq_name,
         "seq_file": str(seq_path),
         "rejected": rejected_fits,
+        "device": device_record or None,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     if is_video and video_info:
@@ -1659,6 +2122,25 @@ def _select_frames_by_quality(
     return kept_indices, meta
 
 
+def _siril_homographies(matrices: list[str]) -> tuple[list[str], int]:
+    """Translate the common output origin to avoid Siril 1.4.4 zero-sum rejection."""
+    values = [list(map(float, matrix.split()[1:])) for matrix in matrices]
+    sums = [sum(value) for value in values]
+    if all(abs(total) > 1e-8 for total in sums):
+        return matrices, 0
+    offset = 1
+    while any(abs(total+offset) <= 1e-8 for total in sums):
+        offset += 1
+    for value in values:
+        value[2] += offset
+    return ["H " + " ".join(f"{v:.8f}" for v in value) for value in values], offset
+
+
+def _frame_identity(path):
+    stat = path.stat()
+    return [stat.st_size, stat.st_mtime_ns]
+
+
 def cmd_register(args) -> None:
     from astropy.io import fits
 
@@ -1689,8 +2171,39 @@ def cmd_register(args) -> None:
 
     log(f"registering {len(image_files)} frames from sequence '{seq_name}'...")
 
+    imported = load_json(work/"import_receipt.json") if (work/"import_receipt.json").exists() else {}
+    video = imported.get("video_metadata", {})
+    signature = {"processing": video.get("processing_signature"), "scores": video.get("score_identity"),
+                 "roi": args.roi, "min_confidence": args.min_confidence}
+    cache_path = work/"registration_cache.json"
+    previous_path = cache_path if cache_path.exists() else work/"ranking.json"
+    previous = load_json(previous_path) if previous_path.exists() else {}
+    cached = {}
+    if video.get("processing_signature") and previous.get("registration_signature") == signature:
+        cached = {r["index"]:r for r in previous.get("frames", [])}
+        ref = int(previous.get("reference_index") or 0)
+        ref_file = work/f"{seq_name}{ref:05d}.fit"
+        if not ref_file.exists() or cached.get(ref,{}).get("identity") != _frame_identity(ref_file):
+            cached = {}
+    included = {int(line.split()[1]) for line in seq_lines if line.startswith("I ") and line.split()[2] == "1"}
+    primary = bool(video.get("primary_selected")) and getattr(args,"register_selection","auto") == "auto"
+    source_mapping = video.get("source_mapping", {})
+    quality = {}
+    score_path = work/"video_scores.json"
+    if video and score_path.exists():
+        profile = load_json(score_path)
+        if profile.get("identity") == video.get("score_identity"):
+            quality = {r["index"]:r["sharpness"] for r in profile["rows"]}
+    for item in image_files:
+        item["identity"] = _frame_identity(item["path"])
+        item["source_index"] = source_mapping.get(str(item["index"]))
+        item["cached"] = cached.get(item["index"], {})
+        if item["cached"].get("identity") != item["identity"]:
+            item["cached"] = {}
+
     # Choose candidate reference frame (center of sequence) to establish ROI
-    mid_frame = image_files[len(image_files) // 2]
+    previous_reference = previous.get("reference_index") if cached else None
+    mid_frame = next((it for it in image_files if it["index"] == previous_reference), image_files[len(image_files)//2])
     mid_plane = _read_frame_plane(mid_frame["path"])
     roi = _locate_high_contrast_roi(mid_plane, roi_size=args.roi)
     rx0, ry0, rx1, ry1 = roi
@@ -1699,6 +2212,10 @@ def cmd_register(args) -> None:
     # Pass 1: compute phase shift relative to candidate frame
     raw_shifts = []
     for item in image_files:
+        saved = item["cached"]
+        if saved:
+            item.update(coarse_dx=saved["shift"][0], coarse_dy=saved["shift"][1], resp=saved["response"], sharpness=saved["sharpness"])
+            continue
         plane = _read_frame_plane(item["path"])
         dx, dy, resp = _subpixel_phase_correlation(mid_plane, plane)
         item["coarse_dx"] = dx
@@ -1720,18 +2237,18 @@ def cmd_register(args) -> None:
         sy1 = sy0 + rh
         patch = plane[sy0:sy1, sx0:sx1]
         sharpness = _measure_sharpness(patch)
-        item["sharpness"] = sharpness
+        item["sharpness"] = quality.get(item["source_index"], sharpness)
 
     # Exclude outliers with low phase correlation response (clouds, extreme shake)
-    valid_items = [it for it in image_files if it["resp"] >= args.min_confidence and it["sharpness"] > 0]
+    valid_items = [it for it in image_files if it["index"] in included and it["resp"] >= args.min_confidence and it["sharpness"] > 0]
     if not valid_items:
         die("no frames met the correlation confidence threshold; check data quality or lower --min-confidence")
 
     # Pick the sharpest frame as true reference
-    best_item = max(valid_items, key=lambda it: it["sharpness"])
+    best_item = next((it for it in image_files if it["index"] == previous_reference), max(valid_items, key=lambda it: it["sharpness"]))
     ref_idx = best_item["index"]
-    ref_dx = best_item["coarse_dx"]
-    ref_dy = best_item["coarse_dy"]
+    ref_dx = 0.0 if cached else best_item["coarse_dx"]
+    ref_dy = 0.0 if cached else best_item["coarse_dy"]
     log(f"selected reference frame: #{ref_idx} (sharpness={best_item['sharpness']:.1f}, resp={best_item['resp']:.2f})")
 
     # Pass 2: Dual-anchor rigid transformation estimation (field rotation theta + translation dx, dy)
@@ -1757,6 +2274,10 @@ def cmd_register(args) -> None:
         ref_p1 = ref_plane[dual_roi1[1]:dual_roi1[3], dual_roi1[0]:dual_roi1[2]]
 
     for it in image_files:
+        saved = it["cached"]
+        if saved:
+            it.update(dx=saved["shift"][0], dy=saved["shift"][1], theta=math.radians(saved["rotation_deg"]), homography=saved["homography"])
+            continue
         plane = _read_frame_plane(it["path"])
         dx_c = it["coarse_dx"] - ref_dx
         dy_c = it["coarse_dy"] - ref_dy
@@ -1803,15 +2324,12 @@ def cmd_register(args) -> None:
     u_alpha = getattr(args, "utility_alpha", 2.0)
     u_beta = getattr(args, "utility_beta", 1.0)
 
-    kept_indices, select_meta = _select_frames_by_quality(
-        valid_items,
-        total_count=len(image_files),
-        select_mode=select_mode,
-        keep_percent=keep_pct_arg,
-        quality_threshold=quality_thresh,
-        utility_alpha=u_alpha,
-        utility_beta=u_beta,
-    )
+    if primary:
+        kept_indices = {it["index"] for it in valid_items}
+        select_meta = {"mode":"import_selection", "kept_count":len(kept_indices), "kept_percent":round(100*len(kept_indices)/len(included),2)}
+    else:
+        kept_indices, select_meta = _select_frames_by_quality(
+            valid_items, len(included), select_mode, keep_pct_arg, quality_thresh, u_alpha, u_beta)
 
     for it in image_files:
         it["selected"] = it["index"] in kept_indices
@@ -1825,22 +2343,40 @@ def cmd_register(args) -> None:
         f"{ref_idx - start_idx} 6 0 0 0"
     )
 
+    # Preserve the sequence's real channel count.  `import` writes `L 1` for
+    # monochrome sources (--force-mono video, mono SER/FITS); hardcoding `L 3`
+    # here corrupts them, after which Siril reports "No registration data exists
+    # for this sequence" and seqapplyreg aborts.
+    layer_count = 1
+    l_line = next((ln for ln in seq_lines if ln.startswith("L ")), None)
+    if l_line:
+        try:
+            layer_count = max(1, int(l_line.split()[1]))
+        except (IndexError, ValueError):
+            layer_count = 1
+
     new_seq_lines = [
         "#Siril sequence file. Generated by siril-moon-stacking with rigid homography registration",
         new_s_line,
-        "L 3",
+        f"L {layer_count}",
     ]
     for it in image_files:
         new_seq_lines.append(f"I {it['index']} {1 if it['selected'] else 0}")
 
-    for it in image_files:
-        new_seq_lines.append(f"R0 1.0 1.0 1.0 0 0.0 1 {it['homography']}")
+    matrices, origin_offset = _siril_homographies([it["homography"] for it in image_files])
+    for matrix in matrices:
+        new_seq_lines.append(f"R0 1.0 1.0 1.0 0 0.0 1 {matrix}")
 
     seq_path.write_text("\n".join(new_seq_lines) + "\n", encoding="utf-8")
     log(f"updated Siril sequence file: {seq_path}")
 
     ranking_data = {
         "sequence": seq_name,
+        "registration_signature": signature,
+        "origin_offset_x": origin_offset,
+        "candidate_frames": len(included),
+        "registered_frames": len(valid_items),
+        "reused_frames": sum(bool(it["cached"]) for it in image_files),
         "reference_index": ref_idx,
         "reference_sharpness": float(best_item["sharpness"]),
         "dual_anchors": [dual_roi1, dual_roi2] if has_dual_anchor else [dual_roi1],
@@ -1851,6 +2387,9 @@ def cmd_register(args) -> None:
         "frames": [
             {
                 "index": it["index"],
+                "source_index": it["source_index"],
+                "identity": it["identity"],
+                "homography": it["homography"],
                 "file": it["file"],
                 "sharpness": it["sharpness"],
                 "response": it["resp"],
@@ -1862,10 +2401,503 @@ def cmd_register(args) -> None:
         ],
     }
     dump_json(work / "ranking.json", ranking_data)
+    if video:
+        dump_json(work/"registration_cache.json",ranking_data)
     log(f"registration & ranking complete: data dumped to {work / 'ranking.json'}")
 
 
 # -------------------------------------------------------------------- 3. stack
+
+DRIZZLE_KERNELS = ("point", "turbo", "square", "gaussian", "lanczos2", "lanczos3")
+DRIZZLE_AIRY_THRESHOLD_PX = 1.5
+# Empirical fallback criterion: the effective PSF (optics + seeing + sampling) is
+# measured from the lunar limb edge spread function.  A FWHM below ~2 px means the
+# single frame is undersampled, so a finer drizzle grid can actually recover detail.
+DRIZZLE_PSF_THRESHOLD_PX = 2.0
+PIXEL_SIZE_KEYS = ("XPIXSZ", "YPIXSZ", "PIXSIZE", "PIXSIZE1", "PIXEL_SZ", "PIXELSIZE")
+APERTURE_KEYS = ("APERTUR", "DIAMETER", "APERTURE")
+FOCAL_KEYS = ("FOCALLEN", "FOCAL_LENGTH", "FOCAL")
+# Siril log fragments that mean -weight=noise could not compute per-frame
+# background statistics; the stack is retried without weighting.
+WEIGHT_FAILURE_MARKERS = (
+    "MAD is null",
+    "Statistics cannot be computed",
+    "Normalization failed",
+    "cannot be normalized",
+)
+
+
+def _seq_frame_paths(work: Path, seq_name: str) -> list[Path]:
+    """Numbered FITS frames of a sequence, excluding masters and other derivatives."""
+    import re
+
+    pat = re.compile(rf"^{re.escape(seq_name)}\d+\.fit$", re.IGNORECASE)
+    try:
+        entries = list(work.iterdir())
+    except OSError:
+        return []
+    return sorted(p for p in entries if p.is_file() and pat.match(p.name))
+
+
+def _read_first_frame_header(work: Path, seq_name: str):
+    """FITS header of the first frame of a sequence (memmap=False per repo convention)."""
+    from astropy.io import fits
+
+    frames = _seq_frame_paths(work, seq_name)
+    if not frames:
+        return None
+    try:
+        with fits.open(frames[0], memmap=False) as hdul:
+            return hdul[0].header.copy()
+    except Exception:
+        return None
+
+
+def _hdr_positive_float(hdr, keys) -> float | None:
+    """First strictly-positive float among `keys` in a FITS header, else None."""
+    if hdr is None:
+        return None
+    for k in keys:
+        v = hdr.get(k)
+        if v is None:
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f > 0:
+            return f
+    return None
+
+
+def _probe_frame_for_drizzle(work: Path, seq_name: str):
+    """Pick the single frame used to measure optics and sampling adequacy.
+
+    Prefers the frame `register` picked as the sharpest reference (ranking.json),
+    because limb fitting and edge-spread measurement are far cleaner on a sharp
+    frame.  Falls back to the first frame of the sequence.
+    """
+    from astropy.io import fits
+
+    frames = _seq_frame_paths(work, seq_name)
+    if not frames:
+        return None
+
+    chosen = frames[0]
+    origin = "first frame"
+    ranking = work / "ranking.json"
+    if ranking.exists():
+        try:
+            ref_idx = int(load_json(ranking).get("reference_index") or 0)
+            if ref_idx > 0:
+                cand = work / f"{seq_name}{ref_idx:05d}.fit"
+                if cand.exists():
+                    chosen = cand
+                    origin = f"register reference frame #{ref_idx}"
+        except Exception:
+            pass
+
+    try:
+        with fits.open(chosen, memmap=False) as hdul:
+            hdr = hdul[0].header.copy()
+            data = hdul[0].data
+    except Exception:
+        return None
+    if data is None:
+        return None
+
+    if data.ndim == 3:
+        lum = (0.299 * data[0] + 0.587 * data[1] + 0.114 * data[2]).astype(np.float32)
+    else:
+        lum = np.asarray(data, dtype=np.float32)
+    return hdr, lum, origin
+
+
+def _pixel_full_scale(data):
+    if np.issubdtype(data.dtype, np.integer):
+        return float(np.iinfo(data.dtype).max)
+    # ponytail: distinguish normalized FITS (including interpolation overshoot) from ADU-valued floats; ambiguous units need explicit full_scale.
+    return 1.0 if np.nanpercentile(data,99.99) <= 2.0 else 65535.0
+
+
+def _measure_limb_psf_fwhm(
+    lum_2d: np.ndarray, circle=None, px_scale: float = 1.0, full_scale: float | None = None
+) -> dict | None:
+    """Measure the effective PSF FWHM, in pixels, from the lunar limb edge.
+
+    The lunar limb against black sky is a near-perfect step edge, so the radial
+    intensity profile across it *is* the edge spread function (ESF) of the whole
+    optics + seeing + sampling chain.  For a Gaussian PSF the 10-90% ESF width is
+    2.563 sigma, hence FWHM = 2.355 sigma = 0.919 * w10_90.
+
+    Validated against analytic Gaussian-blurred discs: error < 1.5% across
+    FWHM 0.9-7.1 px.  Requires the full limb in frame (fails on mosaic tiles and
+    partial discs) -- the same precondition as the focal-length inversion.
+
+    Note this measures the *seeing-limited* PSF, which is the quantity that
+    actually decides whether a finer grid can recover detail.  It is therefore a
+    sounder criterion than the diffraction limit when the two disagree.
+    """
+    if circle is not None:
+        xc, yc, R = float(circle[0]), float(circle[1]), float(circle[2])
+        res_std = None
+    else:
+        fit = _fit_lunar_limb_circle(lum_2d, px_scale=px_scale)
+        if fit is None:
+            return None
+        xc, yc, R, res_std = fit
+
+    band = _px(12.0, px_scale)
+    H, W = lum_2d.shape
+    yy, xx = np.mgrid[0:H, 0:W]
+    r_grid = np.sqrt((xx - xc) ** 2 + (yy - yc) ** 2)
+    sel = np.abs(r_grid - R) <= band
+    if np.count_nonzero(sel) < 500:
+        return None
+    rs = r_grid[sel]
+    vs = lum_2d[sel].astype(np.float64)
+
+    step = max(0.05, _px(0.1, px_scale))
+    bins = np.arange(R - band, R + band + step, step)
+    if bins.size < 21:
+        return None
+    idx = np.digitize(rs, bins)
+    prof = np.full(bins.size - 1, np.nan, dtype=np.float64)
+    for i in range(1, bins.size):
+        m = idx == i
+        if np.any(m):
+            prof[i - 1] = vs[m].mean()
+    rc = 0.5 * (bins[:-1] + bins[1:])
+    ok = np.isfinite(prof)
+    rc, prof = rc[ok], prof[ok]
+    if rc.size < 20:
+        return None
+
+    lo = float(np.percentile(prof, 2))
+    hi = float(np.percentile(prof, 98))
+    if hi - lo <= 1e-9:
+        return None
+    norm = (prof - lo) / (hi - lo)
+
+    def crossing(level: float) -> float | None:
+        sign = np.sign(norm - level)
+        k = np.where(np.diff(sign) != 0)[0]
+        if k.size == 0:
+            return None
+        i = int(k[0])
+        denom = norm[i + 1] - norm[i]
+        if abs(denom) < 1e-12:
+            return float(rc[i])
+        t = (level - norm[i]) / denom
+        return float(rc[i] + t * (rc[i + 1] - rc[i]))
+
+    r90 = crossing(0.9)
+    r10 = crossing(0.1)
+    if r90 is None or r10 is None or r10 <= r90:
+        return None
+    w1090 = r10 - r90
+
+    # A saturated inner plateau flattens the top of the ESF, which pulls the 90%
+    # crossing inwards and therefore *underestimates* the FWHM.  That biases the
+    # decision towards enabling drizzle, which is the safe direction, but it must
+    # be visible rather than silent.
+    peak = float(np.percentile(lum_2d, 99.99))
+    if full_scale is None:
+        full_scale = _pixel_full_scale(lum_2d)
+    saturated = bool(peak >= 0.95 * full_scale)
+    if saturated:
+        log("drizzle auto: the lunar limb region reaches ~full scale; the measured PSF "
+            "width is a lower bound and may understate the true FWHM")
+
+    return {
+        "fwhm_px": round(0.919 * w1090, 3),
+        "esf_width_10_90_px": round(w1090, 3),
+        "limb_radius_px": round(R, 2),
+        "limb_fit_residual_std": None if res_std is None else round(float(res_std), 3),
+        "possible_saturation": saturated,
+    }
+
+
+def _decide_drizzle(args, work: Path, seq_name: str) -> dict:
+    """Decide whether to supersample the stack with Siril's HST drizzle.
+
+    Modes (`--drizzle`):
+      * 'auto' (default) - two independent criteria, tried in order:
+          1. **Diffraction limit.**  Needs focal length, aperture and pixel size.
+             Enables 2x when the theoretical Airy radius
+             (1.22 * lambda * f/D, in pixels) is below DRIZZLE_AIRY_THRESHOLD_PX.
+          2. **Measured PSF width.**  Used whenever any of the three is unknown.
+             Focal length is first recovered from the frame itself by geometric
+             inversion (lunar limb radius + pixel size + JPL ephemeris), and the
+             effective PSF FWHM is measured from the limb edge spread function.
+             Enables 2x when the FWHM is below DRIZZLE_PSF_THRESHOLD_PX.
+        Aperture is geometrically unrecoverable from the image, so criterion 1
+        can only fire when the aperture is known from metadata or --aperture.
+      * 'off'   - never drizzle.
+      * '2'/'3' - force that drizzle scale regardless of metadata.
+
+    Every branch records the criterion, the values used and their provenance in
+    the returned dict, so the decision stays auditable rather than a black box.
+
+    Verified against Siril 1.4.4: `seqapplyreg <seq> -scale=N -drizzle` drizzles
+    onto an N-times finer output grid (1024x512 -> 2046x1024 at scale 2) and
+    Siril rewrites XPIXSZ accordingly.  The bundled `seqapplydrizzle` command is
+    documented upstream but does not exist in this build.
+    """
+    mode = str(getattr(args, "drizzle", "auto") or "auto").strip().lower()
+    kernel = str(getattr(args, "drizzle_kernel", "square") or "square").strip().lower()
+    if kernel not in DRIZZLE_KERNELS:
+        log(f"drizzle: unknown kernel '{kernel}' -> falling back to 'square'")
+        kernel = "square"
+    user_pixfrac = getattr(args, "drizzle_pixfrac", None)
+
+    def pack(enabled: bool, scale: float, reason: str, **extra) -> dict:
+        scale = float(scale)
+        if user_pixfrac is not None:
+            try:
+                pf = float(user_pixfrac)
+            except (TypeError, ValueError):
+                pf = 1.0 / scale
+        else:
+            pf = 1.0 / scale if scale > 0 else 1.0
+        pf = min(max(pf, 0.0), 1.0)
+        k = kernel
+        # Lanczos droplets are designed for resampling at the same scale; the
+        # manual restricts them to scale == pixfrac == 1.0.  Siril 1.4.4 accepts
+        # the combination silently, so we must guard it ourselves.
+        if k.startswith("lanczos") and not (abs(scale - 1.0) < 1e-9 and abs(pf - 1.0) < 1e-9):
+            log(f"drizzle: kernel '{k}' requires scale == pixfrac == 1.0 "
+                f"(got scale={scale:g}, pixfrac={pf:g}); falling back to 'square'")
+            k = "square"
+        info = {
+            "requested": mode,
+            "enabled": bool(enabled),
+            "scale": scale,
+            "pixfrac": round(pf, 4),
+            "kernel": k,
+            "reason": reason,
+        }
+        info.update(extra)
+        return info
+
+    if mode == "off":
+        return pack(False, 1.0, "user_off")
+
+    forced = None
+    if mode in ("2", "3"):
+        forced = float(mode)
+
+    if getattr(args, "mosaic_mode", "disc") == "tile" and forced is None:
+        # Mosaic panels must all share one sampling scale; siril-mosaic applies
+        # its own registration scale, so auto-drizzle stays out of the way.
+        return pack(False, 1.0, "tile_mode_bypass",
+                    hint="pass --drizzle 2 to force it (keep every tile at the same scale)")
+
+    hdr = _read_first_frame_header(work, seq_name)
+    focal = getattr(args, "focal", None) or _hdr_positive_float(hdr, FOCAL_KEYS)
+    pixsz = getattr(args, "pixel_size", None) or _hdr_positive_float(hdr, PIXEL_SIZE_KEYS)
+    aperture = getattr(args, "aperture", None) or _hdr_positive_float(hdr, APERTURE_KEYS)
+    # Provenance of each value, so the receipt shows whether a number was supplied
+    # by the user, read from the header, or filled from the device table.
+    focal_source = (("user" if getattr(args, "focal", None)
+                     else _hdr_source_label(hdr, "FOCALLEN", "FITS header")) if focal else None)
+    pixel_source = (("user" if getattr(args, "pixel_size", None)
+                     else _hdr_source_label(hdr, "XPIXSZ", "FITS header")) if pixsz else None)
+    aperture_source = (("user" if getattr(args, "aperture", None)
+                        else _hdr_source_label(hdr, "APERTURE", "FITS header")) if aperture else None)
+
+    airy_threshold = float(getattr(args, "drizzle_airy_threshold", None) or DRIZZLE_AIRY_THRESHOLD_PX)
+    psf_threshold = float(getattr(args, "drizzle_psf_threshold", None) or DRIZZLE_PSF_THRESHOLD_PX)
+
+    if forced is not None:
+        return pack(True, forced, "user_forced",
+                    criterion="forced",
+                    focal_len_mm=focal, focal_source=focal_source,
+                    pixel_size_um=pixsz, aperture_mm=aperture,
+                    aperture_source=aperture_source)
+
+    # ---- measure what the header cannot tell us --------------------------
+    # The lunar limb is a known step edge against black sky, so the frame itself
+    # yields both the focal length (geometric inversion) and the effective PSF
+    # width.  Neither needs the capture device to be identified first.
+    probe = None
+    probe_origin = None
+    optics_probe = None
+    psf_probe = None
+    if not (focal and pixsz and aperture):
+        probe = _probe_frame_for_drizzle(work, seq_name)
+        if probe is None:
+            log("drizzle auto: no FITS frame available to measure optics from")
+        else:
+            p_hdr, p_lum, probe_origin = probe
+            try:
+                optics_probe = _infer_optical_parameters(
+                    p_hdr, p_lum, args, mosaic_mode="disc", px_scale=1.0)
+            except Exception as exc:
+                log(f"drizzle auto: optical inference on {probe_origin} failed: {exc}")
+                optics_probe = None
+
+            if optics_probe:
+                px_used = str(optics_probe.get("pixel_size_source") or "")
+                if not focal:
+                    src = str(optics_probe.get("focal_source") or "")
+                    if src.startswith("geometric inversion") and px_used.startswith("default"):
+                        # The inversion scales linearly with the pixel size, so a
+                        # default 3.73um guess would silently mis-scale the result.
+                        log("drizzle auto: geometric inversion would use a default 3.73um pixel "
+                            "size, which mis-scales the focal length; ignoring it")
+                    elif not src.startswith("default") and optics_probe.get("focal_length"):
+                        focal = float(optics_probe["focal_length"])
+                        focal_source = src
+                if not pixsz and not px_used.startswith("default") and optics_probe.get("pixel_size"):
+                    pixsz = float(optics_probe["pixel_size"])
+                    pixel_source = px_used
+                if not aperture:
+                    src = str(optics_probe.get("aperture_source") or "")
+                    if not src.startswith("default") and optics_probe.get("aperture"):
+                        aperture = float(optics_probe["aperture"])
+                        aperture_source = src
+
+    # ---- criterion 1: theoretical diffraction limit ----------------------
+    if focal and pixsz and aperture:
+        r_airy = (1.22 * 0.55 * float(focal)) / (float(aperture) * float(pixsz))
+        enabled = r_airy < airy_threshold
+        return pack(enabled, 2.0 if enabled else 1.0,
+                    "airy_below_threshold" if enabled else "airy_at_or_above_threshold",
+                    criterion="airy",
+                    r_airy_px=round(r_airy, 3),
+                    threshold_px=airy_threshold,
+                    focal_len_mm=float(focal), focal_source=focal_source,
+                    pixel_size_um=float(pixsz), pixel_size_source=pixel_source,
+                    aperture_mm=float(aperture), aperture_source=aperture_source,
+                    f_ratio=round(float(focal) / float(aperture), 2),
+                    probe_frame=probe_origin)
+
+    # ---- criterion 2: measured PSF width from the lunar limb -------------
+    # Reached whenever the aperture is unknown: it is geometrically unrecoverable
+    # from the image, so the diffraction limit simply cannot be computed.
+    unavailable = [n for n, v in (("focal length", focal), ("pixel size", pixsz),
+                                  ("aperture", aperture)) if not v]
+    if probe is not None:
+        circle = None
+        disc = (optics_probe or {}).get("lunar_disc")
+        if disc:
+            circle = (disc["center"][0], disc["center"][1], disc["radius_px"])
+        try:
+            psf_probe = _measure_limb_psf_fwhm(probe[1], circle=circle, px_scale=1.0)
+        except Exception as exc:
+            log(f"drizzle auto: limb PSF measurement failed: {exc}")
+            psf_probe = None
+
+    if psf_probe:
+        fwhm = float(psf_probe["fwhm_px"])
+        enabled = fwhm < psf_threshold
+        log(f"drizzle auto: {'/'.join(unavailable)} unavailable - falling back to the measured "
+            f"PSF width (FWHM {fwhm:.2f}px vs threshold {psf_threshold:.2f}px, "
+            f"measured on {probe_origin})")
+        return pack(enabled, 2.0 if enabled else 1.0,
+                    "psf_below_threshold" if enabled else "psf_at_or_above_threshold",
+                    criterion="psf_fwhm",
+                    psf_fwhm_px=fwhm,
+                    psf_esf_width_px=psf_probe.get("esf_width_10_90_px"),
+                    psf_possible_saturation=psf_probe.get("possible_saturation"),
+                    limb_radius_px=psf_probe.get("limb_radius_px"),
+                    limb_fit_residual_std=psf_probe.get("limb_fit_residual_std"),
+                    threshold_px=psf_threshold,
+                    focal_len_mm=focal, focal_source=focal_source,
+                    pixel_size_um=pixsz, pixel_size_source=pixel_source,
+                    aperture_mm=aperture, aperture_source=aperture_source,
+                    probe_frame=probe_origin)
+
+    log(f"drizzle auto: cannot establish sampling adequacy ({'/'.join(unavailable)} unavailable "
+        f"and the lunar limb could not be measured) - drizzle disabled. Supply "
+        f"--focal/--pixel-size/--aperture, or pass --drizzle 2 to force it")
+    return pack(False, 1.0, "insufficient_evidence",
+                criterion="none", missing=unavailable, probe_frame=probe_origin)
+
+
+def _verify_master_pixel_scale(
+    master: Path, drizzle: dict, work: Path, seq_name: str
+) -> dict:
+    """Verify (and if needed repair) the master's pixel scale after a drizzle stack.
+
+    Siril 1.4.4 already rewrites XPIXSZ/YPIXSZ when drizzling (measured: 3.76um ->
+    1.88um at scale=2, FOCALLEN and APERTURE untouched).  This acts as a safety
+    net for builds that do not, and for sequences whose only pixel-size keyword
+    is an alias Siril leaves alone.  Diagnostic keywords are always written so
+    that downstream steps can recover the drizzle factor even without the
+    stack receipt.
+    """
+    from astropy.io import fits
+
+    scale = float(drizzle.get("scale", 1.0) or 1.0)
+    result = {"verified": False, "rewritten": {}, "scale": scale}
+
+    src_hdr = _read_first_frame_header(work, seq_name)
+    native_px = _hdr_positive_float(src_hdr, PIXEL_SIZE_KEYS)
+    expected = (native_px / scale) if native_px else None
+
+    try:
+        with fits.open(master, memmap=False, mode="update") as hdul:
+            h = hdul[0].header
+            if expected:
+                for k in PIXEL_SIZE_KEYS:
+                    v = h.get(k)
+                    if v is None:
+                        continue
+                    try:
+                        fv = float(v)
+                    except (TypeError, ValueError):
+                        continue
+                    if abs(fv - expected) > 0.02 * expected:
+                        h[k] = round(expected, 6)
+                        result["rewritten"][k] = [fv, round(expected, 6)]
+                result["verified"] = not result["rewritten"]
+            else:
+                result["verified"] = None
+                log("drizzle: no native pixel-size keyword found in the input frames; "
+                    "cannot verify the master's pixel scale (postprocess will fall back "
+                    "to --pixel-size divided by the drizzle scale)")
+
+            h["DRIZZLE"] = (True, "HST drizzle supersampling applied")
+            h["DRZSCALE"] = (scale, "drizzle output grid scale factor")
+            h["DRZPIXFR"] = (float(drizzle.get("pixfrac", 1.0)), "drizzle droplet pixel fraction")
+            h["DRZKRENL"] = (str(drizzle.get("kernel", "square")), "drizzle droplet kernel")
+            if native_px:
+                h["ORIGXPIX"] = (round(float(native_px), 6), "native pixel size before drizzle")
+            h.add_history(
+                f"moon_stack: drizzle scale={scale:g} pixfrac={drizzle.get('pixfrac')} "
+                f"kernel={drizzle.get('kernel')}; XPIXSZ now {expected if expected else 'unset'}"
+            )
+            result["native_px"] = native_px
+            result["effective_px"] = expected
+    except Exception as exc:
+        log(f"warning: could not verify master pixel scale after drizzle: {exc}")
+        result["error"] = str(exc)
+
+    if result["rewritten"]:
+        log(f"drizzle: repaired master pixel-size keywords {result['rewritten']} "
+            f"(Siril left them at the native scale)")
+    return result
+
+
+def _stack_counts(work, seq_name, output, requested):
+    exported = re.findall(r"Total:\s*(\d+) failed,\s*(\d+) exported", output)
+    stacked = re.findall(r"(\d+) images have been stacked", output)
+    if not exported or not stacked:
+        die("cannot confirm actual Siril frame counts; inspect the align/stack log before using this master")
+    failures, count = map(int, exported[-1])
+    actual = int(stacked[-1])
+    if actual != count or actual <= 0 or actual > requested:
+        die(f"Siril frame-count mismatch: requested={requested}, exported={count}, stacked={actual}")
+    resampled = work/f"r_{seq_name}.seq"
+    if resampled.exists():
+        included = sum(line.startswith("I ") and line.split()[2] == "1" for line in resampled.read_text().splitlines())
+        if included != actual:
+            die(f"Siril output sequence includes {included} frames, but stack log reports {actual}")
+    return {"selected_frames":requested, "exported_frames":count, "stacked_frames":actual,
+            "resampling_failed_frames":failures, "dropped_frames":requested-actual}
+
 
 def cmd_stack(args) -> None:
     work = Path(args.work).expanduser().resolve()
@@ -1908,12 +2940,44 @@ def cmd_stack(args) -> None:
             except Exception:
                 pass
 
-    if stack_method == "sum" or (stack_method == "auto" and is_8bit):
-        stack_cmd = f"stack r_{seq_name} sum -filter-included -out={master.stem}"
-        log(f"stacking policy: applying 'sum' stacking ({'forced by user' if stack_method == 'sum' else 'detected 8-bit source data'}) to physically expand dynamic range")
+    # ---- stacking policy ------------------------------------------------
+    # 8-bit sources used to be stacked with `sum`.  Measured behaviour of Siril
+    # 1.4.4 shows `sum` rescales the result by the image maximum and performs no
+    # pixel rejection whatsoever: a single hot pixel / cosmic ray / compression
+    # artefact collapses the entire frame (measured 0.4926 -> 0.004984, ~100x).
+    # Winsorized rejection mean keeps the same relative contrast (2.0 vs 1.97)
+    # while adding rejection, inter-frame normalisation and -weight= support, so
+    # it is now the default at every source depth.  `sum` stays reachable as an
+    # explicit opt-in via --stack-method sum.
+    use_sum = (stack_method == "sum")
+    if stack_method == "auto" and is_8bit:
+        log("stacking policy: 8-bit source detected; using rejection mean stacking "
+            "(rej w) instead of the legacy 'sum' path - sum normalises by the image "
+            "maximum and performs no pixel rejection (pass --stack-method sum to force it)")
+
+    weight_mode = str(getattr(args, "weight", "auto") or "auto").strip().lower()
+    if weight_mode not in ("auto", "none", "noise"):
+        log(f"stacking policy: unknown --weight '{weight_mode}' -> treating as 'auto'")
+        weight_mode = "auto"
+    want_weight = (not use_sum) and weight_mode in ("auto", "noise")
+    if use_sum and weight_mode == "noise":
+        log("stacking policy: 'sum' does not support -weight=; noise weighting ignored")
+
+    def build_stack_cmd(with_weight: bool) -> str:
+        if use_sum:
+            return f"stack r_{seq_name} sum -filter-included -out={master.stem}"
+        wflag = " -weight=noise" if with_weight else ""
+        return (f"stack r_{seq_name} rej w {args.sigma[0]} {args.sigma[1]} "
+                f"-norm={args.norm} -filter-included{wflag} -out={master.stem}")
+
+    if use_sum:
+        log("stacking policy: applying 'sum' stacking (forced by user) - "
+            "no pixel rejection, no weighting")
     else:
-        stack_cmd = f"stack r_{seq_name} rej w {args.sigma[0]} {args.sigma[1]} -norm={args.norm} -filter-included -out={master.stem}"
-        log(f"stacking policy: applying Winsorized rejection mean stacking (rej w) ({'forced by user' if stack_method == 'rej' else 'detected 16-bit+ source data'})")
+        log(f"stacking policy: applying Winsorized rejection mean stacking "
+            f"(rej w {args.sigma[0]} {args.sigma[1]} -norm={args.norm})"
+            f"{' with noise weighting' if want_weight else ''} "
+            f"({'forced by user' if stack_method == 'rej' else 'default for all source depths'})")
 
     mosaic_mode = getattr(args, "mosaic_mode", "disc")
     framing = getattr(args, "framing", None)
@@ -1930,26 +2994,128 @@ def cmd_stack(args) -> None:
     }
     interp = interp_map.get(str(interp_raw).lower(), "cu")
 
-    lines = [
-        "requires 1.4.4",
-        # Multithreaded subpixel resampling with strict clamping (no -noclamp) to avoid undershoot overflows
-        f"seqapplyreg {seq_name} -framing={framing} -interp={interp} -filter-incl",
-        f"{stack_cmd}{maximize_flag}",
-        "exit",
-    ]
+    # ---- drizzle supersampling ------------------------------------------
+    drizzle = _decide_drizzle(args, work, seq_name)
+    if drizzle["enabled"]:
+        airy_note = (f", theoretical Airy radius {drizzle['r_airy_px']}px"
+                     if drizzle.get("r_airy_px") else "")
+        log(f"drizzle: ENABLED scale={drizzle['scale']:g} pixfrac={drizzle['pixfrac']:g} "
+            f"kernel={drizzle['kernel']} (reason={drizzle['reason']}{airy_note}) - the output "
+            f"grid is {drizzle['scale']:g}x finer, expect roughly "
+            f"{drizzle['scale'] ** 2:.0f}x the pixels, file size and runtime")
+    else:
+        log(f"drizzle: disabled (reason={drizzle['reason']})")
 
-    log(f"executing Siril seqapplyreg (framing={framing}, interp={interp}, mosaic_mode={mosaic_mode}, clamped) & stack pipeline...")
-    receipt = run_siril_script(args.siril, lines, work, logs_dir / "02_align_stack.log", args.timeout)
-    if receipt["exit_code"] != 0 or not master.exists():
-        die(f"stacking failed (exit {receipt['exit_code']}); see {receipt['log']}")
+    seq_text = seq_path.read_text()
+    selected = [int(line.split()[1]) for line in seq_text.splitlines() if line.startswith("I ") and line.split()[2] == "1"]
+    source_frames = _seq_frame_paths(work, seq_name)
+    if source_frames:
+        header = fits_header_info(source_frames[0])
+        allowed, disk_budget = _disk_frame_budget(work,args,header["width"],header["height"],header["channels"],len(selected),scale=drizzle["scale"] if drizzle["enabled"] else 1,importing=False)
+        if allowed < len(selected):
+            ranking = load_json(work/"ranking.json") if (work/"ranking.json").exists() else {}
+            ordered = sorted([r for r in ranking.get("frames",[]) if r["index"] in selected],key=lambda r:r["sharpness"],reverse=True)
+            selected = [r["index"] for r in ordered[:allowed]] if ordered else selected[:allowed]
+            keep = set(selected)
+            lines = seq_text.splitlines()
+            for index,line in enumerate(lines):
+                if line.startswith("I "):
+                    lines[index] = f"I {line.split()[1]} {int(int(line.split()[1]) in keep)}"
+                elif line.startswith("S "):
+                    fields = line.split();fields[4] = str(allowed);lines[index] = " ".join(fields)
+            seq_path.write_text("\n".join(lines)+"\n")
+            log(f"disk budget reduced resampling selection to {allowed} frames")
+    else:
+        disk_budget = None
 
+    # Drizzle replaces the interpolation method, so the two are mutually
+    # exclusive.  Clamping (never -noclamp) is kept on the interpolation path.
+    reg_drizzle = (f"seqapplyreg {seq_name} -framing={framing} -scale={drizzle['scale']:g} "
+                   f"-drizzle -pixfrac={drizzle['pixfrac']:g} -kernel={drizzle['kernel']} -filter-incl")
+    reg_plain = f"seqapplyreg {seq_name} -framing={framing} -interp={interp} -filter-incl"
+
+    # Degradation ladder: prefer the richest configuration, but shed optional
+    # refinements instead of failing the whole run.  `--drizzle off --weight none`
+    # collapses this to a single deterministic attempt.
+    ladder: list[dict] = [{"drizzle": drizzle["enabled"], "weight": want_weight}]
+    if want_weight:
+        ladder.append({"drizzle": drizzle["enabled"], "weight": False})
+    if drizzle["enabled"] and not drizzle.get("forced"):
+        ladder.append({"drizzle": False, "weight": want_weight})
+        if want_weight:
+            ladder.append({"drizzle": False, "weight": False})
+    seen_keys = set()
+    remaining: list[dict] = []
+    for step in ladder:
+        key = (step["drizzle"], step["weight"])
+        if key not in seen_keys:
+            seen_keys.add(key)
+            remaining.append(step)
+
+    receipt = None
+    chosen = None
+    attempt = 0
+    while remaining:
+        step = remaining.pop(0)
+        reg_line = reg_drizzle if step["drizzle"] else reg_plain
+        stk_line = build_stack_cmd(step["weight"])
+        log_tag = ("drizzle" if step["drizzle"] else "interp") + \
+                  ("+noise-weight" if step["weight"] else "")
+        round_tag = f"_round{args.feedback_round}" if hasattr(args,"feedback_round") else ""
+        log_path = logs_dir / (f"02_align_stack{round_tag}.log" if attempt == 0
+                               else f"02_align_stack{round_tag}_retry{attempt}.log")
+        lines = ["requires 1.4.4", reg_line, f"{stk_line}{maximize_flag}", "exit"]
+        if attempt == 0:
+            log(f"executing Siril registration & stack pipeline "
+                f"(framing={framing}, mosaic_mode={mosaic_mode}, resampling={log_tag})...")
+        else:
+            log(f"retrying the stack with a reduced configuration ({log_tag})...")
+        receipt = run_siril_script(args.siril, lines, work, log_path, args.timeout)
+        attempt += 1
+        if receipt["exit_code"] == 0 and master.exists():
+            chosen = step
+            break
+        if remaining:
+            log(f"stack attempt '{log_tag}' failed (exit {receipt['exit_code']}); "
+                f"degrading and retrying - see {receipt['log']}")
+            out = str(receipt.get("output", ""))
+            if step["weight"] and any(m in out for m in WEIGHT_FAILURE_MARKERS):
+                log("noise weighting is the likely culprit (per-frame background statistics "
+                    "unavailable); skipping any further weighted attempts")
+                remaining = [s for s in remaining if not s["weight"]]
+
+    if chosen is None:
+        die(f"stacking failed after {attempt} attempt(s); see "
+            f"{receipt['log'] if receipt else logs_dir}")
+
+    receipt.update(_stack_counts(work,seq_name,receipt["output"],len(selected)))
+    receipt["disk_budget"] = disk_budget
+    if receipt["dropped_frames"]:
+        log(f"warning: Siril dropped {receipt['dropped_frames']} selected frames; actual stack={receipt['stacked_frames']}")
     receipt["interp"] = interp
     receipt["framing"] = framing
     receipt["mosaic_mode"] = mosaic_mode
-    dump_json(work / "stack_receipt.json", receipt)
-    log(f"master stack generated successfully: {master} (interp={interp}, framing={framing})")
+    receipt["px_scale"] = float(drizzle["scale"]) if chosen["drizzle"] else 1.0
+    receipt["weight"] = "noise" if chosen["weight"] else "none"
 
-    # Clean up intermediate resampled frames (r_*.fit) to conserve disk space
+    if chosen["drizzle"] != drizzle["enabled"]:
+        drizzle = {**drizzle, "fallback": True, "reason": f"{drizzle['reason']}+runtime_fallback"}
+        log("drizzle: fell back to plain interpolation after a runtime failure")
+    if want_weight and not chosen["weight"]:
+        receipt["weight_fallback"] = True
+        log("warning: noise weighting was dropped after a failure - the stack completed without it")
+    receipt["drizzle"] = drizzle
+
+    if chosen["drizzle"]:
+        receipt["drizzle"]["header"] = _verify_master_pixel_scale(master, drizzle, work, seq_name)
+
+    dump_json(work / "stack_receipt.json", receipt)
+    log(f"master stack generated successfully: {master} "
+        f"(resampling={'drizzle x' + format(drizzle['scale'], 'g') if chosen['drizzle'] else 'interp ' + interp}, "
+        f"framing={framing}, weight={'noise' if chosen['weight'] else 'none'})")
+
+    # Clean up intermediate resampled frames (r_*.fit) and Siril's drizzle
+    # scratch directory to conserve disk space.
     resampled_fits = list(work.glob(f"r_{seq_name}*.fit"))
     if resampled_fits:
         log(f"cleaning up {len(resampled_fits)} intermediate resampled frames (r_{seq_name}*.fit) to reclaim disk space...")
@@ -1958,9 +3124,66 @@ def cmd_stack(args) -> None:
                 rf.unlink()
             except Exception:
                 pass
+    drizzle_tmp = work / "drizztmp"
+    if drizzle_tmp.is_dir():
+        import shutil
+
+        try:
+            shutil.rmtree(drizzle_tmp)
+            log("cleaned up Siril's drizzle scratch directory (drizztmp/)")
+        except Exception as exc:
+            log(f"warning: could not remove {drizzle_tmp}: {exc}")
 
 
 # -------------------------------------------------------------- 4. postprocess
+
+def _px(value: float, px_scale: float = 1.0) -> float:
+    """Scale a native-pixel constant onto the working pixel grid.
+
+    `px_scale` is the drizzle supersampling factor (1.0 for plain interpolation).
+    Every pixel-domain tolerance, kernel size and transition width in this stage
+    is authored in *native* pixels, so after a 2x drizzle they must be doubled to
+    keep the same physical behaviour.  Chrominance smoothing sigma is deliberately
+    excluded: it is already expressed relative to the image size.
+    """
+    return float(value) * float(px_scale)
+
+
+def _odd(value: float) -> int:
+    """Nearest odd integer >= 1 (OpenCV convolution kernels must be odd-sized)."""
+    n = int(round(float(value)))
+    if n < 1:
+        n = 1
+    if n % 2 == 0:
+        n += 1
+    return n
+
+
+def _resolve_px_scale(args, work: Path, master: Path) -> float:
+    """Recover the drizzle pixel-scale factor for the postprocess stage.
+
+    Priority: stack_receipt.json (written by cmd_stack) -> the master's DRZSCALE
+    keyword -> 1.0 (no drizzle).
+    """
+    from astropy.io import fits
+
+    receipt = work / "stack_receipt.json"
+    if receipt.exists():
+        try:
+            scale = float(load_json(receipt).get("px_scale", 1.0) or 1.0)
+            if scale > 0:
+                return scale
+        except Exception:
+            pass
+    try:
+        with fits.open(master, memmap=False) as hdul:
+            scale = float(hdul[0].header.get("DRZSCALE", 1.0) or 1.0)
+            if scale > 0:
+                return scale
+    except Exception:
+        pass
+    return 1.0
+
 
 def _estimate_pedestal(plane: np.ndarray) -> float:
     """Robustly estimate sky background or sensor black pedestal.
@@ -2019,13 +3242,20 @@ def _estimate_pedestal(plane: np.ndarray) -> float:
     return max(0.0, p_low)
 
 
-def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, float] | None:
+def _fit_lunar_limb_circle(
+    lum_2d: np.ndarray, px_scale: float = 1.0
+) -> tuple[float, float, float, float] | None:
     """Fit a high-precision lunar physical circle using radial gradient inflection points.
 
     Instead of relying on thresholding (which captures diffuse atmospheric glare),
     this algorithm casts radial rays across full 360 degrees from the center and finds
     the point of maximum negative radial gradient (the true physical limb edge), then applies
     RANSAC circle fitting with sub-pixel precision.
+
+    `px_scale` scales the native-pixel tolerances (ray sampling step, RANSAC inlier
+    band, residual acceptance).  After a 2x drizzle the same physical residual spans
+    twice as many pixels, so leaving them fixed would silently tighten the inlier
+    test to ~1.5 native px and reject otherwise valid limb fits.
     """
     lum_2d = np.ascontiguousarray(lum_2d, dtype=np.float32)
     H, W = lum_2d.shape
@@ -2046,7 +3276,7 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
     cy_init = float(M["m01"] / M["m00"])
 
     dense_angles = np.linspace(0, 2 * np.pi, 180, endpoint=False)
-    r_samples = np.arange(min(H, W) * 0.15, max(H, W) * 0.85, 1.0, dtype=np.float32)
+    r_samples = np.arange(min(H, W) * 0.15, max(H, W) * 0.85, _px(1.0, px_scale), dtype=np.float32)
 
     limb_points = []
     thresh_grad = -0.015 * p999
@@ -2091,7 +3321,7 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
                 continue
             R_cand = np.sqrt(R_sq)
             dists = np.abs(np.sqrt((pts[:, 0] - xc_cand)**2 + (pts[:, 1] - yc_cand)**2) - R_cand)
-            inliers = np.where(dists < 3.0)[0]
+            inliers = np.where(dists < _px(3.0, px_scale))[0]
             if len(inliers) > len(best_inliers):
                 best_inliers = inliers
         except np.linalg.LinAlgError:
@@ -2116,7 +3346,7 @@ def _fit_lunar_limb_circle(lum_2d: np.ndarray) -> tuple[float, float, float, flo
     dists = np.sqrt((x - xc)**2 + (y - yc)**2)
     res_std = float(np.std(dists - R))
 
-    if not (0.15 * min(H, W) < R < 3.0 * max(H, W)) or res_std > 5.0:
+    if not (0.15 * min(H, W) < R < 3.0 * max(H, W)) or res_std > _px(5.0, px_scale):
         return None
 
     return xc, yc, R, res_std
@@ -2164,6 +3394,7 @@ def _infer_optical_parameters(
     data: np.ndarray,
     args: argparse.Namespace,
     mosaic_mode: str = "disc",
+    px_scale: float = 1.0,
 ) -> dict:
     """Intelligently infer telescope optical parameters (pixel size, focal length, aperture).
 
@@ -2172,10 +3403,14 @@ def _infer_optical_parameters(
     effective focal length (e.g. ~864mm from ~2095px lunar disc on 3.73um sensor).
     """
     # 1. Pixel size inference
+    # After a drizzle stack the master's header already carries the corrected
+    # (smaller) sampling pitch, so the header branch is used as-is.  The user and
+    # default branches describe the *sensor* pitch and must be divided by the
+    # drizzle factor to describe the working grid.
     user_px = getattr(args, "pixel_size", None)
     if user_px is not None and user_px > 0:
-        px_size = float(user_px)
-        px_source = "user"
+        px_size = float(user_px) / float(px_scale)
+        px_source = "user" if px_scale == 1.0 else f"user / drizzle {px_scale:g}x"
     else:
         hdr_px = None
         for k in ["XPIXSZ", "YPIXSZ", "PIXSIZE", "PIXSIZE1", "PIXEL_SZ", "PIXELSIZE"]:
@@ -2185,15 +3420,15 @@ def _infer_optical_parameters(
                     fval = float(val)
                     if fval > 0:
                         hdr_px = fval
-                        px_source = f"FITS Header ({k})"
+                        px_source = _hdr_source_label(hdr, k, f"FITS Header ({k})")
                         break
                 except (ValueError, TypeError):
                     pass
         if hdr_px is not None:
             px_size = hdr_px
         else:
-            px_size = 3.73
-            px_source = "default (3.73um)"
+            px_size = 0.0
+            px_source = "unknown"
 
     # 2. Aperture inference
     user_dia = getattr(args, "aperture", None)
@@ -2209,15 +3444,15 @@ def _infer_optical_parameters(
                     fval = float(val)
                     if fval > 0:
                         hdr_dia = fval
-                        dia_source = f"FITS Header ({k})"
+                        dia_source = _hdr_source_label(hdr, k, f"FITS Header ({k})")
                         break
                 except (ValueError, TypeError):
                     pass
         if hdr_dia is not None:
             dia = hdr_dia
         else:
-            dia = 80.0
-            dia_source = "default (80.0mm)"
+            dia = 0.0
+            dia_source = "unknown"
 
     # 3. Focal length inference
     user_fl = getattr(args, "focal", None)
@@ -2229,7 +3464,7 @@ def _infer_optical_parameters(
     if user_fl is not None and user_fl > 0:
         fl = float(user_fl)
         fl_source = "user"
-    elif mosaic_mode != "tile":
+    elif mosaic_mode != "tile" and px_size > 0:
         # Attempt geometric inversion from subpixel lunar disc fit
         is_3d = (data.ndim == 3)
         if is_3d:
@@ -2237,7 +3472,7 @@ def _infer_optical_parameters(
         else:
             lum_2d = data
 
-        fit_res = _fit_lunar_limb_circle(lum_2d)
+        fit_res = _fit_lunar_limb_circle(lum_2d, px_scale=px_scale)
         if fit_res is not None:
             xc, yc, R, res_std = fit_res
             D_px = 2.0 * R
@@ -2280,31 +3515,54 @@ def _infer_optical_parameters(
                     fval = float(val)
                     if fval > 0:
                         hdr_fl = fval
-                        fl_source = f"FITS Header ({k})"
+                        fl_source = _hdr_source_label(hdr, k, f"FITS Header ({k})")
                         break
                 except (ValueError, TypeError):
                     pass
         if hdr_fl is not None:
             fl = hdr_fl
         else:
-            fl = 400.0
-            fl_source = "default (400.0mm)"
+            fl = 0.0
+            fl_source = "unknown"
 
     f_ratio = fl / dia if dia > 0 else 0.0
     # Theoretical Airy radius in pixels for green light (550nm = 0.55um):
     # r_airy = 1.22 * lambda * f / (D * px_size)
     r_airy_px = (1.22 * 0.55 * fl) / (dia * px_size) if (dia > 0 and px_size > 0) else 0.0
 
+    # Independent cross-check. The device table is a prior derived from published
+    # specifications, while the geometric inversion is measured from this frame, so
+    # a large disagreement is worth surfacing: it can mean the device was
+    # misidentified, or that a wrong pixel pitch is scaling the inversion. Advisory
+    # only -- the inversion is never overwritten, because a partial lunar disc can
+    # make it unreliable.
+    focal_crosscheck = None
+    table_focal = _hdr_positive_float(hdr, FOCAL_KEYS) if "FOCALLEN" in str(hdr.get("OPTPRIOR") or "") else None
+    if table_focal and fl_source and str(fl_source).startswith("geometric inversion"):
+        delta = abs(float(fl) - float(table_focal)) / float(table_focal)
+        focal_crosscheck = {
+            "device_table_focal_mm": round(float(table_focal), 1),
+            "inversion_focal_mm": round(float(fl), 1),
+            "delta_pct": round(delta * 100.0, 1),
+            "suspicious": bool(delta > 0.15),
+        }
+        if focal_crosscheck["suspicious"]:
+            log(f"optical cross-check: device-table focal {table_focal:.0f}mm vs measured "
+                f"inversion {fl:.0f}mm differ by {delta * 100:.0f}% - verify the identified "
+                f"device and the pixel pitch (the inversion scales linearly with it)")
+
     return {
-        "pixel_size": round(px_size, 3),
+        "pixel_size": round(px_size, 3) if px_size else None,
         "pixel_size_source": px_source,
-        "focal_length": round(fl, 1),
+        "focal_length": round(fl, 1) if fl else None,
         "focal_source": fl_source,
+        "focal_crosscheck": focal_crosscheck,
         "focal_range": [round(f_range[0], 1), round(f_range[1], 1)] if f_range else None,
-        "aperture": round(dia, 1),
+        "aperture": round(dia, 1) if dia else None,
         "aperture_source": dia_source,
-        "f_ratio": round(f_ratio, 2),
-        "airy_radius_px": round(r_airy_px, 2),
+        "f_ratio": round(f_ratio, 2) if fl and dia else None,
+        "airy_radius_px": round(r_airy_px, 2) if fl and dia and px_size else None,
+        "trusted": bool(fl and dia and px_size and np.all(np.isfinite([fl,dia,px_size]))),
         "lunar_disc": disc_info,
     }
 
@@ -2312,12 +3570,16 @@ def _infer_optical_parameters(
 def _suppress_lunar_limb_glare(
     planes: np.ndarray,
     glare_mode: str = "auto",
+    px_scale: float = 1.0,
 ) -> tuple[np.ndarray, dict]:
     """Suppress atmospheric and optical forward scattering glare outside lunar physical limb.
 
     Operates strictly in 32-bit linear space before non-linear MTF stretch.
     Leaves lunar surface (r <= R + 1px) 100% unaltered.
     Smoothly transitions over a narrow delta (2.5px to 8.0px) into deep space zero.
+
+    `px_scale` is the drizzle supersampling factor; the transition width and the
+    limb guard band are native-pixel quantities and scale with it.
     """
     if glare_mode == "off":
         return planes, {"active": False}
@@ -2329,23 +3591,23 @@ def _suppress_lunar_limb_glare(
         lum_2d = planes
     H, W = lum_2d.shape
 
-    fit_res = _fit_lunar_limb_circle(lum_2d)
+    fit_res = _fit_lunar_limb_circle(lum_2d, px_scale=px_scale)
     if fit_res is None:
         return planes, {"active": False, "reason": "circle_fit_failed"}
 
     xc, yc, R, res_std = fit_res
 
     if glare_mode == "aggressive":
-        delta = 2.5
+        delta = _px(2.5, px_scale)
     elif glare_mode == "mild":
-        delta = 8.0
+        delta = _px(8.0, px_scale)
     else:  # "auto"
-        delta = 4.5
+        delta = _px(4.5, px_scale)
 
     yy, xx = np.mgrid[0:H, 0:W]
     r_grid = np.sqrt((xx - xc)**2 + (yy - yc)**2)
 
-    r0 = R + 1.0
+    r0 = R + _px(1.0, px_scale)
     t = np.clip((r_grid - r0) / delta, 0.0, 1.0)
     w_smooth = 1.0 - (3.0 * t**2 - 2.0 * t**3)
 
@@ -2621,6 +3883,7 @@ def _calculate_channel_balance(
     locked_profile: dict | None = None,
     lock_wb: tuple[float, float] | None = None,
     lock_stretch: tuple[float, float] | None = None,
+    px_scale: float = 1.0,
 ) -> dict:
     """Calculate channel white point stretch parameters with neutral Gray-World balance.
 
@@ -2681,7 +3944,8 @@ def _calculate_channel_balance(
     # 2. Lunar Limb Glare Suppression (physics-based radial falloff outside celestial limb)
     if glare_mode != "off":
         net_planes = np.stack([r_net, g_net, b_net], axis=0)
-        net_planes, glare_meta = _suppress_lunar_limb_glare(net_planes, glare_mode=glare_mode)
+        net_planes, glare_meta = _suppress_lunar_limb_glare(
+            net_planes, glare_mode=glare_mode, px_scale=px_scale)
         r_net, g_net, b_net = net_planes[0], net_planes[1], net_planes[2]
         res["glare_meta"] = glare_meta
 
@@ -2691,7 +3955,8 @@ def _calculate_channel_balance(
         return res
 
     # Mask valid lunar surface: exclude dark background/shadows and overexposed peaks
-    mask = (lum_approx > (0.05 * p999_lum_raw)) & (lum_approx < (0.95 * p999_lum_raw))
+    full_scale = _pixel_full_scale(d)
+    mask = (lum_approx > (0.05 * p999_lum_raw)) & (lum_approx < (0.95 * p999_lum_raw)) & np.all(d < 0.995*full_scale,axis=0)
     valid_count = int(np.count_nonzero(mask))
     res["moon_pixels"] = valid_count
 
@@ -2817,6 +4082,7 @@ def _render_deep_cine_mineral(
     fe_boost: float = 4.5,
     ti_boost: float = 5.5,
     gamma: float = 1.00,
+    px_scale: float = 1.0,
 ) -> np.ndarray:
     """Render authentic geological mineral moon via continuous chrominance space amplification.
 
@@ -2873,7 +4139,7 @@ def _render_deep_cine_mineral(
             R = float(circle_meta["radius"])
             fit = (cx, cy, R)
         else:
-            fit_res = _fit_lunar_limb_circle(lum_sharp)
+            fit_res = _fit_lunar_limb_circle(lum_sharp, px_scale=px_scale)
             if fit_res:
                 cx, cy, R, _ = fit_res
                 fit = (cx, cy, R)
@@ -2894,7 +4160,7 @@ def _render_deep_cine_mineral(
     # Between 4px and 18px from the limb, saturation smoothly transitions to full mineral saturation
     # using a smooth cubic Hermite polynomial.
     if not is_tile:
-        fade_val = np.clip((limb_dist - 4.0) / 14.0, 0.0, 1.0)
+        fade_val = np.clip((limb_dist - _px(4.0, px_scale)) / _px(14.0, px_scale), 0.0, 1.0)
         limb_chroma_fade = fade_val * fade_val * (3.0 - 2.0 * fade_val)
     else:
         limb_chroma_fade = 1.0
@@ -2936,7 +4202,7 @@ def _render_deep_cine_mineral(
 
     # Outer space clean zeroing
     if not is_tile and fit is not None:
-        space_cut = np.clip((limb_dist + 1.0) / 2.5, 0.0, 1.0)
+        space_cut = np.clip((limb_dist + _px(1.0, px_scale)) / _px(2.5, px_scale), 0.0, 1.0)
         final_r *= space_cut
         final_g *= space_cut
         final_b *= space_cut
@@ -2953,12 +4219,17 @@ def _compute_edge_ringing_damping_mask(
     lum_base: np.ndarray,
     contrast_threshold: float = 1.0,
     return_positive: bool = False,
+    px_scale: float = 1.0,
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Compute subpixel edge ringing damping masks for lunar step edges.
 
     Identifies steep luminance cliffs (crater rims, terminator, limb) and localizes:
       1. Negative undershoot valleys (shadow side) causing artificial dark halos.
       2. Positive overshoot peaks (bright side / limb inner band) causing unnatural bright glare rims.
+
+    `px_scale` is the drizzle supersampling factor.  The ringing structure lives at
+    the pixel scale, so the local baseline blur, the dilation reach and the mask
+    softening kernel all scale with it.
     """
     import cv2
 
@@ -2977,7 +4248,13 @@ def _compute_edge_ringing_damping_mask(
     grad = np.sqrt(gx * gx + gy * gy)
 
     # 2. Local dynamic baseline (soft low-pass)
-    smooth = cv2.GaussianBlur(norm, (7, 7), 1.5)
+    _k7 = _odd(_px(7.0, px_scale))
+    _k5 = _odd(_px(5.0, px_scale))
+    _k3 = _odd(_px(3.0, px_scale))
+    _dilate_iters = max(1, int(round(_px(2.0, px_scale))))
+    _sig_big = _px(1.5, px_scale)
+    _sig_small = _px(1.2, px_scale)
+    smooth = cv2.GaussianBlur(norm, (_k7, _k7), _sig_big)
 
     # 3. Step edge relative contrast (prevents activation on noisy flat maria)
     rel_contrast = grad / (smooth + 0.02)
@@ -2988,9 +4265,9 @@ def _compute_edge_ringing_damping_mask(
     hazard_neg = grad * (is_step_edge & is_shadow_side).astype(np.float32)
 
     # 5. Morphological dilation for shadow side (2-3 px outwards into shadow)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    dilated_neg = cv2.dilate(hazard_neg, kernel, iterations=2)
-    damp_mask_neg = cv2.GaussianBlur(dilated_neg, (5, 5), 1.2)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (_k3, _k3))
+    dilated_neg = cv2.dilate(hazard_neg, kernel, iterations=_dilate_iters)
+    damp_mask_neg = cv2.GaussianBlur(dilated_neg, (_k5, _k5), _sig_small)
 
     active_pixels_neg = damp_mask_neg[damp_mask_neg > 0.001]
     if active_pixels_neg.size > 10:
@@ -3005,8 +4282,8 @@ def _compute_edge_ringing_damping_mask(
     # 6. Bright side identification (positive overshoot / bright limb glare: L > smooth)
     is_bright_side = norm > (smooth + 0.005)
     hazard_pos = grad * (is_step_edge & is_bright_side).astype(np.float32)
-    dilated_pos = cv2.dilate(hazard_pos, kernel, iterations=2)
-    damp_mask_pos = cv2.GaussianBlur(dilated_pos, (5, 5), 1.2)
+    dilated_pos = cv2.dilate(hazard_pos, kernel, iterations=_dilate_iters)
+    damp_mask_pos = cv2.GaussianBlur(dilated_pos, (_k5, _k5), _sig_small)
 
     active_pixels_pos = damp_mask_pos[damp_mask_pos > 0.001]
     if active_pixels_pos.size > 10:
@@ -3481,23 +4758,31 @@ def cmd_postprocess(args) -> None:
         d = hdul[0].data
 
     mosaic_mode = getattr(args, "mosaic_mode", "disc")
-    optics = _infer_optical_parameters(hdr, d, args, mosaic_mode=mosaic_mode)
+    px_scale = _resolve_px_scale(args, work, master)
+    if px_scale != 1.0:
+        log(f"drizzle supersampling detected: the working grid is {px_scale:g}x finer than "
+            f"native, so pixel-domain tolerances and kernels are scaled by {px_scale:g}")
+    optics = _infer_optical_parameters(hdr, d, args, mosaic_mode=mosaic_mode, px_scale=px_scale)
     px_size = optics["pixel_size"]
     fl = optics["focal_length"]
     dia = optics["aperture"]
-    deconv_method = getattr(args, "deconv", "sb")
+    requested_deconv = getattr(args, "deconv", "auto")
+    deconv_method = ("sb" if optics["trusted"] else "none") if requested_deconv == "auto" else requested_deconv
+    if deconv_method in ("sb", "wiener") and not optics["trusted"]:
+        die("physical deconvolution needs trusted focal length, aperture and pixel size; provide --focal/--aperture/--pixel-size or use --deconv auto/none")
 
     if optics.get("lunar_disc"):
         disc = optics["lunar_disc"]
         log(f"optical inference: fitted lunar disc D={disc['diameter_px']:.1f}px (R={disc['radius_px']:.1f}px, res={disc['res_std']:.2f}px)")
         log(f"optical inference: sensor diameter={disc['sensor_dia_mm']:.2f}mm -> inferred focal={fl:.0f}mm (range {disc['focal_range'][0]:.0f}~{disc['focal_range'][1]:.0f}mm)")
-    log(f"optical setup: fl={fl:.1f}mm ({optics['focal_source']}), dia={dia:.1f}mm ({optics['aperture_source']}), px={px_size:.2f}um ({optics['pixel_size_source']})")
-    log(f"optical diffraction: F/{optics['f_ratio']:.1f}, Airy radius = {optics['airy_radius_px']:.2f}px")
+    log(f"optical setup: focal={fl}, aperture={dia}, pixel_size={px_size}; trusted={optics['trusted']}")
+    if requested_deconv == "auto" and not optics["trusted"]:
+        log("deconvolution auto: missing trusted optics, continuing without an assumed Airy PSF")
 
     # Adaptive PSF kernel size: covers ~3 full Airy diffraction rings
     # Short focal (small Airy disc) → smaller kernel avoids high-frequency ringing
     # Long focal (large Airy disc) → larger kernel captures complete diffraction pattern
-    r_airy = optics["airy_radius_px"]
+    r_airy = optics["airy_radius_px"] or 0.0
     ks = int(max(15, min(65, round(r_airy * 6.0))))
     if ks % 2 == 0:
         ks += 1  # PSF kernel must be odd
@@ -3546,6 +4831,12 @@ def cmd_postprocess(args) -> None:
     sat_ti = float(getattr(args, "sat_ti", 0.8))
     sat_bg = float(getattr(args, "sat_bg_factor", 1.2))
 
+    imported = load_json(work/"import_receipt.json") if (work/"import_receipt.json").exists() else {}
+    saturation = imported.get("video_metadata",{}).get("source_saturation_rgb")
+    severe_clipping = bool(saturation and max(saturation) > 0.05)
+    if severe_clipping:
+        sat_base, sat_fe, sat_ti = min(sat_base,0.1), min(sat_fe,0.2), min(sat_ti,0.2)
+        log("source channel clipping detected: restrained mineral saturation; lost colors cannot be recovered")
     sat_lines = []
     if sat_base > 0:
         sat_lines.append(f"satu {sat_base:.2f} {sat_bg:.1f} 6")  # base foundation across all hues
@@ -3601,6 +4892,7 @@ def cmd_postprocess(args) -> None:
             locked_profile=locked_profile,
             lock_wb=lock_wb,
             lock_stretch=lock_stretch,
+            px_scale=px_scale,
         )
         mid_val = wb.get("mid_val", 0.42)
         mid_info = wb.get("mid_info", {})
@@ -3621,12 +4913,24 @@ def cmd_postprocess(args) -> None:
             log(f"calibrated channels with adaptive midtone: m={mid_val:.3f} (median={mid_info.get('median_raw', 0.5):.3f}, target={mid_info.get('target', 0.5):.2f})")
         else:
             log(f"calibrated channels (bg=[{wb['bg_r']:.5f}, {wb['bg_g']:.5f}, {wb['bg_b']:.5f}], hi=[{wb['hi_r']:.5f}, {wb['hi_g']:.5f}, {wb['hi_b']:.5f}], midtone={mid_val:.3f})")
+        if getattr(args,"luminance_channel","weighted") == "green":
+            wb["lum_data"] = np.maximum(0.0, d[1]-bg_g).astype(np.float32)
+            wb["bg_lum"] = 0.0
+            wb["hi_lum"] = max(float(np.percentile(wb["lum_data"],99.95))*1.08,1e-4)
+        stretch_scale = max(1.0,*(wb["hi_"+channel] for channel in ("r","g","b","lum")))
+        if stretch_scale > 1:
+            wb["color_data"] = wb["color_data"]/stretch_scale
+            wb["lum_data"] = wb["lum_data"]/stretch_scale
+            for channel in ("r","g","b","lum"):
+                wb["bg_"+channel] /= stretch_scale
+                wb["hi_"+channel] /= stretch_scale
+        wb["stretch_scale"] = stretch_scale
         lum_for_sharp = wb["lum_data"]
     else:
         plane = d if d.ndim == 2 else d[0]
         bg_val = _estimate_pedestal(plane)
         p999_val = float(np.percentile(plane, 99.95))
-        hi_val = max(p999_val * 1.25, bg_val + 0.01)
+        hi_val = max(p999_val * 1.10, bg_val + 0.01)
         if lock_stretch:
             bg_val, hi_val = lock_stretch[0], lock_stretch[1]
             log(f"monochrome stretch ceiling LOCKED: bg={bg_val:.5f}, hi={hi_val:.5f}")
@@ -3635,6 +4939,14 @@ def cmd_postprocess(args) -> None:
             hi_val = float(hist_prof.get("hi_lum", hist_prof.get("hi_unified", hi_val)))
             bg_val = float(hist_prof.get("bg_lum", bg_val))
             log(f"monochrome stretch ceiling LOCKED from profile: bg={bg_val:.5f}, hi={hi_val:.5f}")
+        mono_target = master.name
+        mono_scale = max(1.0,hi_val)
+        if mono_scale > 1:
+            plane = plane/mono_scale
+            bg_val /= mono_scale
+            hi_val /= mono_scale
+            mono_target = "moon_mono_linear.fit"
+            fits.writeto(work/mono_target,plane.astype(np.float32),header=hdr,overwrite=True)
         lum_for_sharp = plane
 
         if locked_profile and "histogram" in locked_profile and "midtone" in locked_profile["histogram"] and user_mid is None:
@@ -3695,7 +5007,7 @@ def cmd_postprocess(args) -> None:
             log(f"calibrated Luminance (bg_lum={wb['bg_lum']:.5f}, hi_lum={wb['hi_lum']:.5f})")
 
             color_target = master.stem
-            if wb_mode == "gray-world" and "color_data" in wb:
+            if (wb_mode == "gray-world" or wb.get("stretch_scale",1)>1) and "color_data" in wb:
                 color_path = work / "moon_color_balanced.fit"
                 fits.writeto(color_path, wb["color_data"], header=hdr, overwrite=True)
                 color_target = "moon_color_balanced"
@@ -3736,7 +5048,7 @@ def cmd_postprocess(args) -> None:
             # Legacy monolithic RGB pipeline
             log("executing legacy monolithic RGB wavelet pipeline...")
             color_target = master.stem
-            if wb_mode == "gray-world" and "color_data" in wb:
+            if (wb_mode == "gray-world" or wb.get("stretch_scale",1)>1) and "color_data" in wb:
                 color_path = work / "moon_color_balanced.fit"
                 fits.writeto(color_path, wb["color_data"], header=hdr, overwrite=True)
                 color_target = "moon_color_balanced"
@@ -3753,6 +5065,7 @@ def cmd_postprocess(args) -> None:
                 wrecons_cmd,
                 *clahe_lines,
                 *unsharp_lines,
+                "save moon_sharp",
                 "savetif moon_natural -astro",
                 "savejpg moon_natural 95",
                 *sat_lines,
@@ -3763,14 +5076,10 @@ def cmd_postprocess(args) -> None:
     else:
         # Monochrome pipeline
         log("executing monochrome lunar detail pipeline...")
-        plane = d if d.ndim == 2 else d[0]
-        bg_val = _estimate_pedestal(plane)
-        p999_val = float(np.percentile(plane, 99.95))
-        hi_val = max(p999_val * 1.10, bg_val + 0.01)
 
         lines = [
             "requires 1.4.4",
-            f"load {master.name}",
+            f"load {mono_target}",
             *deconv_lines,
             f"mtf {bg_val:.6f} {mid_val:.2f} {hi_val:.6f}",
             "save moon_base",
@@ -3778,6 +5087,7 @@ def cmd_postprocess(args) -> None:
             wrecons_cmd,
             *clahe_lines,
             *unsharp_lines,
+            "save moon_sharp",
             "savetif moon_natural -astro",
             "savejpg moon_natural 95",
             "exit",
@@ -3802,7 +5112,8 @@ def cmd_postprocess(args) -> None:
                     lum_sharp_data = hd_sharp[0].data
                     sharp_hdr = hd_sharp[0].header
 
-                damp_mask_neg, damp_mask_pos = _compute_edge_ringing_damping_mask(lum_base_data, return_positive=True)
+                damp_mask_neg, damp_mask_pos = _compute_edge_ringing_damping_mask(
+                    lum_base_data, return_positive=True, px_scale=px_scale)
                 dhr_raw = _measure_dark_halo_ratio(lum_base_data, lum_sharp_data, damp_mask_neg)
                 lum_damped = _apply_anti_ringing_damping(
                     lum_base_data,
@@ -3849,11 +5160,11 @@ def cmd_postprocess(args) -> None:
                         yy_d, xx_d = np.mgrid[0:c_clean.shape[1], 0:c_clean.shape[2]]
                         r_d = np.sqrt((xx_d - cx_d)**2 + (yy_d - cy_d)**2)
                         limb_dist_d = R_d - r_d
-                        fade_val_d = np.clip((limb_dist_d - 4.0) / 14.0, 0.0, 1.0)
+                        fade_val_d = np.clip((limb_dist_d - _px(4.0, px_scale)) / _px(14.0, px_scale), 0.0, 1.0)
                         limb_fade_d = fade_val_d * fade_val_d * (3.0 - 2.0 * fade_val_d)
                         for ch in range(3):
                             rgb_damped[ch] = lum_damped + (rgb_damped[ch] - lum_damped) * limb_fade_d
-                        space_gate = np.clip((limb_dist_d + 1.0) / 2.5, 0.0, 1.0)
+                        space_gate = np.clip((limb_dist_d + _px(1.0, px_scale)) / _px(2.5, px_scale), 0.0, 1.0)
                         rgb_damped *= space_gate
 
                     rgb_screen = rgb_damped[:, ::-1, :]
@@ -3871,7 +5182,8 @@ def cmd_postprocess(args) -> None:
                     s_data = hd_sharp[0].data
                     s_hdr = hd_sharp[0].header
 
-                damp_mask_neg, damp_mask_pos = _compute_edge_ringing_damping_mask(b_data, return_positive=True)
+                damp_mask_neg, damp_mask_pos = _compute_edge_ringing_damping_mask(
+                    b_data, return_positive=True, px_scale=px_scale)
                 dhr_raw = _measure_dark_halo_ratio(b_data, s_data, damp_mask_neg)
                 damped_mono = _apply_anti_ringing_damping(
                     b_data,
@@ -3900,7 +5212,7 @@ def cmd_postprocess(args) -> None:
                 cv2.imwrite(str(work / "moon_natural.tif"), m16)
                 cv2.imwrite(str(work / "moon_natural.jpg"), m8, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
 
-    mineral_style = getattr(args, "mineral_style", "deep-cine")
+    mineral_style = "natural" if severe_clipping else getattr(args, "mineral_style", "deep-cine")
     fe_boost = float(getattr(args, "mineral_fe_boost", 4.5))
     ti_boost = float(getattr(args, "mineral_ti_boost", 5.5))
     gamma = float(getattr(args, "mineral_gamma", 1.00))
@@ -3929,6 +5241,7 @@ def cmd_postprocess(args) -> None:
                 fe_boost=fe_boost,
                 ti_boost=ti_boost,
                 gamma=gamma,
+                px_scale=px_scale,
             )
 
             # Write deep-cine mineral JPG
@@ -3936,6 +5249,10 @@ def cmd_postprocess(args) -> None:
             log(f"deep-cine mineral moon rendered: Fe terracotta red (x{fe_boost:.1f}) + Ti cobalt blue (x{ti_boost:.1f}), bilateral chroma smoothing, shadow/ray rolloff")
 
     receipt["mosaic_mode"] = mosaic_mode
+    receipt["deconvolution"] = {"requested":requested_deconv,"applied":deconv_method,"reason":"trusted_optics" if optics["trusted"] else "missing_optical_metadata"}
+    receipt["source_saturation_rgb"] = saturation
+    receipt["conservative_color"] = severe_clipping
+    receipt["luminance_channel"] = getattr(args,"luminance_channel","weighted")
     dump_json(work / "postprocess_receipt.json", receipt)
 
     # Global calibration profile (P2: Multi-panel stitching consistency)
@@ -3992,6 +5309,14 @@ def cmd_postprocess(args) -> None:
         "focal_length": fl,
         "aperture": dia,
         "optical_inference": optics,
+        "px_scale": px_scale,
+        "drizzle": {
+            "enabled": bool(px_scale != 1.0),
+            "scale": px_scale,
+            "pixfrac": hdr.get("DRZPIXFR"),
+            "kernel": hdr.get("DRZKRENL"),
+            "native_pixel_size": hdr.get("ORIGXPIX"),
+        },
         "profile_locked": active_profile["locked"],
         "calibration_profile": active_profile,
         "products": {
@@ -4031,25 +5356,34 @@ def cmd_postprocess(args) -> None:
         if nat_sample is not None:
             sh, sw = nat_sample.shape[:2]
             gray_s = cv2.cvtColor(nat_sample, cv2.COLOR_BGR2GRAY) if nat_sample.ndim == 3 else nat_sample
-            lunar_mask = gray_s > 15
-            ys, xs = np.nonzero(lunar_mask)
-            if len(xs) > 100:
-                c_x, c_y = int(round(xs.mean())), int(round(ys.mean()))
-                r_est = max(c_x - xs.min(), xs.max() - c_x, c_y - ys.min(), ys.max() - c_y)
-                # Give ~35% deep space margin around lunar disk
-                half_box = int(round(r_est * 1.35))
-                half_box = min(half_box, c_x, sw - c_x, c_y, sh - c_y)
-                x0, x1 = c_x - half_box, c_x + half_box
-                y0, y1 = c_y - half_box, c_y + half_box
-
+            count,labels,stats,centers = cv2.connectedComponentsWithStats((gray_s > 15).astype(np.uint8))
+            component = int(np.argmax(stats[1:,cv2.CC_STAT_AREA]))+1 if count>1 else 0
+            if component and stats[component,cv2.CC_STAT_AREA] > 100:
+                x0,y0,width,height,_ = map(int,stats[component])
+                x1,y1 = x0+width,y0+height
+                margin = max(width,height)
+                ax,ay = max(0,x0-margin),max(0,y0-margin)
+                bx,by = min(sw,x1+margin),min(sh,y1+margin)
+                lunar_fit = _fit_lunar_limb_circle(gray_s[ay:by,ax:bx].astype(np.float32))
+                if lunar_fit:
+                    cx_fit,cy_fit,radius,_ = lunar_fit
+                    cx_fit,cy_fit = cx_fit+ax,cy_fit+ay
+                    x0,x1 = min(x0,int(np.floor(cx_fit-radius))),max(x1,int(np.ceil(cx_fit+radius)))
+                    y0,y1 = min(y0,int(np.floor(cy_fit-radius))),max(y1,int(np.ceil(cy_fit+radius)))
+                side = int(np.ceil(max(x1-x0,y1-y0)*1.35))
+                cx, cy = (x0+x1)//2, (y0+y1)//2
+                left, top = cx-side//2, cy-side//2
+                right, bottom = left+side, top+side
+                padding = [max(0,-top),max(0,bottom-sh),max(0,-left),max(0,right-sw)]
                 for pf in product_files:
                     if pf.exists():
-                        sq_name = pf.stem + "_square" + pf.suffix
-                        p_img = cv2.imread(str(pf), cv2.IMREAD_UNCHANGED)
-                        if p_img is not None:
-                            sq_crop = p_img[y0:y1, x0:x1]
-                            cv2.imwrite(str(work / sq_name), sq_crop)
-                log(f"square close-up master exported: 1:1 crop box [{x0}:{x1}, {y0}:{y1}] ({half_box*2}x{half_box*2}px, center=({c_x}, {c_y}))")
+                        image = cv2.imread(str(pf),cv2.IMREAD_UNCHANGED)
+                        if image is not None:
+                            padded = cv2.copyMakeBorder(image,*padding,cv2.BORDER_CONSTANT,value=0)
+                            crop = padded[top+padding[0]:bottom+padding[0],left+padding[2]:right+padding[2]]
+                            cv2.imwrite(str(work/(pf.stem+"_square"+pf.suffix)),crop)
+                tile_info["square_crop"] = {"box":[left,top,right,bottom],"padding":padding}
+                log(f"square export: full visible lunar bounds preserved, side={side}, padding={padding}")
 
     dump_json(work / "mosaic_tile_info.json", tile_info)
     log(f"mosaic tile metadata exported to {work / 'mosaic_tile_info.json'}")
@@ -4065,6 +5399,180 @@ def cmd_postprocess(args) -> None:
 
 
 # ------------------------------------------------------------------- 5. verify
+
+def _background_metrics(data, sky_mask=None):
+    """Channel-wise sky statistics; no claim when a sky region cannot be identified."""
+    import cv2
+    planes = data if data.ndim == 3 else data[None,...]
+    green = planes[1] if len(planes) >= 3 else planes[0]
+    height, width = green.shape
+    side = min(64,max(1,min(height,width)//4))
+    corners = [green[:side,:side],green[:side,-side:],green[-side:,:side],green[-side:,-side:]]
+    if sky_mask is None:
+        seed = min(corners,key=lambda patch:float(np.nanmedian(patch)))
+    else:
+        mask = np.asarray(sky_mask,dtype=bool) & np.isfinite(green)
+        if np.count_nonzero(mask) < 64:
+            return {"status":"unavailable: no reliable sky region","std_green":None,"mad_green":None,"relative_noise":None}
+        seed = green[mask]
+    level = float(np.nanmedian(seed))
+    sigma = 1.4826*float(np.nanmedian(np.abs(seed-level)))
+    peak = float(np.nanpercentile(green,99.5))
+    if peak-level <= max(5*sigma,1e-6):
+        return {"status":"unavailable: no reliable sky region","std_green":None,"mad_green":None,"relative_noise":None}
+    if sky_mask is None:
+        mask = np.isfinite(green) & (green <= level+max(4*sigma,1e-7))
+        bright = (green > level+max(5*sigma,0.1*(peak-level))).astype(np.uint8)
+        mask &= cv2.dilate(bright,np.ones((9,9),np.uint8)) == 0
+        fit = _fit_lunar_limb_circle(green)
+        if fit is None:
+            count,labels,stats,centers = cv2.connectedComponentsWithStats(bright)
+            if count>1:
+                index = int(np.argmax(stats[1:,cv2.CC_STAT_AREA]))+1
+                x,y,bw,bh,area = stats[index]
+                pad = max(bw,bh)
+                ax,ay = max(0,x-pad),max(0,y-pad)
+                bx,by = min(width,x+bw+pad),min(height,y+bh+pad)
+                local_fit = _fit_lunar_limb_circle(green[ay:by,ax:bx])
+                if local_fit:
+                    fit = (local_fit[0]+ax,local_fit[1]+ay,*local_fit[2:])
+        if fit:
+            yy,xx = np.ogrid[:height,:width]
+            mask &= (xx-fit[0])**2+(yy-fit[1])**2 > (fit[2]+8)**2
+    if np.count_nonzero(mask) < 64:
+        return {"status":"unavailable: no reliable sky region","std_green":None,"mad_green":None,"relative_noise":None}
+    std, mad = [], []
+    for plane in planes:
+        values = plane[mask]
+        std.append(float(np.std(values)))
+        mad.append(float(1.4826*np.median(np.abs(values-np.median(values)))))
+    gi = 1 if len(planes) >= 3 else 0
+    moon = green[(green > level+max(5*sigma,0.2*(peak-level))) & np.isfinite(green)]
+    signal = float(np.median(moon))-level if moon.size else 0
+    return {"status":"measured","pixels":int(np.count_nonzero(mask)),"std_channels":std,"mad_channels":mad,
+            "std_green":std[gi],"mad_green":mad[gi],"background_green":level,
+            "relative_noise":mad[gi]/signal if signal>0 else None}
+
+
+def _feedback_frame(path, reference, region):
+    from astropy.io import fits
+    import cv2
+    data = fits.getdata(path).astype(np.float32)
+    plane = data[1] if data.ndim == 3 else data
+    h,w = reference.shape
+    canvas = np.zeros((max(h,plane.shape[0]),max(w,plane.shape[1])),np.float32)
+    template = np.zeros_like(canvas)
+    canvas[:plane.shape[0],:plane.shape[1]] = plane
+    template[:h,:w] = reference
+    dx,dy,response = _subpixel_phase_correlation(template,canvas)
+    if response < 0.15:
+        return None
+    transform = np.float32([[1,0,-round(dx)],[0,1,-round(dy)]])
+    aligned = cv2.warpAffine(plane,transform,(w,h),flags=cv2.INTER_NEAREST,borderValue=float("nan"))
+    x0,y0,x1,y1 = region
+    common = aligned[y0:y1,x0:x1]
+    if not common.size or not np.all(np.isfinite(common)):
+        return None
+    return common
+
+
+def _feedback_accept(best, candidate):
+    return (best["relative_noise"] > 0 and candidate["relative_noise"] <= best["relative_noise"]*0.95 and candidate["detail"] >= best["detail"]*0.97)
+
+
+def _candidate_feedback(args):
+    from astropy.io import fits
+    import cv2
+    work = Path(args.work).expanduser().resolve()
+    original_limit = args.limit
+    requested = min(256,original_limit) if original_limit>0 else 256
+    history, best, stalled = [], None, 0
+    reference = region = anchors = sky_mask = sky_circle = None
+    snapshots = {}
+    stopping = "candidate_limit"
+    try:
+        while True:
+            args.limit = requested
+            cmd_import(args)
+            imported = load_json(work/"import_receipt.json")
+            if not imported["is_video"] or not imported["video_metadata"]["primary_selected"]:
+                die("feedback requires an adaptive, smart-top or smart-cluster video input")
+            cmd_register(args)
+            args.feedback_round = len(history)+1
+            cmd_stack(args)
+            stack = load_json(work/"stack_receipt.json")
+            rank = load_json(work/"ranking.json")
+            if reference is None:
+                reference = _read_frame_plane(work/f"{args.seq}{rank['reference_index']:05d}.fit")
+                reference /= max(float(np.percentile(reference,99.95)),1e-9)
+                scale = float(stack["px_scale"])
+                if scale != 1:
+                    reference = cv2.resize(reference,None,fx=scale,fy=scale,interpolation=cv2.INTER_LINEAR)
+                profile = load_json(work/"video_scores.json")
+                centers = [r["tracking_shift"] for r in profile["rows"] if r["sharpness"] > 0]
+                mx = int(np.ceil((max(c[0] for c in centers)-min(c[0] for c in centers))*scale))+4 if centers else 64
+                my = int(np.ceil((max(c[1] for c in centers)-min(c[1] for c in centers))*scale))+4 if centers else 64
+                region = [mx,my,reference.shape[1]-mx,reference.shape[0]-my]
+                ax,ay,bx,by = region
+                source_index = imported["video_metadata"]["source_mapping"][str(rank["reference_index"])]
+                row = next(r for r in profile["rows"] if r["index"] == source_index)
+                dx,dy = row["tracking_shift"]
+                crop = imported["video_metadata"]["crop_box"] or [0,0]
+                anchors = [[int(round((r[0]+dx-crop[0])*scale))-ax,int(round((r[1]+dy-crop[1])*scale))-ay,
+                            int(round((r[2]+dx-crop[0])*scale))-ax,int(round((r[3]+dy-crop[1])*scale))-ay] for r in profile["anchors"]]
+                anchors = [r for r in anchors if 0 <= r[0] < r[2] <= bx-ax and 0 <= r[1] < r[3] <= by-ay]
+                if profile.get("circle"):
+                    cx,cy,radius,_ = profile["circle"]
+                    cx,cy = (cx+dx-crop[0])*scale-ax,(cy+dy-crop[1])*scale-ay
+                    radius = radius*scale+8
+                    yy,xx = np.ogrid[:by-ay,:bx-ax]
+                    sky_mask = (xx-cx)**2+(yy-cy)**2 > radius**2
+                    sky_circle = [cx,cy,radius]
+            common = _feedback_frame(work/args.out,reference,region)
+            metrics = _background_metrics(common,sky_mask) if common is not None else {"relative_noise":None}
+            if common is not None and anchors and metrics.get("relative_noise") is not None:
+                bg,noise = metrics["background_green"],max(metrics["mad_green"],1e-7)
+                detail = np.median([_structure_quality(common[y0:y1,x0:x1],bg,noise,1.0) for x0,y0,x1,y1 in anchors])
+                metrics["detail"] = float(detail)
+            selected = imported["video_metadata"]["seeing_probe"]["chosen_frame_count"]
+            record = {"round":len(history)+1,"requested":requested,"candidates":selected,"actually_stacked":stack["stacked_frames"], "registered_frames":rank["registered_frames"],
+                      "metrics":metrics,"disk_budget":stack["disk_budget"],"accepted":False,"log":stack["log"]}
+            valid_metrics = metrics.get("relative_noise") is not None and np.isfinite(metrics["relative_noise"]) and metrics.get("detail",0)>0
+            detail_safe = valid_metrics and (not history or metrics["detail"] >= history[0]["metrics"]["detail"]*0.97)
+            accepted = best is None or (detail_safe and _feedback_accept(best["metrics"],metrics))
+            record["accepted"] = accepted
+            stalled = 0 if accepted else stalled+1
+            if best is None or (detail_safe and metrics["relative_noise"] < best["metrics"]["relative_noise"]):
+                best = record
+                shutil.copy2(work/args.out,work/"feedback_best.fit")
+                snapshots = {name:(work/name).read_bytes() for name in (f"{args.seq}.seq","ranking.json","stack_receipt.json","import_receipt.json")}
+            history.append(record)
+            ceiling = min(original_limit,imported["video_metadata"]["candidate_pool_count"]) if original_limit>0 else imported["video_metadata"]["candidate_pool_count"]
+            if not valid_metrics:
+                stopping = "unavailable_quality_metrics";break
+            if stalled >= 2:
+                stopping = "two_rounds_without_improvement";break
+            if selected < min(requested,ceiling):
+                stopping = "disk_budget";break
+            if requested >= ceiling:
+                stopping = "candidate_limit";break
+            requested = min(requested*2,ceiling)
+        latest_import = load_json(work/"import_receipt.json")
+        for name,contents in snapshots.items():
+            (work/name).write_bytes(contents)
+        restored = load_json(work/"import_receipt.json")
+        restored["frame_count"] = latest_import["frame_count"]
+        for key in ("source_mapping","source_files","extracted_frames"):
+            restored["video_metadata"][key] = latest_import["video_metadata"][key]
+        dump_json(work/"import_receipt.json",restored)
+        shutil.copy2(work/"feedback_best.fit",work/args.out)
+        dump_json(work/"candidate_feedback.json",{"rounds":history,"winner":best["round"],"stop_reason":stopping,"common_region":region,"sky_circle":sky_circle,"sky_pixels":int(np.count_nonzero(sky_mask)) if sky_mask is not None else None})
+        log(f"candidate feedback: selected round {best['round']}, {best['actually_stacked']} actual frames; stopped={stopping}")
+    finally:
+        args.limit = original_limit
+        if hasattr(args,"feedback_round"):
+            del args.feedback_round
+
 
 def cmd_verify(args) -> None:
     from astropy.io import fits
@@ -4084,6 +5592,8 @@ def cmd_verify(args) -> None:
         master_data = hdul[0].data
         m_hdr = hdul[0].header
 
+    px_scale = _resolve_px_scale(args, work, master_path)
+
     report = {
         "master": str(master_path),
         "shape": list(master_data.shape),
@@ -4091,6 +5601,27 @@ def cmd_verify(args) -> None:
         "min": float(master_data.min()),
         "max": float(master_data.max()),
         "mean": float(master_data.mean()),
+    }
+
+    # Drizzle supersampling state (from the master header and/or the stack receipt)
+    drz_scale = m_hdr.get("DRZSCALE")
+    report["drizzle"] = {
+        "px_scale": px_scale,
+        "enabled": bool(drz_scale and float(drz_scale) != 1.0),
+        "scale": float(drz_scale) if drz_scale else px_scale,
+        "pixfrac": m_hdr.get("DRZPIXFR"),
+        "kernel": m_hdr.get("DRZKRENL"),
+        "native_pixel_size": m_hdr.get("ORIGXPIX"),
+        "effective_pixel_size": m_hdr.get("XPIXSZ"),
+    }
+
+    # Capture device identification and whether any optics came from the table
+    report["device"] = {
+        "id": m_hdr.get("DEVICE"),
+        "match_source": m_hdr.get("DEVSRC"),
+        "confidence": m_hdr.get("DEVCONF"),
+        "optical_source": m_hdr.get("OPTISRC"),
+        "table_priors": m_hdr.get("OPTPRIOR"),
     }
 
     mosaic_mode = getattr(args, "mosaic_mode", None)
@@ -4129,16 +5660,24 @@ def cmd_verify(args) -> None:
         except Exception:
             pass
 
-    # Background noise in corner
-    bg_patch = master_data[:, :150, :150] if master_data.ndim == 3 else master_data[:150, :150]
-    report["background_noise_std"] = float(bg_patch.std())
+    # Measure each channel on identified empty sky.
+    background = _background_metrics(master_data)
+    report["background_noise"] = background
+    report["background_noise_std"] = background.get("std_green")
+    report["background_noise_status"] = background["status"]
 
     # Measure surface sharpness on master vs single frame
     if rank_json.exists():
         r_info = load_json(rank_json)
         ref_idx = r_info.get("reference_index")
         report["reference_frame"] = ref_idx
-        report["kept_frames"] = r_info.get("kept_frames")
+        report["candidate_frames"] = r_info.get("candidate_frames", r_info.get("total_frames"))
+        report["registered_frames"] = r_info.get("registered_frames", r_info.get("kept_frames"))
+    if (work/"stack_receipt.json").exists():
+        stack_info = load_json(work/"stack_receipt.json")
+        report["stacked_frames"] = stack_info.get("stacked_frames")
+        report["kept_frames"] = report["stacked_frames"]
+        report["dropped_frames"] = stack_info.get("dropped_frames")
 
     # Measure Edge Undershoot Dark Halo Ratio (DHR)
     lum_base_path = work / "moon_lum_base.fit"
@@ -4153,7 +5692,7 @@ def cmd_verify(args) -> None:
                 b_dat = h_b[0].data
             with fits.open(lum_sharp_path, memmap=False) as h_s:
                 s_dat = h_s[0].data
-            d_mask = _compute_edge_ringing_damping_mask(b_dat)
+            d_mask = _compute_edge_ringing_damping_mask(b_dat, px_scale=px_scale)
             dhr_val = _measure_dark_halo_ratio(b_dat, s_dat, d_mask)
             report["dark_halo_ratio"] = dhr_val
             if dhr_val < 0.015:
@@ -4191,11 +5730,25 @@ def cmd_verify(args) -> None:
     dump_json(work / "verify_report.json", report)
     log("verification summary:")
     log(f"  Mosaic mode: {report['mosaic_mode']}")
+    dev = report.get("device") or {}
+    if dev.get("id") or dev.get("match_source"):
+        prior_note = (f", table priors: {dev.get('table_priors')}"
+                      if dev.get("table_priors") else "")
+        log(f"  Capture device: {dev.get('id') or 'unknown'} "
+            f"(matched from {dev.get('match_source')}, confidence={dev.get('confidence')}"
+            f"{prior_note})")
+    drz = report.get("drizzle") or {}
+    if drz.get("enabled"):
+        log(f"  Drizzle: x{float(drz.get('scale', 1.0)):g} supersampled "
+            f"(pixfrac={drz.get('pixfrac')}, kernel={drz.get('kernel')}, "
+            f"native pixel={drz.get('native_pixel_size')}um -> effective {drz.get('effective_pixel_size')}um)")
+    else:
+        log("  Drizzle: off (native sampling)")
     if report.get("profile_locked"):
         log(f"  Calibration Profile: LOCKED (source={report.get('lock_source')}, hi_lum={report.get('profile_hi_lum')})")
     elif "profile_locked" in report:
         log(f"  Calibration Profile: ANCHOR MASTER (unlocked baseline, hi_lum={report.get('profile_hi_lum')})")
-    if report.get("focal_length"):
+    if all(report.get(k) for k in ("focal_length","aperture","pixel_size")):
         fl_v = float(report["focal_length"])
         dia_v = float(report.get("aperture") or 80.0)
         px_v = float(report.get("pixel_size") or 3.73)
@@ -4205,7 +5758,7 @@ def cmd_verify(args) -> None:
         log(f"  Optical Setup: fl={fl_v:.1f}mm, dia={dia_v:.1f}mm (F/{f_rat:.1f}, Airy r={airy_r:.2f}px, source='{opt_src}')")
     log(f"  Master dimensions: {report['shape']} (BITPIX={report['bitpix']})")
     log(f"  Pixel range: [{report['min']:.4f}, {report['max']:.4f}] (mean={report['mean']:.4f})")
-    log(f"  Background noise std: {report['background_noise_std']:.6f}")
+    log(f"  Background noise: {report['background_noise_std']} ({report['background_noise_status']})")
     if "extinction_compensation" in report:
         ec = report["extinction_compensation"]
         log(f"  Atmospheric Extinction: COMPENSATED (zenith={ec.get('zenith_angle_deg')}°, B-grad={ec.get('amp_b', 0)*100:.1f}%, conf={ec.get('confidence')})")
@@ -4224,14 +5777,46 @@ def cmd_verify(args) -> None:
 # ---------------------------------------------------------------------- 6. all
 
 def cmd_all(args) -> None:
-    cmd_import(args)
-    cmd_register(args)
-    cmd_stack(args)
+    if getattr(args,"candidate_mode","single") == "feedback":
+        if getattr(args,"sample_mode","adaptive") in ("head","window"):
+            die("feedback is only available for quality-selected video modes")
+        _candidate_feedback(args)
+    else:
+        cmd_import(args)
+        cmd_register(args)
+        cmd_stack(args)
     cmd_postprocess(args)
     cmd_verify(args)
 
 
 # -------------------------------------------------------------------- 7. probe
+
+# ------------------------------------------------------------------ 6. devices
+
+def cmd_devices(args) -> None:
+    """Print the built-in smart-telescope specification table as JSON.
+
+    Emitted machine-readably so an agent can look a device up directly.  Every
+    entry carries its source grade and caveats, because these are published
+    specifications used as priors -- never measurements.
+    """
+    wanted = getattr(args, "id", None)
+    if wanted:
+        spec = get_device(wanted)
+        if spec is None:
+            die(f"unknown device id '{wanted}'; run `moon_stack.py devices` to list all ids")
+        print(json.dumps(spec, indent=2, ensure_ascii=False))
+        return
+
+    payload = {
+        "count": len(DEVICE_SPECS),
+        "source_grades": list(SOURCE_GRADES),
+        "sensor_status": list(SENSOR_STATUS),
+        "devices": list_devices(),
+        "excluded": EXCLUDED_DEVICES,
+    }
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
 
 def cmd_probe(args) -> None:
     info = {"siril": args.siril, "siril_exists": os.path.exists(args.siril)}
@@ -4263,17 +5848,32 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--input", required=True, help="Input directory containing RAW, FITS, SER, or AVI/video frames, or a single SER/AVI/video file")
     a.add_argument("--work", required=True, help="Isolated working directory")
     a.add_argument("--format", default="auto", choices=["auto", "fits", "raw", "ser", "video", "avi", "mp4"], help="Force format selection")
-    a.add_argument("--limit", type=int, default=0, help="Limit number of frames to import (0=all)")
-    a.add_argument("--sample-mode", default="smart-top", choices=["smart-top", "smart-cluster", "window", "head"],
-                   help="Frame sampling strategy for video containers: 'smart-top' (global sharpness scan & top-K extraction, default), 'smart-cluster' (temporal windowed top-K), 'window' (consecutive window starting at --start-frame), 'head' (first N frames)")
-    a.add_argument("--probe-stride", type=int, default=2,
-                   help="Frame subsampling stride for fast seeing profile scan (default: 2)")
-    a.add_argument("--start-frame", type=int, default=0, help="Starting frame index in video container (default: 0)")
+    a.add_argument("--limit", type=int, default=0, help="Import frame cap (0=uncapped; adaptive video mode still filters by quality)")
+    a.add_argument("--sample-mode", default="adaptive", choices=["adaptive", "smart-top", "smart-cluster", "window", "head"],
+                   help="Video sampling: 'adaptive' (quality-based count, default), 'smart-top' (global top-K), 'smart-cluster' (temporal top-K), 'window'/'head' (consecutive frames)")
+    a.add_argument("--probe-stride", type=int, default=1,
+                   help="Quality scan stride (default: 1, scores every decoded frame)")
+    a.add_argument("--start-frame", type=int, default=0, help="Starting source frame for head/window modes (default: 0)")
+    a.add_argument("--select-mode", default="otsu", choices=["otsu", "utility", "mtf-snr", "relative", "percent"],
+                   help="Adaptive video import quality filter (default: otsu)")
+    a.add_argument("--quality-threshold", type=float, default=0.75, help="Relative sharpness threshold for adaptive import")
+    a.add_argument("--utility-alpha", type=float, default=2.0, help="Sharpness exponent for utility selection")
+    a.add_argument("--utility-beta", type=float, default=1.0, help="SNR exponent for utility selection")
+    a.add_argument("--keep-percent", type=float, default=None, help="Adaptive import keep percentage; 100 retains all positive-quality frames")
     a.add_argument("--ser-debayer", action=argparse.BooleanOptionalAction, default=True, help="Debayer Bayer SER frames to RGB FITS (default: True)")
     a.add_argument("--force-mono", action="store_true", help="Force extracting video as 1-channel monochrome FITS")
     a.add_argument("--video-debayer", default="auto", choices=["auto", "bggr", "rggb", "grbg", "gbrg", "none"],
                    help="Demosaicing for RAW Bayer video containers (e.g. Seestar RAW.avi): 'auto' (detects Bayer grid, defaults to BGGR), 'bggr', 'rggb', or 'none'")
+    a.add_argument("--device", default="auto",
+                   help="Capture device for optics priors, e.g. 'seestar-s50', 'dwarf-3'. "
+                        "'auto' (default) identifies from FITS header, capture sidecar, filename "
+                        "and sensor model; 'none' disables. Run 'devices' to list supported ids")
     a.set_defaults(func=cmd_import)
+
+    a = sub.add_parser("devices",
+                       help="Print the built-in smart-telescope specification table (for agent lookup)")
+    a.add_argument("--id", default=None, help="Print a single device id instead of the whole table")
+    a.set_defaults(func=cmd_devices)
 
     a = sub.add_parser("register")
     a.add_argument("--work", required=True)
@@ -4300,13 +5900,42 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sigma", nargs=2, default=["3", "3"])
     a.add_argument("--norm", default="addscale")
     a.add_argument("--stack-method", default="auto", choices=["auto", "sum", "rej"],
-                   help="Stacking method: 'auto' (sum for 8-bit video/SER, rej w for 16-bit+), 'sum', or 'rej'")
+                   help="Stacking method: 'auto' (rejection mean for every source depth, default), "
+                        "'rej' (force rejection mean), 'sum' (legacy additive stack - no pixel "
+                        "rejection, no weighting, normalised by the image maximum; kept only as an "
+                        "explicit fallback)")
+    a.add_argument("--weight", default="auto", choices=["auto", "none", "noise"],
+                   help="Frame weighting for rejection stacking: 'auto' (noise weighting, default), "
+                        "'noise' (weight frames by lower background noise), 'none'. Ignored by 'sum'")
+    a.add_argument("--drizzle", default="auto", choices=["auto", "off", "2", "3"],
+                   help="HST drizzle supersampling: 'auto' (2x when the theoretical Airy radius is "
+                        f"below {DRIZZLE_AIRY_THRESHOLD_PX}px, i.e. an undersampled imaging train), "
+                        "'off', or a forced scale. Trades noise and ~4x file size at scale 2 for "
+                        "real resolution on undersampled setups")
+    a.add_argument("--drizzle-pixfrac", type=float, default=None,
+                   help="Drizzle droplet pixel fraction (default: 1/scale, the manual's rule of thumb)")
+    a.add_argument("--drizzle-kernel", default="square", choices=list(DRIZZLE_KERNELS),
+                   help="Drizzle droplet kernel (default: 'square', flux preserving and robust at any "
+                        "scale). 'turbo' is faster but leaves null pixels; lanczos2/3 are only valid "
+                        "at scale == pixfrac == 1.0")
+    a.add_argument("--drizzle-airy-threshold", type=float, default=None,
+                   help=f"Airy-radius threshold in px for the --drizzle auto diffraction criterion "
+                        f"(default {DRIZZLE_AIRY_THRESHOLD_PX}); needs focal length, aperture and pixel size")
+    a.add_argument("--drizzle-psf-threshold", type=float, default=None,
+                   help=f"Measured PSF FWHM threshold in px for the --drizzle auto fallback criterion "
+                        f"(default {DRIZZLE_PSF_THRESHOLD_PX}); measured from the lunar limb, needs no metadata")
+    a.add_argument("--focal", type=float, default=None,
+                   help="Override focal length (mm) for the --drizzle auto decision")
+    a.add_argument("--pixel-size", type=float, default=None,
+                   help="Override sensor pixel size (um) for the --drizzle auto decision")
+    a.add_argument("--aperture", type=float, default=None,
+                   help="Override aperture (mm) for the --drizzle auto decision")
     a.set_defaults(func=cmd_stack)
 
     a = sub.add_parser("postprocess")
     a.add_argument("--work", required=True)
     a.add_argument("--master", default="moon_master.fit")
-    a.add_argument("--deconv", default="sb", choices=["sb", "wiener", "rl", "none"], help="Deconvolution method (sb=Split Bregman, wiener, rl, none)")
+    a.add_argument("--deconv", default="auto", choices=["auto", "sb", "wiener", "rl", "none"], help="Deconvolution method (sb=Split Bregman, wiener, rl, none)")
     a.add_argument("--no-adc", action="store_true", help="Disable Atmospheric Dispersion Correction (RGB channel alignment)")
     a.add_argument("--midtone", type=float, default=None, help="MTF midtone stretch value for natural lunar albedo dynamics (default: None for auto albedo-adaptive estimation)")
     a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
@@ -4318,9 +5947,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Edge undershoot dark ringing suppression mode: 'auto' (adaptive damping, default), 'mild' (subtle), 'aggressive' (strong), 'off' (bypass)")
     a.add_argument("--damping-factor", type=float, default=None,
                    help="Manual anti-ringing damping factor (0.0 to 1.0, overrides preset if specified)")
-    a.add_argument("--aperture", type=float, default=None, help="Telescope aperture in mm (for Airy PSF, default: auto inferred/80.0)")
+    a.add_argument("--aperture", type=float, default=None, help="Telescope aperture in mm (for Airy PSF, default: trusted metadata only)")
     a.add_argument("--focal", type=float, default=None, help="Telescope focal length in mm (for Airy PSF, default: auto inferred from lunar disc/header)")
-    a.add_argument("--pixel-size", type=float, default=None, help="Sensor pixel size in microns (for Airy PSF, default: auto from FITS header/3.73)")
+    a.add_argument("--pixel-size", type=float, default=None, help="Sensor pixel size in microns (for Airy PSF, default: trusted metadata only)")
     a.add_argument("--mineral-mode", default="lrgb", choices=["lrgb", "legacy"],
                    help="Mineral moon processing pipeline: 'lrgb' (Luminance/Chrominance separation, clean details, default) or 'legacy' (monolithic RGB wavelet)")
     a.add_argument("--white-balance", default="gray-world", choices=["gray-world", "legacy"],
@@ -4360,16 +5989,20 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--input", required=True, help="Input directory or single SER/AVI/video file")
     a.add_argument("--work", required=True)
     a.add_argument("--format", default="auto", choices=["auto", "fits", "raw", "ser", "video", "avi", "mp4"], help="Force format selection")
-    a.add_argument("--limit", type=int, default=0, help="Limit number of frames to import (0=all)")
-    a.add_argument("--sample-mode", default="smart-top", choices=["smart-top", "smart-cluster", "window", "head"],
-                   help="Frame sampling strategy for video containers: 'smart-top' (global sharpness scan & top-K extraction, default), 'smart-cluster' (temporal windowed top-K), 'window' (consecutive window starting at --start-frame), 'head' (first N frames)")
-    a.add_argument("--probe-stride", type=int, default=2,
-                   help="Frame subsampling stride for fast seeing profile scan (default: 2)")
-    a.add_argument("--start-frame", type=int, default=0, help="Starting frame index in video container (default: 0)")
+    a.add_argument("--limit", type=int, default=0, help="Import frame cap (0=uncapped; adaptive video mode still filters by quality)")
+    a.add_argument("--sample-mode", default="adaptive", choices=["adaptive", "smart-top", "smart-cluster", "window", "head"],
+                   help="Video sampling: 'adaptive' (quality-based count, default), 'smart-top' (global top-K), 'smart-cluster' (temporal top-K), 'window'/'head' (consecutive frames)")
+    a.add_argument("--probe-stride", type=int, default=1,
+                   help="Quality scan stride (default: 1, scores every decoded frame)")
+    a.add_argument("--start-frame", type=int, default=0, help="Starting source frame for head/window modes (default: 0)")
     a.add_argument("--ser-debayer", action=argparse.BooleanOptionalAction, default=True, help="Debayer Bayer SER frames to RGB FITS (default: True)")
     a.add_argument("--force-mono", action="store_true", help="Force extracting video as 1-channel monochrome FITS")
     a.add_argument("--video-debayer", default="auto", choices=["auto", "bggr", "rggb", "grbg", "gbrg", "none"],
                    help="Demosaicing for RAW Bayer video containers (e.g. Seestar RAW.avi): 'auto' (detects Bayer grid, defaults to BGGR), 'bggr', 'rggb', or 'none'")
+    a.add_argument("--device", default="auto",
+                   help="Capture device for optics priors, e.g. 'seestar-s50', 'dwarf-3'. "
+                        "'auto' (default) identifies from FITS header, capture sidecar, filename "
+                        "and sensor model; 'none' disables. Run 'devices' to list supported ids")
     a.add_argument("--seq", default="moon_")
     a.add_argument("--roi", type=int, default=1024)
     a.add_argument("--select-mode", default="otsu", choices=["otsu", "utility", "mtf-snr", "relative", "percent"],
@@ -4394,8 +6027,23 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--sigma", nargs=2, default=["3", "3"])
     a.add_argument("--norm", default="addscale")
     a.add_argument("--stack-method", default="auto", choices=["auto", "sum", "rej"],
-                   help="Stacking method: 'auto' (sum for 8-bit video/SER, rej w for 16-bit+), 'sum', or 'rej'")
-    a.add_argument("--deconv", default="sb", choices=["sb", "wiener", "rl", "none"])
+                   help="Stacking method: 'auto' (rejection mean for every source depth, default), "
+                        "'rej' (force rejection mean), 'sum' (legacy additive stack, explicit fallback)")
+    a.add_argument("--weight", default="auto", choices=["auto", "none", "noise"],
+                   help="Frame weighting for rejection stacking: 'auto' (noise weighting, default), "
+                        "'noise', 'none'. Ignored by 'sum'")
+    a.add_argument("--drizzle", default="auto", choices=["auto", "off", "2", "3"],
+                   help="HST drizzle supersampling: 'auto' (2x when the theoretical Airy radius is "
+                        f"below {DRIZZLE_AIRY_THRESHOLD_PX}px), 'off', or a forced scale")
+    a.add_argument("--drizzle-pixfrac", type=float, default=None,
+                   help="Drizzle droplet pixel fraction (default: 1/scale)")
+    a.add_argument("--drizzle-kernel", default="square", choices=list(DRIZZLE_KERNELS),
+                   help="Drizzle droplet kernel (default: 'square'); lanczos2/3 only at scale == pixfrac == 1.0")
+    a.add_argument("--drizzle-airy-threshold", type=float, default=None,
+                   help=f"Airy-radius threshold in px for the --drizzle auto diffraction criterion (default {DRIZZLE_AIRY_THRESHOLD_PX})")
+    a.add_argument("--drizzle-psf-threshold", type=float, default=None,
+                   help=f"Measured PSF FWHM threshold in px for the --drizzle auto fallback criterion (default {DRIZZLE_PSF_THRESHOLD_PX})")
+    a.add_argument("--deconv", default="auto", choices=["auto", "sb", "wiener", "rl", "none"])
     a.add_argument("--no-adc", action="store_true")
     a.add_argument("--midtone", type=float, default=None, help="MTF midtone stretch value (default: None for auto albedo-adaptive estimation)")
     a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
@@ -4407,9 +6055,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Edge undershoot dark ringing suppression mode: 'auto' (adaptive damping, default), 'mild' (subtle), 'aggressive' (strong), 'off' (bypass)")
     a.add_argument("--damping-factor", type=float, default=None,
                    help="Manual anti-ringing damping factor (0.0 to 1.0, overrides preset if specified)")
-    a.add_argument("--aperture", type=float, default=None, help="Telescope aperture in mm (default: auto/80.0)")
+    a.add_argument("--aperture", type=float, default=None, help="Telescope aperture in mm (default: trusted metadata only)")
     a.add_argument("--focal", type=float, default=None, help="Telescope focal length in mm (default: auto inferred from limb/header)")
-    a.add_argument("--pixel-size", type=float, default=None, help="Sensor pixel size in microns (default: auto from FITS header/3.73)")
+    a.add_argument("--pixel-size", type=float, default=None, help="Sensor pixel size in microns (default: trusted metadata only)")
     a.add_argument("--mineral-mode", default="lrgb", choices=["lrgb", "legacy"],
                    help="Mineral moon processing pipeline: 'lrgb' (Luminance/Chrominance separation, default) or 'legacy' (monolithic RGB)")
     a.add_argument("--white-balance", default="gray-world", choices=["gray-world", "legacy"],
@@ -4431,6 +6079,18 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--square-crop", action=argparse.BooleanOptionalAction, default=True, help="Automatically export 1:1 square close-up master (default: True)")
     a.set_defaults(func=cmd_all)
 
+    for name in ("import", "all"):
+        command = sub.choices[name]
+        command.add_argument("--video-roi", default="auto", choices=["auto","off"], help="Fixed tracked lunar crop; off preserves full source dimensions")
+        command.add_argument("--roi-margin", type=int, default=64, help="Lunar crop margin in native pixels")
+        command.add_argument("--min-signal-ratio",type=float,default=0.2,help="Minimum lunar signal versus the clip's 90th percentile (default: 0.2); rejects photon-starved compression texture")
+    for name in ("import","stack","all"):
+        sub.choices[name].add_argument("--disk-budget-gb", type=float, default=None, help="Maximum work allocation in GiB; filesystem safety reserve still applies")
+    for name in ("register","all"):
+        sub.choices[name].add_argument("--register-selection", default="auto", choices=["auto","reselect"], help="Reuse primary video selection or explicitly filter again")
+    sub.choices["all"].add_argument("--candidate-mode", default="single", choices=["single","feedback"], help="Single selection or measured doubling of video candidates")
+    for name in ("postprocess","all"):
+        sub.choices[name].add_argument("--luminance-channel", default="weighted", choices=["weighted","green"], help="Weighted RGB luminance or green detail plane")
     return p
 
 

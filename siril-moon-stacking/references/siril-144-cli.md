@@ -55,21 +55,65 @@ seqapplyreg sequencename -framing=min -interp=cu
 * `-interp=cu`：调用 Siril 原生多线程**双三次（Bicubic）亚像素重采样**，彻底杜绝整像素取整模糊；
 * 输出带有 `r_` 前缀的对齐序列（如 `r_moon_00001.fit` 及 `r_moon_.seq`）。
 
+### 3.1 Drizzle 超采样（`-drizzle`）
+
+```
+seqapplyreg sequencename [-prefix=] [-scale=] [-layer=] [-framing=]
+seqapplyreg sequencename ... [-interp=] [-noclamp]
+seqapplyreg sequencename ... [-drizzle [-pixfrac=] [-kernel=] [-flat=]]
+seqapplyreg sequencename ... [-filter-*]
+```
+
+实测（Siril 1.4.4，合成 3 帧 1024×512 mono 序列）：
+
+| 命令 | 结果 |
+| :--- | :--- |
+| `seqapplyreg smoke_ -framing=min -interp=cu -scale=2.0 -drizzle -pixfrac=0.5 -kernel=square` | 输出 **2046×1024**（≈2×），日志 `Drizzling parameters: scale: 2.000000` |
+| `seqapplyreg smoke_ -framing=min -interp=cu -scale=2.0`（无 `-drizzle`） | 同样输出 2046×1024（纯插值放大）→ **判断 drizzle 是否生效不能只看尺寸，要看日志的 `Drizzling parameters`** |
+| `... -drizzle -kernel=lanczos3 -scale=2.0` | **不报错**（仅 "Max drizzle weight" 不同）→ 手册的 Lanczos 限制是建议而非硬约束，**必须由调用方主动回退为 `square`** |
+
+* `seqapplydrizzle` 独立命令在本版本**不存在**（`Error: command seqapplydrizzle is not available`），只能用 `seqapplyreg -drizzle`；
+* `-scale=` 范围 0.1~3.0，与 `-drizzle` 组合即 drizzle 的输出网格倍率；手册推荐 `pixfrac ≈ 1/scale`；
+* **drizzle 会自动修正头部 `XPIXSZ`/`YPIXSZ`**：实测 3.76µm → 1.88µm（scale=2），且 `stack` 出的母版继承该值；`FOCALLEN`/`APERTURE` 原样透传。调用方仍应校验并在缺失时补写；
+* drizzle 过程会在工作目录生成 `drizztmp/` 中间目录（8-bit 中间帧），需在收尾时清理；
+* 代价：scale=2 时像素量/体积/耗时约 ×4，且噪声更高（需更多帧补偿）；null pixel 会削弱剔除算法的可用样本。
+
 ---
 
 ## 4. 序列堆叠 (`stack`)
 
+### 4.1 分支语法（Siril 1.4.4 实测）
+
 ```bash
-stack seqfilename rej [rejection_type] [sigma_low sigma_high] [-norm=norm_type] [-filter-included] [-out=filename]
+stack seqfilename { sum | min | max } [-output_norm] [-out=filename] [-maximize] [-upscale] [-32b]
+stack seqfilename { med | median } [-nonorm, -norm=] [-fastnorm] [-rgb_equal] [-output_norm] [-out=filename] [-32b]
+stack seqfilename { rej | mean } [rejection type] [sigma_low sigma_high] [-rejmap[s]] [-nonorm, -norm=] [-fastnorm] [-overlap_norm] [-weight={noise|wfwhm|nbstars|nbstack}] [-feather=] [-rgb_equal] [-output_norm] [-out=filename] [-maximize] [-upscale] [-32b]
 ```
-* **推荐参数组合（月面幸运成像）**：
-  ```bash
-  stack r_moon_ rej w 3 3 -norm=addscale -filter-included -out=moon_master.fit
-  ```
-  * `rej w 3 3`：Winsorized Sigma Clipping 像素剔除算法（标准推荐）；
-  * `-norm=addscale`：加法缩放归一化，平衡因视宁度或薄云引起的曝光浮动；
-  * `-filter-included`：仅堆叠在 `.seq` 文件中标记为选中（`I <index> 1`）的优质帧；
-  * 输出 `moon_master.fit`：为 32 位浮点高动态、高信噪比母版。
+
+* **`-weight=` 只在 `rej`/`mean` 分支可用**（`sum` 分支完全不支持，也不支持 `-norm=`）。
+  * `noise`：按背景噪声给帧加权（**月面唯一可用**）；`wfwhm`/`nbstars` 依赖星点配准数据，月面不可用；`nbstack` 供 live stacking 使用。
+  * 非法取值会明确报错：`Unknown argument to -weight=bogus, aborting.`；合法时日志打印 `Computing weights based on noise...` → `Image weighting ........... from noise`。
+  * 若背景统计不可用（如画面完全均匀）会报 `MAD is null. Statistics cannot be computed.` 并导致归一化失败。
+
+### 4.2 推荐参数组合（月面幸运成像）
+
+```bash
+stack r_moon_ rej w 3 3 -norm=addscale -weight=noise -filter-included -out=moon_master.fit
+```
+* `rej w 3 3`：Winsorized Sigma Clipping 像素剔除算法（标准推荐）；
+* `-norm=addscale`：加法缩放归一化，平衡因视宁度或薄云引起的曝光浮动；
+* `-weight=noise`：按背景噪声加权，让低噪帧贡献更多；
+* `-filter-included`：仅堆叠在 `.seq` 文件中标记为选中（`I <index> 1`）的优质帧（**实测对 `sum` 分支同样生效**，日志只读取被标记的帧）；
+* 输出 `moon_master.fit`：为 32 位浮点高动态、高信噪比母版。
+
+### 4.3 `sum` 分支的两个实测缺陷（勿用于月面）
+
+1. **按全图最大值归一化**：实测两次输出峰值恒为 `1.000000`，两区域（100/200）输出 `0.4926 / 0.9852`，即 `sum / max(sum)`。因此**单个热噪点、宇宙线或视频压缩坏块会让整幅信号塌缩**——注入一个 60000 的像素后输出变为 `0.004984 / 0.009967`（约 100×）。
+2. **不做任何像素剔除**，也不支持 `-norm=` 与 `-weight=`。
+
+另实测：`rej w 3 3 -norm=addscale` 的相对对比度与 `sum` 一致（2.0 vs 1.97），二者经后处理归一化后等价，而 `rej` 额外提供剔除、帧间归一化与加权能力。故本技能统一走 `rej`，`sum` 仅作 `--stack-method sum` 的显式回退。
+
+> 注意：3 帧时 Winsorized 3σ 无法剔除单点异常（日志 `Pixel rejection in channel #0: 0.000%`），剔除需要足够的帧数。
 
 ---
 

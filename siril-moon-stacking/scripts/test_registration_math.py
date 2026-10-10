@@ -17,26 +17,46 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from moon_stack import (
     _apply_anti_ringing_damping,
+    _apply_device_priors,
     _calculate_channel_balance,
     _compute_edge_ringing_damping_mask,
+    _decide_drizzle,
     _estimate_adaptive_sharpening,
     _estimate_pedestal,
+    _fit_lunar_limb_circle,
+    _hdr_source_label,
     _load_locked_profile,
     _locate_high_contrast_roi,
     _measure_chalky_saturation_index,
     _measure_dark_halo_ratio,
     _measure_gradient_kurtosis,
+    _measure_limb_psf_fwhm,
+    _odd,
+    _probe_frame_for_drizzle,
+    _px,
     _render_deep_cine_mineral,
+    _resolve_device_arg,
+    _resolve_px_scale,
     _select_frames_by_quality,
     _subpixel_phase_correlation,
     _suppress_lunar_limb_glare,
+    _verify_master_pixel_scale,
     _infer_optical_parameters,
     DEFAULT_SIRIL,
+    DEVICE_SPECS,
+    DRIZZLE_AIRY_THRESHOLD_PX,
+    DRIZZLE_PSF_THRESHOLD_PX,
+    EXCLUDED_DEVICES,
+    SENSOR_STATUS,
+    SOURCE_GRADES,
     _apply_extinction_compensation,
     _estimate_atmospheric_extinction_gradient,
     cmd_import,
     cmd_postprocess,
+    cmd_register,
     cmd_stack,
+    identify_device,
+    list_devices,
     parse_ser_header,
     unpack_ser_to_fits,
     unpack_video_to_fits,
@@ -408,8 +428,8 @@ def test_adaptive_sharpening_math() -> None:
     res_deconv = _estimate_adaptive_sharpening(img, has_deconv=True, interp_used="cu", sharp_mode="auto")
     print(f"Adaptive deconv=True: wrecons={res_deconv['wrecons_cmd']}, clahe={res_deconv['clahe_clip']}, unsharp={res_deconv['unsharp_amount']}")
 
-    if res_deconv["deconv_discount"] != 0.65:
-        failures.append(f"Expected deconv discount 0.65, got {res_deconv['deconv_discount']}")
+    if res_deconv["deconv_discount"] != 0.80:
+        failures.append(f"Expected deconv discount 0.80, got {res_deconv['deconv_discount']}")
     if res_deconv["unsharp_amount"] != 0.0 or res_deconv["unsharp_lines"]:
         failures.append("USM unsharp mask should be automatically bypassed in auto mode")
     if res_deconv["clahe_clip"] != 0.0 or res_deconv["clahe_lines"]:
@@ -923,6 +943,7 @@ def test_infer_optical_parameters_math() -> None:
 
     hdr = fits.Header()
     hdr["XPIXSZ"] = 3.73000
+    hdr["APERTURE"] = 80.0
 
     args_default = argparse.Namespace(focal=None, pixel_size=None, aperture=None)
     opt = _infer_optical_parameters(hdr, syn_img, args_default, mosaic_mode="disc")
@@ -955,7 +976,7 @@ def test_infer_optical_parameters_math() -> None:
     # 4. Test pure default fallback (empty header, tile mode)
     hdr_empty = fits.Header()
     opt_fallback = _infer_optical_parameters(hdr_empty, np.zeros((100, 100)), args_default, mosaic_mode="tile")
-    if opt_fallback["focal_length"] != 400.0 or opt_fallback["pixel_size"] != 3.73:
+    if opt_fallback["focal_length"] is not None or opt_fallback["pixel_size"] is not None or opt_fallback["trusted"]:
         failures.append(f"Default fallback failed: {opt_fallback}")
 
     print("Optical parameter inference unit test passed")
@@ -969,7 +990,7 @@ def _make_synthetic_ser(
     num_frames: int = 4,
     color_id: int = 0,
     pixel_depth: int = 16,
-    little_endian: int = 1,
+    little_endian: int = 0,
     observer: str = "TestObserver",
     instrument: str = "ZWO ASI585MC",
     telescope: str = "Seestar S50",
@@ -1304,6 +1325,7 @@ def test_video_cmd_import_single_file_and_dir():
             work=str(work1),
             format="auto",
             limit=3,
+            sample_mode="smart-top",
             ser_debayer=True,
             force_mono=False,
             siril=DEFAULT_SIRIL,
@@ -1330,6 +1352,7 @@ def test_video_cmd_import_single_file_and_dir():
             work=str(work2),
             format="video",
             limit=0,
+            sample_mode="head",
             ser_debayer=True,
             force_mono=True,  # force mono
             siril=DEFAULT_SIRIL,
@@ -1345,6 +1368,116 @@ def test_video_cmd_import_single_file_and_dir():
         assert rcpt2["frame_count"] == 5
 
     print("Video cmd_import single file and directory integration unit test passed")
+
+
+
+def test_video_adaptive_sequential_import():
+    """Both containers score all frames and sequentially write only selected indices."""
+    import cv2
+    import hashlib
+    import json
+    import tempfile
+    from astropy.io import fits
+    from unittest.mock import Mock, patch
+    from moon_stack import build_parser, probe_video_seeing_profile
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        for suffix, codec in ((".avi", "MJPG"), (".mp4", "mp4v")):
+            video = root / f"seeing{suffix}"
+            writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*codec), 15, (120, 120))
+            assert writer.isOpened(), f"Cannot create {codec} test video"
+            for idx in range(12):
+                image = np.full((120, 120, 3), 100, dtype=np.uint8)
+                cv2.circle(image, (60, 60), 40, (160, 180, 140), -1)
+                if idx >= 8:
+                    for y in range(40, 80, 4):
+                        for x in range(40, 80, 4):
+                            image[y:y + 2, x:x + 2, 1] = 250
+                writer.write(image)
+            writer.release()
+            original_hash = hashlib.sha256(video.read_bytes()).hexdigest()
+            work = root / f"work{suffix}"
+            args = build_parser().parse_args(["import", "--input", str(video), "--work", str(work)])
+            assert args.sample_mode == "adaptive" and args.probe_stride == 1 and args.limit == 0
+            captures = []
+            real_capture = cv2.VideoCapture
+
+            def track_capture(filename):
+                capture = Mock(wraps=real_capture(filename))
+                captures.append(capture)
+                return capture
+
+            with patch("cv2.VideoCapture", side_effect=track_capture):
+                cmd_import(args)
+            assert all(capture.set.call_count == 0 for capture in captures), "Sequential passes must not seek"
+            reads = [capture.read.call_count for capture in captures if capture.read.call_count]
+            assert reads == [13, 12], reads
+            receipt = json.loads((work / "import_receipt.json").read_text())
+            probe = receipt["video_metadata"]["seeing_probe"]
+            assert probe["total_probed"] == 12 and probe["probe_stride"] == 1
+            assert probe["sample_mode"] == "adaptive" and probe["selection_meta"]["mode"] == "otsu"
+            files = sorted(work.glob("moon_*.fit"))
+            assert len(files) == receipt["frame_count"] == probe["chosen_frame_count"]
+            assert 4 <= len(files) < 12
+            source_indices = [fits.getheader(file)["SRC_FRM"] for file in files]
+            assert source_indices == sorted(set(source_indices))
+            assert {8, 9, 10, 11}.issubset(source_indices)
+
+            # Decode independently to verify selected frame identity and RGB fidelity.
+            capture = real_capture(str(video))
+            for idx in range(12):
+                ok, frame = capture.read()
+                assert ok
+                if idx in source_indices:
+                    expected = frame[..., ::-1].transpose(2, 0, 1).astype(np.uint16) * 257
+                    assert np.array_equal(fits.getdata(files[source_indices.index(idx)]), expected)
+            capture.release()
+            assert hashlib.sha256(video.read_bytes()).hexdigest() == original_hash
+
+            # No frame cap means adaptive selection; explicit 100% and head keep all.
+            for mode in ("adaptive", "head"):
+                full_work = root / f"full_{mode}{suffix}"
+                full_args = build_parser().parse_args([
+                    "import", "--input", str(video), "--work", str(full_work),
+                    "--sample-mode", mode, "--keep-percent", "100",
+                ])
+                cmd_import(full_args)
+                assert len(list(full_work.glob("moon_*.fit"))) == 12
+
+            # A generous cap must not bypass quality filtering; a small cap keeps the best.
+            for cap, count in ((20, len(files)), (2, 2)):
+                capped_work = root / f"cap_{cap}{suffix}"
+                args.work, args.limit = str(capped_work), cap
+                cmd_import(args)
+                capped = sorted(capped_work.glob("moon_*.fit"))
+                assert len(capped) == count
+                if cap == 2:
+                    assert all(fits.getheader(file)["SRC_FRM"] >= 8 for file in capped)
+
+            try:
+                unpack_video_to_fits(video, root / "empty", target_indices=[])
+            except ValueError as error:
+                assert "target_indices" in str(error)
+            else:
+                raise AssertionError("Empty selection must not fall back to importing every frame")
+
+        # The same textured disc remains equally sharp after a large translation.
+        video = root / "drifting.avi"
+        writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 15, (320, 128))
+        assert writer.isOpened()
+        for cx in (64, 200):
+            image = np.zeros((128, 320, 3), dtype=np.uint8)
+            cv2.circle(image, (cx, 64), 30, (120, 180, 140), -1)
+            for y in range(44, 84, 4):
+                for x in range(cx - 20, cx + 20, 4):
+                    image[y:y + 2, x:x + 2, 1] = 250
+            writer.write(image)
+        writer.release()
+        scores = probe_video_seeing_profile(video, roi_size=64)
+        assert len(scores) == 2
+        assert abs(scores[1][1] / scores[0][1] - 1) < 0.05, scores
+    print("Adaptive MP4/AVI sequential import and drift tracking regression passed")
 
 
 def test_video_two_pass_selection():
@@ -1450,55 +1583,554 @@ def test_video_two_pass_selection():
 
 
 
-def test_video_8bit_stack_policy():
-    """Verify that 8-bit video automatically triggers 'stack sum' stacking policy."""
+def _stack_namespace(work, **overrides):
+    """Build a cmd_stack argparse.Namespace covering the full current option set."""
     import argparse
+
+    base = dict(
+        work=str(work),
+        seq="moon_",
+        out="moon_master.fit",
+        framing=None,
+        mosaic_mode="disc",
+        interp="cu",
+        sigma=["3", "3"],
+        norm="addscale",
+        stack_method="auto",
+        weight="auto",
+        drizzle="off",
+        drizzle_pixfrac=None,
+        drizzle_kernel="square",
+        focal=None,
+        pixel_size=None,
+        aperture=None,
+        siril=DEFAULT_SIRIL,
+        timeout=60,
+    )
+    base.update(overrides)
+    return argparse.Namespace(**base)
+
+
+def _run_cmd_stack(work, *, fail_first=False, failure_output="ok", master_header=None, **overrides):
+    """Run cmd_stack against a mocked Siril runner.
+
+    Returns (script_lines_per_attempt, stack_receipt).  The mock writes a valid
+    master FITS so the header verification path is exercised for real.
+    """
     import json
+    from unittest.mock import patch
+
+    from astropy.io import fits
+
+    calls = []
+
+    def mock_run_siril(siril, script_lines, cwd, log_path, timeout):
+        calls.append(list(script_lines))
+        ok = not (fail_first and len(calls) == 1)
+        if ok:
+            hdr = fits.Header()
+            for k, v in (master_header or {}).items():
+                hdr[k] = v
+            fits.PrimaryHDU(np.zeros((4, 4), dtype=np.float32), header=hdr).writeto(
+                work / "moon_master.fit", overwrite=True)
+        return {
+            "exit_code": 0 if ok else 1,
+            "log": str(log_path),
+            "seconds": 0.1,
+            "output": "Total: 0 failed, 2 exported.\nRejection stacking complete. 2 images have been stacked." if ok else failure_output,
+        }
+
+    with patch("moon_stack.run_siril_script", side_effect=mock_run_siril):
+        cmd_stack(_stack_namespace(work, **overrides))
+
+    receipt = json.loads((work / "stack_receipt.json").read_text(encoding="utf-8"))
+    return calls, receipt
+
+
+def _make_work(tmp_dir, *, is_video=True, orig_bit_depth=8, frame_header=None, seq_line=None):
+    """Create a minimal work directory with a sequence, import receipt and optional frame."""
+    import json
+
+    from astropy.io import fits
+
+    work = Path(tmp_dir) / "work_stack"
+    (work / "logs").mkdir(parents=True, exist_ok=True)
+    (work / "moon_.seq").write_text(
+        seq_line or "S 'moon_' 1 2 2 5 -1 6 0 0 0\nL 3\nI 1 1\nI 2 1\n", encoding="utf-8")
+    (work / "import_receipt.json").write_text(
+        json.dumps({"is_video": is_video, "orig_bit_depth": orig_bit_depth, "frame_count": 2}),
+        encoding="utf-8")
+    if frame_header is not None:
+        fits.PrimaryHDU(np.zeros((4, 4), dtype=np.uint16), header=fits.Header(frame_header)).writeto(
+            work / "moon_00001.fit", overwrite=True)
+    return work
+
+
+def test_video_8bit_stack_policy():
+    """8-bit video must use rejection mean stacking with noise weighting.
+
+    Measured on Siril 1.4.4: `stack sum` rescales the result by the image maximum
+    and performs no pixel rejection, so a single hot pixel collapses the whole
+    frame (0.4926 -> 0.004984, ~100x).  Rejection mean keeps the same relative
+    contrast (2.0 vs 1.97) and additionally provides rejection, frame
+    normalisation and -weight= support, so it is the default at any depth.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        work = _make_work(td)
+        calls, receipt = _run_cmd_stack(work)
+
+    script_str = "\n".join(calls[0])
+    assert "stack r_moon_ rej w 3 3 -norm=addscale -filter-included -weight=noise" in script_str, script_str
+    assert " sum " not in script_str, script_str
+    assert receipt["weight"] == "noise"
+    assert receipt["px_scale"] == 1.0
+
+    print("8-bit video rejection-mean + noise weighting policy unit test passed")
+
+
+def test_rej_weight_noise_default_for_16bit():
+    """16-bit sources get the same rejection mean + noise weighting treatment."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        work = _make_work(td, is_video=False, orig_bit_depth=16)
+        calls, receipt = _run_cmd_stack(work)
+
+    script_str = "\n".join(calls[0])
+    assert "stack r_moon_ rej w 3 3 -norm=addscale -filter-included -weight=noise" in script_str, script_str
+    assert receipt["weight"] == "noise"
+
+
+def test_sum_method_ignores_weight():
+    """--stack-method sum remains an explicit fallback and accepts no weighting."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        work = _make_work(td)
+        calls, receipt = _run_cmd_stack(work, stack_method="sum", weight="noise")
+
+    script_str = "\n".join(calls[0])
+    assert "stack r_moon_ sum -filter-included" in script_str, script_str
+    assert "-weight=" not in script_str, script_str
+    assert receipt["weight"] == "none"
+
+
+def test_weight_fallback_on_failure():
+    """A -weight=noise failure is retried without weighting instead of aborting."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        work = _make_work(td)
+        calls, receipt = _run_cmd_stack(
+            work, fail_first=True,
+            failure_output="log: MAD is null. Statistics cannot be computed.")
+
+    assert len(calls) == 2, calls
+    assert "-weight=noise" in "\n".join(calls[0])
+    assert "-weight=" not in "\n".join(calls[1])
+    assert receipt.get("weight_fallback") is True
+    assert receipt["weight"] == "none"
+
+
+def test_drizzle_auto_decision():
+    """auto enables 2x drizzle only for undersampled trains, and never without metadata."""
+    import argparse
+    import tempfile
+
+    from astropy.io import fits
+
+    def ns(**kw):
+        base = dict(drizzle="auto", drizzle_kernel="square", drizzle_pixfrac=None,
+                    mosaic_mode="disc", focal=None, pixel_size=None, aperture=None)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        # Short-focal undersampled train (Seestar-class): Airy radius ~1.23 px
+        fits.PrimaryHDU(np.zeros((4, 4), dtype=np.uint16),
+                        header=fits.Header({"XPIXSZ": 2.9, "FOCALLEN": 160.0, "APERTURE": 30.0})
+                        ).writeto(work / "moon_00001.fit")
+
+        r = _decide_drizzle(ns(), work, "moon_")
+        assert r["enabled"] and r["scale"] == 2.0, r
+        assert r["reason"] == "airy_below_threshold", r
+        assert r["pixfrac"] == 0.5, r
+        assert r["r_airy_px"] < DRIZZLE_AIRY_THRESHOLD_PX, r
+
+        # Well-sampled long-focal train stays at native scale
+        r = _decide_drizzle(ns(focal=800.0, aperture=80.0, pixel_size=2.9), work, "moon_")
+        assert not r["enabled"] and r["scale"] == 1.0, r
+        assert r["reason"] == "airy_at_or_above_threshold", r
+
+        # Explicit off / forced scales
+        assert _decide_drizzle(ns(drizzle="off"), work, "moon_")["reason"] == "user_off"
+        forced = _decide_drizzle(ns(drizzle="3"), work, "moon_")
+        assert forced["enabled"] and forced["scale"] == 3.0
+        assert abs(forced["pixfrac"] - 1.0 / 3.0) < 1e-3
+
+        # Mosaic tiles keep the native scale unless drizzle is forced
+        assert _decide_drizzle(ns(mosaic_mode="tile"), work, "moon_")["reason"] == "tile_mode_bypass"
+        assert _decide_drizzle(ns(mosaic_mode="tile", drizzle="2"), work, "moon_")["enabled"]
+
+        # Lanczos droplets are only valid at scale == pixfrac == 1.0
+        assert _decide_drizzle(ns(drizzle="2", drizzle_kernel="lanczos3"), work, "moon_")["kernel"] == "square"
+
+    # No frame at all: nothing can be measured, so auto declines with a reason
+    with tempfile.TemporaryDirectory() as td:
+        empty = Path(td)
+        r = _decide_drizzle(ns(), empty, "moon_")
+        assert not r["enabled"] and r["reason"] == "insufficient_evidence", r
+        assert r["missing"], r
+        assert r["criterion"] == "none", r
+        forced = _decide_drizzle(ns(drizzle="2"), empty, "moon_")
+        assert forced["enabled"] and forced["reason"] == "user_forced", forced
+
+    print("drizzle auto decision unit test passed")
+
+
+def _analytic_limb_frame(sigma, *, radius=300.0, size=1024, header=None, noise=120.0, seed=4):
+    """Disc with an exact Gaussian-blurred edge (error-function ESF).
+
+    Uses scipy.special.erf, which arrives as a hard dependency of scikit-image
+    (a declared runtime requirement).  Generating the edge analytically matters:
+    blurring a *binary* disc instead produces a step that is only one pixel wide
+    regardless of sigma, which is not a valid model of a real sampled edge.
+    """
+    from astropy.io import fits
+    from scipy.special import erf
+
+    yy, xx = np.mgrid[0:size, 0:size]
+    r = np.sqrt((xx - size / 2.0) ** 2 + (yy - size / 2.0) ** 2)
+    img = 0.5 * (1.0 + erf((radius - r) / (np.sqrt(2.0) * sigma))) * 45000.0 + 300.0
+    img = img + np.random.default_rng(seed).normal(0, noise, img.shape)
+    return np.clip(img, 0, 65535).astype(np.float32), fits.Header(header or {})
+
+
+def test_limb_psf_fwhm_recovers_gaussian():
+    """The limb edge-spread estimator must recover a known Gaussian PSF width.
+
+    Validated against analytic Gaussian-blurred discs: FWHM = 0.919 * w10_90 for
+    a Gaussian PSF, since the 10-90% width of an error-function ESF is 2.563 sigma.
+    """
+    for sigma in (0.5, 0.7, 1.0, 1.5, 2.0):
+        img, _ = _analytic_limb_frame(sigma)
+        res = _measure_limb_psf_fwhm(img)
+        assert res is not None, f"measurement failed at sigma={sigma}"
+        true_fwhm = 2.355 * sigma
+        err = abs(res["fwhm_px"] - true_fwhm) / true_fwhm
+        assert err < 0.05, f"sigma={sigma}: measured {res['fwhm_px']} vs true {true_fwhm:.2f} ({err:.1%})"
+        assert res["possible_saturation"] is False, res
+
+    # Monotonic in PSF width
+    vals = [_measure_limb_psf_fwhm(_analytic_limb_frame(s)[0])["fwhm_px"] for s in (0.5, 1.0, 2.0)]
+    assert vals[0] < vals[1] < vals[2], vals
+
+    print("limb ESF PSF-width estimator unit test passed")
+
+
+def test_drizzle_psf_criterion_without_aperture():
+    """Without an aperture the diffraction criterion is impossible, so the measured
+    PSF width decides -- and it needs no optical metadata beyond the pixel size."""
+    import argparse
+    import tempfile
+
+    from astropy.io import fits
+
+    def ns(**kw):
+        base = dict(drizzle="auto", drizzle_kernel="square", drizzle_pixfrac=None,
+                    drizzle_airy_threshold=None, drizzle_psf_threshold=None,
+                    mosaic_mode="disc", focal=None, pixel_size=None, aperture=None)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        for sigma, expect in ((0.5, True), (0.7, True), (1.5, False), (2.0, False)):
+            img, hdr = _analytic_limb_frame(sigma, header={"XPIXSZ": 2.9, "YPIXSZ": 2.9})
+            fits.PrimaryHDU(img.astype(np.uint16), header=hdr).writeto(
+                work / "moon_00001.fit", overwrite=True)
+            r = _decide_drizzle(ns(), work, "moon_")
+            assert r["criterion"] == "psf_fwhm", r
+            assert r["enabled"] is expect, (sigma, r)
+            assert r["psf_fwhm_px"] < DRIZZLE_PSF_THRESHOLD_PX if expect else \
+                r["psf_fwhm_px"] >= DRIZZLE_PSF_THRESHOLD_PX, r
+            assert r["aperture_mm"] is None, "the default 80mm aperture must never be used silently"
+            assert "aperture" in r["reason"] or r["reason"].startswith("psf_"), r
+
+        # An explicit --aperture restores the diffraction criterion
+        img, hdr = _analytic_limb_frame(1.0, header={"XPIXSZ": 2.9, "FOCALLEN": 160.0})
+        fits.PrimaryHDU(img.astype(np.uint16), header=hdr).writeto(
+            work / "moon_00001.fit", overwrite=True)
+        r = _decide_drizzle(ns(aperture=30.0), work, "moon_")
+        assert r["criterion"] == "airy" and r["enabled"], r
+
+    print("drizzle measured-PSF criterion unit test passed")
+
+
+def test_drizzle_geometric_inversion_recovers_focal():
+    """With only a pixel size, the focal length must come from the frame itself."""
+    import argparse
+    import tempfile
+
+    from astropy.io import fits
+
+    def ns(**kw):
+        base = dict(drizzle="auto", drizzle_kernel="square", drizzle_pixfrac=None,
+                    drizzle_airy_threshold=None, drizzle_psf_threshold=None,
+                    mosaic_mode="disc", focal=None, pixel_size=None, aperture=None)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        img, hdr = _analytic_limb_frame(0.7, header={"XPIXSZ": 2.9, "YPIXSZ": 2.9})
+        fits.PrimaryHDU(img.astype(np.uint16), header=hdr).writeto(work / "moon_00001.fit")
+
+        r = _decide_drizzle(ns(), work, "moon_")
+        assert r["focal_len_mm"] is not None, r
+        # disc D ~= 599 px on a 2.9um sensor with the 31.07' mean lunar diameter
+        assert 180.0 < float(r["focal_len_mm"]) < 205.0, r
+        assert "geometric inversion" in str(r["focal_source"]), r
+        assert r["pixel_size_um"] == 2.9, r
+        assert r["criterion"] == "psf_fwhm", r
+
+    # Without any pixel size the inversion would be mis-scaled by the 3.73um
+    # default, so it must be refused rather than reported as a real measurement.
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        img, hdr = _analytic_limb_frame(0.7)
+        fits.PrimaryHDU(img.astype(np.uint16), header=hdr).writeto(work / "moon_00001.fit")
+        r = _decide_drizzle(ns(), work, "moon_")
+        assert r["focal_len_mm"] is None, r
+        assert r["criterion"] == "psf_fwhm", r
+
+    print("drizzle geometric focal inversion unit test passed")
+
+
+def test_probe_frame_prefers_register_reference():
+    """The probe must use the frame register picked as sharpest, when available."""
+    import json
+    import tempfile
+
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        for i in (1, 2, 3):
+            fits.PrimaryHDU(np.full((4, 4), i * 100, dtype=np.uint16)).writeto(
+                work / f"moon_{i:05d}.fit")
+        (work / "ranking.json").write_text(json.dumps({"reference_index": 3}), encoding="utf-8")
+
+        hdr, lum, origin = _probe_frame_for_drizzle(work, "moon_")
+        assert "reference frame #3" in origin, origin
+        assert float(lum[0, 0]) == 300.0, lum[0, 0]
+
+        (work / "ranking.json").unlink()
+        hdr, lum, origin = _probe_frame_for_drizzle(work, "moon_")
+        assert origin == "first frame", origin
+        assert float(lum[0, 0]) == 100.0
+
+
+def test_drizzle_script_lines_and_receipt():
+    """A drizzle stack passes -scale/-drizzle/-pixfrac/-kernel and drops -interp=."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        work = _make_work(td, frame_header={"XPIXSZ": 2.9, "FOCALLEN": 160.0, "APERTURE": 30.0},
+                          seq_line="S 'moon_' 1 2 2 5 0 6 0 0 0\nL 3\nI 1 1\nI 2 1\n")
+        calls, receipt = _run_cmd_stack(
+            work, drizzle="auto", master_header={"XPIXSZ": 1.45, "YPIXSZ": 1.45, "FOCALLEN": 160.0})
+
+    reg = calls[0][1]
+    assert "-scale=2" in reg and "-drizzle" in reg, reg
+    assert "-pixfrac=0.5" in reg and "-kernel=square" in reg, reg
+    assert "-interp=" not in reg, reg
+    assert receipt["px_scale"] == 2.0
+    assert receipt["drizzle"]["enabled"] is True
+    assert receipt["drizzle"]["header"]["verified"] is True, receipt["drizzle"]
+
+    print("drizzle script assembly unit test passed")
+
+
+def test_drizzle_runtime_fallback():
+    """A drizzle failure degrades to plain interpolation rather than aborting."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        work = _make_work(td, frame_header={"XPIXSZ": 2.9, "FOCALLEN": 160.0, "APERTURE": 30.0},
+                          seq_line="S 'moon_' 1 2 2 5 0 6 0 0 0\nL 3\nI 1 1\nI 2 1\n")
+        calls, receipt = _run_cmd_stack(work, fail_first=True, drizzle="auto", weight="none")
+
+    assert len(calls) == 2, calls
+    assert "-drizzle" in calls[0][1]
+    assert "-drizzle" not in calls[1][1]
+    assert "-interp=cu" in calls[1][1]
+    assert receipt["drizzle"]["fallback"] is True
+    assert receipt["px_scale"] == 1.0
+
+
+def test_stack_all_attempts_fail_reports_count():
+    """Exhausting the degradation ladder aborts with the real attempt count."""
     import tempfile
     from unittest.mock import patch
 
     with tempfile.TemporaryDirectory() as td:
-        tmp_dir = Path(td)
-        work = tmp_dir / "work_stack"
-        work.mkdir(parents=True, exist_ok=True)
-        (work / "logs").mkdir(parents=True, exist_ok=True)
+        work = _make_work(td, frame_header={"XPIXSZ": 2.9, "FOCALLEN": 160.0, "APERTURE": 30.0},
+                          seq_line="S 'moon_' 1 2 2 5 0 6 0 0 0\nL 3\nI 1 1\nI 2 1\n")
+        calls = []
 
-        # Create dummy sequence and import_receipt with orig_bit_depth=8
-        seq_file = work / "moon_.seq"
-        seq_file.write_text("S 'moon_' 1 2 2 5 -1 6 0 0 0\nL 3\nI 1 1\nI 2 1\n", encoding="utf-8")
-        rcpt = {"is_video": True, "orig_bit_depth": 8, "frame_count": 2}
-        (work / "import_receipt.json").write_text(json.dumps(rcpt), encoding="utf-8")
+        def always_fail(siril, script_lines, cwd, log_path, timeout):
+            calls.append(list(script_lines))
+            return {"exit_code": 1, "log": str(log_path), "seconds": 0.1, "output": "boom"}
 
-        captured_lines = []
+        with patch("moon_stack.run_siril_script", side_effect=always_fail):
+            try:
+                cmd_stack(_stack_namespace(work, drizzle="auto"))
+            except SystemExit as exc:
+                assert exc.code not in (0, None), exc.code
+            else:
+                raise AssertionError("cmd_stack should have aborted")
 
-        def mock_run_siril(siril, script_lines, cwd, log_path, timeout):
-            captured_lines.extend(script_lines)
-            (work / "moon_master.fit").touch()
-            return {"exit_code": 0, "log": str(log_path), "seconds": 0.1, "output": "ok"}
+    # drizzle+weight -> drizzle -> interp+weight -> interp
+    assert len(calls) == 4, calls
+    assert sum(1 for c in calls if "-drizzle" in c[1]) == 2, calls
+    assert sum(1 for c in calls if "-weight=noise" in c[2]) == 2, calls
+    assert not (work / "stack_receipt.json").exists()
 
-        args = argparse.Namespace(
-            work=str(work),
-            seq="moon_",
-            out="moon_master.fit",
-            framing=None,
-            mosaic_mode="disc",
-            interp="cu",
-            sigma=["3", "3"],
-            norm="addscale",
-            stack_method="auto",
-            siril=DEFAULT_SIRIL,
-            timeout=60,
-        )
 
-        with patch("moon_stack.run_siril_script", side_effect=mock_run_siril):
-            cmd_stack(args)
+def test_video_sidecar_optical_metadata_passthrough():
+    """Capture sidecar FOCALLEN/APERTURE must reach the FITS header.
 
-        script_str = "\n".join(captured_lines)
-        assert "stack r_moon_ sum -filter-included" in script_str, (
-            f"Expected 'stack r_moon_ sum' for 8-bit video source, got:\n{script_str}"
-        )
+    Without them the drizzle auto-decision and the postprocess optical inference
+    have no focal length and silently fall back to defaults.
+    """
+    import tempfile
 
-    print("8-bit video automatic 'stack sum' policy unit test passed")
+    import cv2
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        vid = tmp / "moon.avi"
+        out = cv2.VideoWriter(str(vid), cv2.VideoWriter_fourcc(*"MJPG"), 10.0, (64, 64), isColor=True)
+        for _ in range(3):
+            img = np.full((64, 64, 3), 60, dtype=np.uint8)
+            cv2.circle(img, (32, 32), 20, (190, 190, 190), -1)
+            out.write(img)
+        out.release()
+        vid.with_name(vid.name + ".txt").write_text(
+            "[IMX585]\nFOCALLEN=160\nAPERTURE=30\nSENSOR=IMX585\n", encoding="utf-8")
+
+        work = tmp / "work"
+        info = unpack_video_to_fits(video_path=vid, out_dir=work, seq_name="moon_")
+        assert info["extracted_frames"] == 3, info
+
+        hdr = fits.getheader(work / "moon_00001.fit")
+        assert hdr["FOCALLEN"] == 160.0, dict(hdr)
+        assert hdr["APERTURE"] == 30.0, dict(hdr)
+        assert hdr["XPIXSZ"] == 2.9, "the sensor lookup must still win for the pixel size"
+        assert hdr["YPIXSZ"] == 2.9, dict(hdr)
+        assert hdr["INSTRUME"] == "IMX585", dict(hdr)
+
+
+def test_master_header_pixel_scale_repair_and_idempotency():
+    """_verify_master_pixel_scale repairs a stale XPIXSZ, leaves FOCALLEN alone, and is idempotent."""
+    import tempfile
+
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        fits.PrimaryHDU(np.zeros((4, 4), dtype=np.uint16),
+                        header=fits.Header({"XPIXSZ": 3.76, "YPIXSZ": 3.76, "FOCALLEN": 250.0})
+                        ).writeto(work / "moon_00001.fit")
+        master = work / "moon_master.fit"
+        fits.PrimaryHDU(np.zeros((8, 8), dtype=np.float32),
+                        header=fits.Header({"XPIXSZ": 3.76, "YPIXSZ": 3.76, "FOCALLEN": 250.0})
+                        ).writeto(master)
+
+        drizzle = {"scale": 2.0, "pixfrac": 0.5, "kernel": "square"}
+        res = _verify_master_pixel_scale(master, drizzle, work, "moon_")
+        h = fits.getheader(master)
+        assert abs(h["XPIXSZ"] - 1.88) < 1e-6, h["XPIXSZ"]
+        assert abs(h["YPIXSZ"] - 1.88) < 1e-6, h["YPIXSZ"]
+        assert h["FOCALLEN"] == 250.0, "focal length is physical and must not be rescaled"
+        assert h["DRZSCALE"] == 2.0
+        assert h["DRZPIXFR"] == 0.5
+        assert h["DRZKRENL"] == "square"
+        assert h["ORIGXPIX"] == 3.76
+        assert res["rewritten"], res
+
+        # Second pass finds nothing left to repair
+        res2 = _verify_master_pixel_scale(master, drizzle, work, "moon_")
+        assert res2["verified"] is True, res2
+        assert res2["rewritten"] == {}, res2
+        assert abs(fits.getheader(master)["XPIXSZ"] - 1.88) < 1e-6
+
+
+def test_px_scale_threading_scales_pixel_constants():
+    """Pixel-domain constants in the postprocess helpers scale with the drizzle factor."""
+    assert _px(4.5, 2.0) == 9.0
+    assert _px(1.0, 3.0) == 3.0
+    assert _px(2.5, 1.0) == 2.5
+    assert _odd(7.0) == 7
+    assert _odd(14.0) == 15
+    assert _odd(0.4) == 1
+    assert _odd(3.0) == 3
+
+    # Glare transition width must double when the working grid is 2x finer
+    yy, xx = np.mgrid[0:240, 0:240]
+    rr = np.sqrt((xx - 120.0) ** 2 + (yy - 120.0) ** 2)
+    edge = np.clip((70.0 - rr) / 3.0, 0.0, 1.0)      # soft lunar limb
+    img = (0.6 * edge).astype(np.float32)
+    img += np.random.default_rng(0).normal(0.0, 0.002, img.shape).astype(np.float32)
+    img = np.clip(img, 0.0, None).astype(np.float32)
+
+    _, meta1 = _suppress_lunar_limb_glare(img, glare_mode="auto", px_scale=1.0)
+    _, meta2 = _suppress_lunar_limb_glare(img, glare_mode="auto", px_scale=2.0)
+    assert meta1["active"] and meta2["active"], (meta1, meta2)
+    assert abs(meta2["delta"] - 2.0 * meta1["delta"]) < 1e-6, (meta1["delta"], meta2["delta"])
+
+    # The limb fit must survive the finer grid (its tolerances scale with px_scale)
+    fit1 = _fit_lunar_limb_circle(img, px_scale=1.0)
+    fit2 = _fit_lunar_limb_circle(img, px_scale=2.0)
+    assert fit1 is not None and fit2 is not None, (fit1, fit2)
+    assert abs(fit1[2] - fit2[2]) < 2.0, (fit1, fit2)
+
+    # The damping mask keeps a comparable footprint instead of shrinking
+    m1 = _compute_edge_ringing_damping_mask(img, px_scale=1.0)
+    m2 = _compute_edge_ringing_damping_mask(img, px_scale=2.0)
+    assert m1.shape == m2.shape
+    assert np.count_nonzero(m2) >= np.count_nonzero(m1)
+
+    print("px_scale threading unit test passed")
+
+
+def test_resolve_px_scale_prefers_receipt_then_header():
+    """_resolve_px_scale reads the stack receipt first, then the master DRZSCALE keyword."""
+    import json
+    import tempfile
+
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        master = work / "moon_master.fit"
+        fits.PrimaryHDU(np.zeros((4, 4), dtype=np.float32),
+                        header=fits.Header({"DRZSCALE": 3.0})).writeto(master)
+
+        assert _resolve_px_scale(None, work, master) == 3.0
+
+        (work / "stack_receipt.json").write_text(json.dumps({"px_scale": 2.0}), encoding="utf-8")
+        assert _resolve_px_scale(None, work, master) == 2.0
+
+        (work / "stack_receipt.json").unlink()
+        master2 = work / "plain.fit"
+        fits.PrimaryHDU(np.zeros((4, 4), dtype=np.float32)).writeto(master2)
+        assert _resolve_px_scale(None, work, master2) == 1.0
 
 
 def test_nonstandard_video_diagnostics():
@@ -1626,19 +2258,340 @@ def test_radial_psd_seeing_cutoff():
     print(f"Radial PSD seeing cutoff: sharp={sharp_cutoff:.2f}, blurred={blurred_cutoff:.2f} unit test passed")
 
 
+def test_device_specs_table_integrity():
+    """Every device entry must be complete and carry an honest source grade."""
+    assert len(DEVICE_SPECS) >= 19, len(DEVICE_SPECS)
+    for did, spec in DEVICE_SPECS.items():
+        assert spec["source_grade"] in SOURCE_GRADES, (did, spec["source_grade"])
+        assert spec["sensor_status"] in SENSOR_STATUS, (did, spec["sensor_status"])
+        for field in ("label", "brand", "tokens", "brand_tokens", "focal_length_mm",
+                      "aperture_mm", "f_ratio", "pixel_size_um", "notes"):
+            assert field in spec, (did, field)
+        assert spec["focal_length_mm"] > 0 and spec["aperture_mm"] > 0, did
+        assert spec["pixel_size_um"] > 0, did
+        # Vendor f-ratios are rounded, so allow a few percent of slack
+        implied = spec["focal_length_mm"] / spec["aperture_mm"]
+        assert abs(implied - spec["f_ratio"]) / spec["f_ratio"] < 0.06, (did, implied, spec["f_ratio"])
+
+    # Draco is the only device publishing a separate native pitch
+    assert DEVICE_SPECS["dwarf-draco"]["pixel_size_native_um"] == 1.197
+    assert DEVICE_SPECS["dwarf-draco"]["pixel_size_um"] == 2.394
+
+    # Hestia has no built-in sensor, so it must stay out of the table
+    assert "vaonis-hestia" not in DEVICE_SPECS
+    assert "vaonis-hestia" in EXCLUDED_DEVICES
+
+    listed = list_devices()
+    assert len(listed) == len(DEVICE_SPECS)
+    assert all(x.get("id") for x in listed)
+
+    print("device spec table integrity unit test passed")
+
+
+def test_identify_device_model_specificity():
+    """A more specific model token must beat its shorter prefix."""
+    cases = [
+        ("ZWO Seestar S50 Pro", "seestar-s50-pro", "seestar-s50"),
+        ("ZWO Seestar S50", "seestar-s50", None),
+        ("Seestar S30 Pro", "seestar-s30-pro", "seestar-s30"),
+        ("Seestar S30", "seestar-s30", None),
+        ("Unistellar Odyssey Pro", "unistellar-odyssey-pro", "unistellar-odyssey"),
+        ("Unistellar Odyssey", "unistellar-odyssey", None),
+        ("Celestron Origin Mark II", "celestron-origin-mk2", "celestron-origin"),
+        ("Celestron Origin", "celestron-origin", None),
+        ("Vaonis Vespera Pro 2", "vaonis-vespera-pro-2", "vaonis-vespera-pro"),
+        ("Vaonis Vespera Pro", "vaonis-vespera-pro", "vaonis-vespera"),
+        ("Vaonis Vespera II", "vaonis-vespera-ii", "vaonis-vespera"),
+        ("Vaonis Vespera", "vaonis-vespera", None),
+        ("DWARF 3", "dwarf-3", None),
+        ("DWARF mini", "dwarf-mini", None),
+        ("DWARF 2", "dwarf-2", None),
+        ("Vaonis Stellina", "vaonis-stellina", None),
+        ("DWARFLAB DRACO", "dwarf-draco", None),
+    ]
+    for text, expected, must_not_be in cases:
+        r = identify_device(header={"TELESCOP": text})
+        assert r is not None and r["id"] == expected, (text, r)
+        if must_not_be:
+            assert r["id"] != must_not_be, (text, r["id"])
+
+    # A bare "origin" in an unrelated filename must not match anything
+    assert identify_device(filename="moon_origin_2026.avi") is None
+
+    print("device model specificity unit test passed")
+
+
+def test_identify_device_sensor_ambiguity_rejected():
+    """Sensor-only matches are accepted only when every sharer agrees on the optics."""
+    # IMX662: Seestar S30 and DWARF mini are optically identical -> full priors
+    r = identify_device(sensor="IMX662")
+    assert r is not None and r["id"] == "seestar-s30", r
+    assert set(r["priors"]) == {"FOCALLEN", "APERTURE", "XPIXSZ", "YPIXSZ"}, r
+    assert len(r.get("shared_by", [])) == 2, r
+
+    # IMX585: S30 Pro (160/30) vs Vespera II (250/50) disagree -> pitch only
+    r = identify_device(sensor="IMX585")
+    assert r is not None and r["id"] is None, r
+    assert r["ambiguous"] is True and r["device_source"] == "sensor_pixel_only", r
+    assert set(r["priors"]) == {"XPIXSZ", "YPIXSZ"}, r
+    assert r["priors"]["XPIXSZ"] == 2.9, r
+
+    # IMX178: Stellina and Origin disagree, but both use 2.4um -> pitch only
+    r = identify_device(sensor="IMX178")
+    assert r is not None and set(r["priors"]) == {"XPIXSZ", "YPIXSZ"}, r
+    assert r["priors"]["XPIXSZ"] == 2.4, r
+
+    # A brand hint narrows the IMX585 group down to a single device
+    r = identify_device(sensor="IMX585", header={"TELESCOP": "Seestar"})
+    assert r is not None and r["id"] == "seestar-s30-pro", r
+    assert r["priors"]["FOCALLEN"] == 160.0, r
+
+    # Disputed sensors are never used as a match signal
+    assert identify_device(sensor="IMX224") is None
+    assert identify_device(sensor="IMX347") is None
+
+    # Nothing to go on at all
+    assert identify_device() is None
+
+    print("device sensor ambiguity unit test passed")
+
+
+def test_identify_device_cli_override_and_brand_only():
+    """--device wins outright; a brand-only match must not inject priors."""
+    r = identify_device(cli_device="seestar-s50", header={"TELESCOP": "DWARF 3"})
+    assert r is not None and r["id"] == "seestar-s50", r
+    assert r["match_source"] == "cli" and r["confidence"] == "user", r
+
+    r = identify_device(header={"TELESCOP": "DWARFLAB"})
+    assert r is not None and r["id"] is None and r["brand_only"] is True, r
+    assert r["priors"] == {}, r
+
+    # 'none' disables identification entirely
+    assert identify_device(cli_device="none", header={"TELESCOP": "Seestar S50"}) is None
+
+    print("device CLI override and brand-only unit test passed")
+
+
+def test_device_priors_header_provenance():
+    """Injected priors must carry DEVICE/DEVSRC/DEVCONF/OPTPRIOR/OPTISRC."""
+    import argparse
+
+    from astropy.io import fits
+
+    ident = identify_device(header={"TELESCOP": "ZWO Seestar S50"})
+    hdr = fits.Header()
+    summary = _apply_device_priors(hdr, ident)
+    assert summary["injected"] is True, summary
+    assert hdr["FOCALLEN"] == 250.0 and hdr["APERTURE"] == 50.0, dict(hdr)
+    assert hdr["XPIXSZ"] == 2.9 and hdr["YPIXSZ"] == 2.9, dict(hdr)
+    assert hdr["DEVICE"] == "seestar-s50"
+    assert hdr["DEVSRC"] == "header"
+    assert hdr["DEVCONF"] == "high"
+    assert hdr["OPTISRC"] == "device_table"
+    assert set(hdr["OPTPRIOR"].split(",")) == {"FOCALLEN", "APERTURE", "XPIXSZ", "YPIXSZ"}
+
+    # Existing keywords win; the tag lists exactly the keys the table supplied
+    hdr2 = fits.Header({"FOCALLEN": 160.0})
+    _apply_device_priors(hdr2, ident)
+    assert hdr2["FOCALLEN"] == 160.0, dict(hdr2)
+    assert "FOCALLEN" not in hdr2["OPTPRIOR"], hdr2["OPTPRIOR"]
+    assert "APERTURE" in hdr2["OPTPRIOR"], hdr2["OPTPRIOR"]
+
+    # A brand-only match injects nothing at all
+    hdr3 = fits.Header()
+    assert _apply_device_priors(hdr3, identify_device(header={"TELESCOP": "DWARFLAB"}))["injected"] is False
+    assert "FOCALLEN" not in hdr3 and "DEVICE" not in hdr3, dict(hdr3)
+
+    # An unknown --device id is rejected by the CLI layer
+    try:
+        _resolve_device_arg(argparse.Namespace(device="not-a-device"))
+    except SystemExit as exc:
+        assert exc.code not in (0, None)
+    else:
+        raise AssertionError("unknown --device should abort")
+    assert _resolve_device_arg(argparse.Namespace(device="auto")) == "auto"
+    assert _resolve_device_arg(argparse.Namespace(device="seestar-s50")) == "seestar-s50"
+
+    print("device priors provenance unit test passed")
+
+
+def test_sidecar_overrides_device_table():
+    """An explicit sidecar value beats the table for that key only."""
+    import tempfile
+
+    import cv2
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        vid = tmp / "moon.avi"
+        out = cv2.VideoWriter(str(vid), cv2.VideoWriter_fourcc(*"MJPG"), 10.0, (64, 64), isColor=True)
+        for _ in range(3):
+            img = np.full((64, 64, 3), 40, dtype=np.uint8)
+            cv2.circle(img, (32, 32), 20, (190, 190, 190), -1)
+            out.write(img)
+        out.release()
+        vid.with_name(vid.name + ".txt").write_text(
+            "TELESCOP=Seestar S50\nFOCALLEN=160\n", encoding="utf-8")
+
+        info = unpack_video_to_fits(video_path=vid, out_dir=tmp / "w", seq_name="moon_")
+        hdr = fits.getheader(tmp / "w" / "moon_00001.fit")
+
+    assert hdr["FOCALLEN"] == 160.0, "the sidecar value must beat the table's 250mm"
+    assert hdr["APERTURE"] == 50.0, "keys the sidecar omits still come from the table"
+    assert hdr["DEVICE"] == "seestar-s50", dict(hdr)
+    assert "FOCALLEN" not in hdr["OPTPRIOR"], hdr["OPTPRIOR"]
+    assert info["device"]["id"] == "seestar-s50", info["device"]
+
+    print("sidecar-beats-device-table unit test passed")
+
+
+def test_ser_device_priors_injection():
+    """The SER path must identify from the container header and inject the same keys."""
+    import tempfile
+
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        ser = _make_synthetic_ser(tmp / "moon.ser", telescope="Seestar S50",
+                                  instrument="ZWO ASI462MC")
+        info = unpack_ser_to_fits(ser_path=ser, out_dir=tmp / "w", seq_name="moon_")
+        hdr = fits.getheader(tmp / "w" / "moon_00001.fit")
+
+    assert info["device"]["id"] == "seestar-s50", info["device"]
+    assert hdr["FOCALLEN"] == 250.0 and hdr["APERTURE"] == 50.0, dict(hdr)
+    assert hdr["XPIXSZ"] == 2.9, dict(hdr)
+    assert hdr["OPTISRC"] == "device_table", dict(hdr)
+    assert hdr["DEVSRC"] == "header", dict(hdr)
+
+    print("SER device priors injection unit test passed")
+
+
+def test_fits_import_identify_only_no_injection():
+    """FITS frames are the user's originals: identify them, never rewrite them."""
+    import argparse
+    import json
+    import tempfile
+
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        src = tmp / "src"
+        src.mkdir()
+        for i in range(1, 4):
+            fits.PrimaryHDU(np.full((16, 16), i * 100, dtype=np.uint16),
+                            header=fits.Header({"TELESCOP": "DWARF 3"})).writeto(
+                src / f"f{i:05d}.fit")
+        before = (src / "f00001.fit").read_bytes()
+
+        args = argparse.Namespace(
+            input=str(src), work=str(tmp / "w"), format="auto", limit=0,
+            ser_debayer=True, force_mono=False, video_debayer="auto", device="auto",
+            siril=DEFAULT_SIRIL, timeout=60,
+        )
+        cmd_import(args)
+
+        after = (src / "f00001.fit").read_bytes()
+        linked = fits.getheader(tmp / "w" / "moon_00001.fit")
+        receipt = json.loads((tmp / "w" / "import_receipt.json").read_text(encoding="utf-8"))
+
+    assert before == after, "the source FITS file must not be modified"
+    assert "DEVICE" not in linked, "no provenance keys may be written to user FITS"
+    assert receipt["device"]["id"] == "dwarf-3", receipt["device"]
+    assert receipt["device"]["injected"] is False, receipt["device"]
+    assert receipt["device"]["target"] == "none", receipt["device"]
+
+    print("FITS import identify-only unit test passed")
+
+
+def test_optical_source_annotation_device_table():
+    """A device-table value must never be reported as a plain header value."""
+    import argparse
+
+    from astropy.io import fits
+
+    hdr = fits.Header({"FOCALLEN": 250.0, "DEVICE": "seestar-s50",
+                       "OPTISRC": "device_table", "OPTPRIOR": "FOCALLEN,APERTURE"})
+    assert _hdr_source_label(hdr, "FOCALLEN", "FITS Header (FOCALLEN)") == \
+        "FITS Header (FOCALLEN) [device_table: seestar-s50]"
+    # A key the table did not supply keeps the plain label
+    assert _hdr_source_label(hdr, "XPIXSZ", "FITS Header (XPIXSZ)") == "FITS Header (XPIXSZ)"
+    # No provenance keys, or no header at all -> unchanged
+    assert _hdr_source_label(fits.Header(), "FOCALLEN", "x") == "x"
+    assert _hdr_source_label(None, "FOCALLEN", "x") == "x"
+
+    # The postprocess inference must surface that provenance
+    full = fits.Header({"FOCALLEN": 250.0, "APERTURE": 50.0, "XPIXSZ": 2.9, "YPIXSZ": 2.9,
+                        "DEVICE": "seestar-s50", "OPTISRC": "device_table",
+                        "OPTPRIOR": "APERTURE,FOCALLEN,XPIXSZ,YPIXSZ"})
+    args = argparse.Namespace(pixel_size=None, aperture=None, focal=None)
+    optics = _infer_optical_parameters(full, np.zeros((64, 64), dtype=np.float32), args,
+                                       mosaic_mode="disc")
+    assert "device_table" in optics["pixel_size_source"], optics["pixel_size_source"]
+    assert "device_table" in optics["aperture_source"], optics["aperture_source"]
+    assert "device_table" in optics["focal_source"], optics["focal_source"]
+    assert optics["pixel_size"] == 2.9, optics
+    # The inversion cannot run on a blank frame, so there is nothing to cross-check
+    assert optics["focal_crosscheck"] is None, optics["focal_crosscheck"]
+
+    print("optical source annotation unit test passed")
+
+
+def test_register_preserves_sequence_layer_count():
+    """cmd_register must not hardcode `L 3`.
+
+    `import` writes `L 1` for monochrome sources (--force-mono video, mono
+    SER/FITS). Overwriting it with `L 3` makes Siril report "No registration data
+    exists for this sequence" and seqapplyreg aborts, so mono captures could not
+    be registered at all.
+    """
+    import argparse
+    import tempfile
+
+    from astropy.io import fits
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        (work / "logs").mkdir(parents=True, exist_ok=True)
+        (work / "moon_.seq").write_text("S 'moon_' 1 2 2 5 -1 6 0 0 0\nL 1\nI 1 1\nI 2 1\n",
+                                        encoding="utf-8")
+        base = make_synthetic_moon(h=256, w=256, seed=7)
+        for i in (1, 2):
+            fits.PrimaryHDU(base.astype(np.float32)).writeto(work / f"moon_{i:05d}.fit")
+
+        args = argparse.Namespace(
+            work=str(work), seq="moon_", roi=256, select_mode="percent",
+            keep_percent=100.0, quality_threshold=0.75, utility_alpha=2.0,
+            utility_beta=1.0, min_confidence=0.0,
+        )
+        cmd_register(args)
+
+        seq_text = (work / "moon_.seq").read_text(encoding="utf-8")
+
+    assert "\nL 1\n" in seq_text, seq_text
+    assert "\nL 3\n" not in seq_text, seq_text
+    assert "\nR0 " in seq_text, "registration data must still be written"
+
+    print("register layer-count preservation unit test passed")
+
+
 def main() -> int:
+    from test_video_optimizations import test_p0_p1
     tests = [
+        ("test_p0_p1",test_p0_p1),
         ("test_subpixel_shifts", test_subpixel_shifts),
         ("test_roi_localization", test_roi_localization),
         ("test_siril_r0_format", test_siril_r0_format),
         ("test_otsu_frame_selection", test_otsu_frame_selection),
         ("test_utility_frame_selection", test_utility_frame_selection),
         ("test_pedestal_estimation", test_pedestal_estimation),
+        ("test_postprocess_pipelines", test_postprocess_pipelines),
         ("test_gray_world_channel_balance", test_gray_world_channel_balance),
         ("test_adaptive_sharpening_math", test_adaptive_sharpening_math),
-        ("test_adaptive_midtone_analytical_solution", test_adaptive_midtone_analytical_solution),
-        ("test_lunar_limb_circle_fits_linear_raw", test_lunar_limb_circle_fits_linear_raw),
-        ("test_radial_psd_seeing_cutoff", test_radial_psd_seeing_cutoff),
+        ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
+        ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
         ("test_anti_ringing_damping_math", test_anti_ringing_damping_math),
         ("test_dark_halo_ratio_metric", test_dark_halo_ratio_metric),
         ("test_anti_brittle_metrics_math", test_anti_brittle_metrics_math),
@@ -1649,17 +2602,43 @@ def main() -> int:
         ("test_ser_unpack_mono", test_ser_unpack_mono),
         ("test_ser_unpack_bayer", test_ser_unpack_bayer),
         ("test_ser_cmd_import_single_file_and_dir", test_ser_cmd_import_single_file_and_dir),
-        ("test_video_unpack_synthetic_avi", test_video_unpack_synthetic_avi),
-        ("test_video_cmd_import_single_file_and_dir", test_video_cmd_import_single_file_and_dir),
-        ("test_video_two_pass_selection", test_video_two_pass_selection),
-        ("test_video_8bit_stack_policy", test_video_8bit_stack_policy),
-        ("test_nonstandard_video_diagnostics", test_nonstandard_video_diagnostics),
         ("test_extinction_gradient_synthetic", test_extinction_gradient_synthetic),
         ("test_extinction_gradient_flat_bypass", test_extinction_gradient_flat_bypass),
         ("test_extinction_geological_immunity", test_extinction_geological_immunity),
-        ("test_lunar_limb_glare_suppression", test_lunar_limb_glare_suppression),
-        ("test_render_deep_cine_mineral", test_render_deep_cine_mineral),
-        ("test_postprocess_pipelines", test_postprocess_pipelines),
+        ("test_video_unpack_synthetic_avi", test_video_unpack_synthetic_avi),
+        ("test_video_cmd_import_single_file_and_dir", test_video_cmd_import_single_file_and_dir),
+        ("test_video_adaptive_sequential_import", test_video_adaptive_sequential_import),
+        ("test_video_two_pass_selection", test_video_two_pass_selection),
+        ("test_video_8bit_stack_policy", test_video_8bit_stack_policy),
+        ("test_rej_weight_noise_default_for_16bit", test_rej_weight_noise_default_for_16bit),
+        ("test_sum_method_ignores_weight", test_sum_method_ignores_weight),
+        ("test_weight_fallback_on_failure", test_weight_fallback_on_failure),
+        ("test_drizzle_auto_decision", test_drizzle_auto_decision),
+        ("test_limb_psf_fwhm_recovers_gaussian", test_limb_psf_fwhm_recovers_gaussian),
+        ("test_drizzle_psf_criterion_without_aperture", test_drizzle_psf_criterion_without_aperture),
+        ("test_drizzle_geometric_inversion_recovers_focal", test_drizzle_geometric_inversion_recovers_focal),
+        ("test_probe_frame_prefers_register_reference", test_probe_frame_prefers_register_reference),
+        ("test_drizzle_script_lines_and_receipt", test_drizzle_script_lines_and_receipt),
+        ("test_drizzle_runtime_fallback", test_drizzle_runtime_fallback),
+        ("test_stack_all_attempts_fail_reports_count", test_stack_all_attempts_fail_reports_count),
+        ("test_video_sidecar_optical_metadata_passthrough", test_video_sidecar_optical_metadata_passthrough),
+        ("test_master_header_pixel_scale_repair_and_idempotency", test_master_header_pixel_scale_repair_and_idempotency),
+        ("test_px_scale_threading_scales_pixel_constants", test_px_scale_threading_scales_pixel_constants),
+        ("test_resolve_px_scale_prefers_receipt_then_header", test_resolve_px_scale_prefers_receipt_then_header),
+        ("test_nonstandard_video_diagnostics", test_nonstandard_video_diagnostics),
+        ("test_adaptive_midtone_analytical_solution", test_adaptive_midtone_analytical_solution),
+        ("test_lunar_limb_circle_fits_linear_raw", test_lunar_limb_circle_fits_linear_raw),
+        ("test_radial_psd_seeing_cutoff", test_radial_psd_seeing_cutoff),
+        ("test_device_specs_table_integrity", test_device_specs_table_integrity),
+        ("test_identify_device_model_specificity", test_identify_device_model_specificity),
+        ("test_identify_device_sensor_ambiguity_rejected", test_identify_device_sensor_ambiguity_rejected),
+        ("test_identify_device_cli_override_and_brand_only", test_identify_device_cli_override_and_brand_only),
+        ("test_device_priors_header_provenance", test_device_priors_header_provenance),
+        ("test_sidecar_overrides_device_table", test_sidecar_overrides_device_table),
+        ("test_ser_device_priors_injection", test_ser_device_priors_injection),
+        ("test_fits_import_identify_only_no_injection", test_fits_import_identify_only_no_injection),
+        ("test_optical_source_annotation_device_table", test_optical_source_annotation_device_table),
+        ("test_register_preserves_sequence_layer_count", test_register_preserves_sequence_layer_count),
     ]
     failed = 0
     for name, t in tests:
