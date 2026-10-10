@@ -35,12 +35,22 @@ NaN/Inf ratios, and exact/near extrema.
   backgrounds.
 - These fields do not identify the physical cause.
 
+`file.format` and `file.header` record the container format and the raw header. Header keywords are
+evidence, not guaranteed truth. `file.header.WCSAXES` is the presence check used to decide whether
+catalog-based calibration is immediately available; treat a missing or contradictory WCS as unknown.
+
 ## Clipping
 
 `clipping` is measured after robust P0.1–P99.9 normalization.
 
 - `highlight_ratio_ge_0_999` identifies pixels at the bright end of the review mapping.
 - `shadow_ratio_le_0_001` identifies pixels at the dark end.
+- `per_channel.<r|g|b>.highlight_ratio_ge_0_999` reports the same bright-end ratio per channel.
+- **The aggregate ratio is measured on luminance, so a single saturated channel can be invisible to
+  it.** Luminance is a weighted sum of R/G/B: when red is clipped while green and blue are not, the
+  luminance never reaches the threshold. This is the normal case for H-alpha and HOO data, where the
+  red channel carries most of the signal. Always compare the aggregate against the per-channel values
+  before concluding that the bright end is clean.
 - Do not call these pixels sensor-saturated without checking original ADU limits, bit depth,
   calibration history, and star cores.
 - Do not call shadows black-clipped without inspecting the original histogram and invalid borders.
@@ -65,7 +75,8 @@ It is not:
 - valid proof that faint low-frequency structure is noise.
 
 Resampling, drizzle, compression, previous denoising, undersampling, and real faint signal can
-change the estimate. Check `block_sigma_median`, `block_sigma_p90`, and sample count.
+change the estimate. Check `block_count`, `block_sigma_median`, `block_sigma_p90`, and
+`background_sample_pixels`.
 
 ## Background and gradient
 
@@ -78,7 +89,11 @@ change the estimate. Check `block_sigma_median`, `block_sigma_p90`, and sample c
 - `r_squared`;
 - `residual_rms`.
 
-`region_medians_normalized` and `corner_mean_over_center` provide independent spatial anchors.
+`region_medians_normalized`, `corner_median_range`, and `corner_mean_over_center` provide
+independent spatial anchors.
+
+`channel_planes.<r|g|b>` repeats the same plane fit per channel; different vectors across channels
+can indicate chromatic gradient or real line emission.
 
 Interpretation:
 
@@ -86,7 +101,8 @@ Interpretation:
 - low R² means a plane does not explain the background well;
 - low corner/center ratio can be consistent with vignetting, but also with target placement or
   real sky structure;
-- different RGB plane vectors can indicate chromatic gradient or real line emission.
+- a wide `corner_median_range` is an independent hint that the corners disagree, but it does not
+  say why.
 
 Never recommend background subtraction from these values alone. Inspect the background preview,
 target type, framing, flats, mosaics, H-alpha/IFN/dust risk, and a trial background model.
@@ -98,7 +114,9 @@ star-like patches.
 
 Useful fields:
 
-- `usable_star_count`;
+- `usable_star_count` and `candidate_count`;
+- `density_per_megapixel` — validated bright star-like samples per megapixel; use it as a relative
+  crowding indicator for the same field, not as an absolute star count;
 - `fwhm_major_median_px` and `fwhm_minor_median_px`;
 - `axis_ratio_median`;
 - `eccentricity_median` and `eccentricity_p90`;
@@ -119,11 +137,24 @@ star-shape conclusions.
 
 `color` reports background channel medians, channel P99, correlation, and collapsed channels.
 
+Field names:
+
+- `background_medians_normalized.<r|g|b>` — per-channel background level;
+- `background_ratios_to_mean.<r|g|b>` — each channel's background relative to their mean, so 1.0 is
+  balanced;
+- `channel_p99_normalized.<r|g|b>` — per-channel bright-end signal;
+- `channel_correlation` — pairwise morphology similarity between channels;
+- `collapsed_channels` — channels that carry no usable signal.
+
+Interpretation:
+
 - Background imbalance can result from light pollution, calibration, filter response, or real
-  emission.
+  emission. A `background_ratios_to_mean` deviation from 1.0 is a residual cast, not proof of one.
 - High red signal in an emission field is not automatically a red cast.
 - Narrowband and dual-band data do not obey broadband white-balance assumptions.
 - Channel correlation describes morphology similarity, not color accuracy.
+- A collapsed channel cannot be recovered by saturation or color balance; trace it back to
+  acquisition or calibration instead.
 
 Catalog-based color accuracy requires WCS, suitable stellar photometry, instrument response, and
 unsaturated-star measurements; this analyzer does not perform that validation.

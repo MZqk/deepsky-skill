@@ -1,14 +1,14 @@
 ---
 name: deep-sky-advisor
 description: |
-  Analyze supplied FITS, XISF, TIFF, PNG, or JPEG deep-sky astrophotography files and provide evidence-based post-processing advice for Siril, PixInsight, or Photoshop. Use when the user provides an image file or explicitly requests file-level quantitative diagnosis of gradients, background noise, clipping, stars, color, stretching, or artifacts without asking the agent to modify pixels. Do not use for text-only deep-sky astrophotography guidance; when installed, use deep-sky-capture-advisor for that.
-  分析提供的深空 FITS/XISF/TIFF/图像文件，对光害梯度、背景底噪、动态截断、星点、色彩与伪影进行量化诊断，并提供有依据的后期处理建议（不直接修改像素）。
+  Analyze supplied FITS, XISF, TIFF, PNG, or JPEG deep-sky astrophotography files and provide evidence-based post-processing advice as a dual-track plan for Siril and PixInsight, with Photoshop kept as a downstream finishing stage. Use when the user provides an image file or explicitly requests file-level quantitative diagnosis of gradients, background noise, clipping, stars, color, stretching, or artifacts without asking the agent to modify pixels. Do not use for text-only deep-sky astrophotography guidance; when installed, use deep-sky-capture-advisor for that.
+  分析提供的深空 FITS/XISF/TIFF/图像文件，对光害梯度、背景底噪、动态截断、星点、色彩与伪影进行量化诊断，并同时给出 Siril 与 PixInsight 两套并列后期流程（Photoshop 作为下游二次加工步骤），不直接修改像素。
 license: Proprietary
 metadata:
   slug: deep-sky-advisor
-  version: "0.2.1"
+  version: "0.4.0"
   displayName: Deep Sky Advisor
-  summary: 对深空图像文件进行量化诊断，并提供保留真实性的后期处理建议。
+  summary: 对深空图像文件进行量化诊断，并同时给出 Siril 与 PixInsight 双轨后期建议，Photoshop 作为下游二次加工。
   tags: [astronomy, astrophotography, diagnostics, fits]
   homepage: https://github.com/MZqk/deepsky-skill
 ---
@@ -30,9 +30,9 @@ plate solving, photometric measurement, or the image-processing software itself.
 2. Determine the data stage before selecting a workflow.
 3. Separate measured evidence, visual observations, metadata-derived priors, and assumptions.
 4. Give parameter starting points with adjustment and rollback conditions, not universal presets.
-5. Recommend only the software requested by the user. If no software is specified, give a
-   software-independent plan first and ask which application they use only when detailed menu
-   instructions are necessary.
+5. Produce a dual-track plan by default: one shared diagnosis, then parallel Siril and PixInsight
+   workflows that the user runs as **alternatives**, not as consecutive steps. Keep Photoshop as a
+   downstream finishing stage, never as a third parallel option.
 6. Preserve astronomical authenticity. Prefer a conservative recommendation over an unsupported
    precise claim.
 
@@ -80,7 +80,8 @@ is missing and provide a safe diagnostic action instead.
 Identify:
 
 - input file;
-- software available to the user;
+- software available to the user (the default deliverable is the Siril + PixInsight dual track;
+  narrow it only if the user states a single application);
 - desired output style, if stated;
 - known target, filters, camera, telescope, integration time, and calibration history;
 - whether the user wants preprocessing/stacking advice or post-processing advice.
@@ -117,7 +118,9 @@ The analyzer supports FITS/XISF/TIFF/PNG/JPEG and measures:
 Read `references/diagnostic_metrics.md` before interpreting numeric findings. Respect each metric's
 evidence label and warning. In particular:
 
-- normalized clipping is not sensor saturation;
+- normalized clipping is not sensor saturation, and the aggregate clipping ratio is measured on
+  luminance — a single saturated channel (common in H-alpha and HOO data) can be invisible to it, so
+  always compare it against `clipping.per_channel.*` before concluding the bright end is clean;
 - a fitted background trend is not proof that DBE should remove it;
 - moment-based FWHM is not a full PSF fit;
 - the noise estimate is not physical SNR;
@@ -130,11 +133,16 @@ Compile the measured report into an auditable recommendation draft:
 
 ```bash
 python scripts/generate_advice.py <image_stem>_analysis.json \
-  --software pixinsight \
+  --software siril,pixinsight \
   --target-type emission_nebula \
   --target-name NGC6888 \
   --filter Ha
 ```
+
+`--software` accepts a single application or a comma-separated list. The default is
+`siril,pixinsight`; a single value degrades to a single-track report, and `generic` cannot be
+combined with a concrete application. The downstream finishing stage defaults to Photoshop and can
+be disabled with `--no-finishing`.
 
 This creates:
 
@@ -224,8 +232,9 @@ crop invalid stacking edges
 → linear noise reduction when justified
 → optional deconvolution/detail recovery with a valid PSF
 → controlled stretch
-→ nonlinear contrast and color refinement
+→ nonlinear contrast refinement
 → optional target-safe star treatment
+→ finishing color refinement when a residual cast is measured
 → output sharpening and export
 ```
 
@@ -234,27 +243,44 @@ This is not a mandatory checklist. Skip operations without evidence or a clear p
 For a raw or calibrated single exposure, prioritize calibration, registration, subframe
 evaluation, and integration advice instead of pretending it is ready for final post-processing.
 
-### 7. Generate software-specific advice
+### 7. Generate dual-track software advice
 
 Read only the relevant reference:
 
-- Recommendation rules: `references/recommendation_policy.md`
+- Recommendation rules (authoritative for policy): `references/recommendation_policy.md`
+- Stage definitions (software-independent): `references/pipeline_stages.md`
 - Siril: `references/siril_workflow.md`
 - PixInsight: `references/pixinsight_workflow.md`
-- Photoshop: `references/photoshop_workflow.md`
+- Photoshop (downstream finishing only): `references/photoshop_workflow.md`
+
+The three application workflow files are **extended reading** — menu paths, process names, and
+software-specific caveats only. They are not authoritative for the generated report:
+per-application tools, steps, parameter logic, and mask strategy come from
+`scripts/software_guidance.py`, and per-operation purpose, starting point, adjustment, acceptance,
+and rollback come from `scripts/generate_advice.py`. They deliberately carry **no parameter
+presets**; do not copy operational content out of them, and do not maintain a second copy of it
+anywhere.
 
 Prefer running `scripts/generate_advice.py` before writing the final answer. Preserve its evidence
 paths, decision state, acceptance checks, and rollback conditions. Add visual findings separately;
 do not silently convert a compiler `review` decision into an automatic recommendation.
 
+Each operation belongs to exactly one phase (`linear`, `nonlinear`, `finishing`, `export`), and the
+phase decides which application may own it. Photoshop never owns a `linear` operation: calibration,
+registration, stacking, crop, background modelling, color calibration, narrowband mapping, and
+linear denoise all belong to a primary track.
+
 The generated Markdown must prioritize actionability:
 
-- summarize `recommend`, `review`, and `skip` decisions at the top;
+- summarize `recommend`, `review`, and `skip` decisions at the top, once, in a shared section;
 - fully expand only `recommend` and `review` operations;
 - keep skipped operations in a concise table;
-- for the selected software, include concrete tool names, execution order, parameter-selection
-  logic, mask/protection requirements, stage checkpoints, and visible rollback signs;
-- do not include complete workflows for software the user did not select.
+- expand each primary track separately, with concrete tool names, execution order,
+  parameter-selection logic, mask/protection requirements, stage checkpoints, and visible rollback
+  signs;
+- emit a cross-track comparison table pairing the signature tool of each track per operation;
+- keep Photoshop as a downstream stage: a prerequisite checklist of upstream work, the finishing
+  operations it actually owns, a table of what it must not do, and a handoff contract;
 - write the complete Markdown report in Chinese; retain English only for software process names,
   file formats, catalog names, and unavoidable technical identifiers.
 
@@ -307,8 +333,21 @@ Use this structure:
 ## Recommended sequence
 [Only necessary operations, in order]
 
-## Detailed instructions for <software>
+## Track A — Siril
 [Evidence, purpose, starting point, adjustment, acceptance, rollback]
+
+## Track B — PixInsight
+[Same shared diagnosis; implementation differs]
+
+## Cross-track mapping
+[One row per operation, pairing the signature tool of each track]
+
+## Handoff contract
+[Prerequisite checklist derived from the primary tracks' linear operations, plus bit depth,
+format, color space, calibration state, and the forbidden irreversible operations]
+
+## Downstream finishing — Photoshop
+[Only the operations Photoshop owns, with executable finishing steps]
 
 ## Operations not currently recommended
 [Operations lacking evidence or unsafe for this target]
@@ -316,6 +355,9 @@ Use this structure:
 ## Information that would improve the advice
 [Specific missing capture or processing information]
 ```
+
+The shared sections — assessment, measured facts, visual findings, objective, sequence, and the
+not-recommended table — appear **once**. Do not repeat them inside each track.
 
 Save the report as `<image_stem>_processing_report.md` only when the user requests a saved report
 or the surrounding workflow requires an artifact. Otherwise return the advice directly.
