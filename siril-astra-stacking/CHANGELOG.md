@@ -2,6 +2,10 @@
 
 本文件记录 `siril-astra-stacking` 的独立版本变更。
 
+## [1.4.2] - 2026-10-11
+
+- **修复 `--calibration-dir` 相对路径支持**：此前 `--calibration-dir` 若传入相对路径（如文档示例中的 `--calibration-dir ./masters`），会直接将相对路径写入 Siril 脚本，而 Siril 在执行时工作目录切换至 `<target>.work`（`-d` 参数），导致其在 `work` 目录下查找母帧失败报错。现于 CLI 入口、`resolve_calibration_plan`、`_pick_master` 以及 `derive_calibration` 四层强制转换为绝对路径；`selftest.py` 自检新增 11 项断言覆盖相对路径解析与脚本生成，自检增至 825 项。
+
 ## [1.4.1] - 2026-10-11
 
 - **多滤镜精简交付包（`--bundle`）与预览图自动归集**：`prepare_composition.py` 支持 `--bundle` 参数，将输出直接精炼为四项核心资产：根目录单通道叠加图（`<FILTER>.fit`，Siril 图像合成直选即用）、预览图（`previews/`）、诊断与对齐清单（`diagnostics/`）及使用说明（`README.md`）。彻底摒弃冗余的中间大母版归档，节约磁盘并杜绝 3 图层母版误拖入 Siril 导致的 `Invalid file type for compositing` 报错。
@@ -20,7 +24,6 @@
 - `fits_probe.estimate_channel_medians` 新增 `NAXIS=2` 分支：此前对单通道母版返回空dict，导致预览中点退回硬编码 0.028。采样循环抽为 `_sample_planes`。同步给 `derive_preview_mtf` 加 `mono` 形参——单值走 `min([m])*2.0` 数值恰好正确，但 `derived_from` 文案写「minimum whole-image channel median」对单通道是误导。
 - 修正 `references/06`：新增 §6.9.2 记录 `stack` 的完整用法串与「无 `-mono`」这一实测结论（文档此前未载）；原 §6.9.1 末尾的覆盖缺口说明拆分，注明 mono 走 `-framing=current` 因而不受合成夹具的 drizzle 限制。
 - 同步订正文档中「两条 CFA 链路」与「两条链路输出都是三通道 RGB」的表述：SKILL.md 链路图与标题、`references/03` §3.1（表格加MONO 列，并指出 mono 让「drizzle 保持 CFA」这句话第一次字面成立）、`references/05` §5.2（`NAXIS` 行标注 mono 为 `2`；「PWS 的例外」改为「三种单通道来源」对照表）、`references/01` profile 字段表、`references/04` `-maximize` 章节、`references/07` 退出码表。
-- 新增 §3.1.2 说明 `Applying interpolation on a sequence opened as CFA is a bad idea.` 在单色传感器上是**误报**：该警告针对拜耳彩色阵列，而单色传感器每个位置记录同一个窄带信号、不存在可被插值破坏的颜色信息（实测背景处三平面差异 1.95e-06，亮处 9% 差异全部来自去拜耳插值权重）。报告记录该警告已被评估，不是静默吞掉。
 - 自检 757 → **814 项**（含 7 项合成准备用例）。新增 `test_mono_chain` / `test_mono_chain_conflicts` / `test_mono_report_contract` / `test_mono_pipeline_end_to_end`（用新增的 `synth_fits.DSLR_HEADER_FIELDS` 夹具走真实设备识别 + 真实 `build_script`，断言生成的 `.sir` 文本里没有 `-debayer`/`-equalize_cfa`/`-drizzle`/`-maximize`），并扩展 `test_chain_demosaic_placement`（三元组）、`test_channel_median_estimation`（NAXIS=2 采样）、`test_chain_review`。**全部先写红灯验证**：13 条断言在实现前精确失败。`test_pipeline_branches`、`test_preprocessing_reuse` 的 33 个既有 case 未受影响（Seestar profile 未加新键，这也是刻意不做的「图方便」）。
 
 ## [1.3.3] - 2026-10-10

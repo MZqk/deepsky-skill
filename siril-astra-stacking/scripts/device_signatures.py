@@ -357,6 +357,8 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
         CalibrationMissing: for traditional equipment when a required master is
             absent, since proceeding would silently produce uncalibrated data.
     """
+    if calibration_dir is not None:
+        calibration_dir = os.path.abspath(calibration_dir)
     tolerance = tolerance or {"CCD-TEMP": 2.0, "GAIN": 3.0, "EXPTIME": 0.5}
     profile = device["profile"]
     optional_keys = list(profile.get("calibration_optional_keys") or ())
@@ -444,6 +446,7 @@ def _pick_master(directory, kind, light_header, tolerance, optional_keys=None,
     """
     if not directory or not os.path.isdir(directory):
         return None
+    directory = os.path.abspath(directory)
 
     from fits_probe import read_fits_header
 
@@ -455,7 +458,7 @@ def _pick_master(directory, kind, light_header, tolerance, optional_keys=None,
     for name in sorted(os.listdir(directory)):
         if not name.lower().endswith((".fit", ".fits", ".fts")):
             continue
-        path = os.path.join(directory, name)
+        path = os.path.abspath(os.path.join(directory, name))
         lowered = name.lower()
         kind_tags = {
             "dark": ("dark", "masterdark"),

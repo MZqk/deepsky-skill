@@ -628,6 +628,73 @@ def test_calibration_plan():
         check("traditional without dark refuses",
               type(exc).__name__ == "CalibrationMissing", type(exc).__name__)
 
+    # Verify that a relative calibration_dir is resolved to an absolute path,
+    # and all picked masters (dark, flat, bias) carry absolute paths.
+    # Siril executes inside work_dir (-d work_dir), so relative master paths
+    # would be resolved against work_dir and fail with file-not-found.
+    from fits_probe import build_card, pad_to_block
+    from param_derive import derive_calibration
+
+    temp_dir = tempfile.mkdtemp(prefix="astra_cal_rel_")
+    try:
+        cards = [
+            build_card("SIMPLE", "T"),
+            build_card("BITPIX", "16"),
+            build_card("NAXIS", "2"),
+            build_card("NAXIS1", "10"),
+            build_card("NAXIS2", "10"),
+            build_card("CCD-TEMP", "10.0"),
+            build_card("GAIN", "80"),
+            build_card("EXPTIME", "10.0"),
+            build_card("END", ""),
+        ]
+        hdr_bytes = pad_to_block("".join(cards).encode("ascii"))
+        dummy_pixels = pad_to_block(b"\x00" * 200)
+
+        for name in ("masterdark.fit", "masterflat.fit", "masterbias.fit"):
+            with open(os.path.join(temp_dir, name), "wb") as h:
+                h.write(hdr_bytes)
+                h.write(dummy_pixels)
+
+        # Build a relative path from cwd
+        rel_cal_dir = os.path.relpath(temp_dir)
+        check("test setup: relative path actually relative", not os.path.isabs(rel_cal_dir))
+
+        rel_plan = resolve_calibration_plan(header, traditional, rel_cal_dir)
+        check("relative calibration_dir resolves dark to absolute path",
+              os.path.isabs(rel_plan["dark"]), rel_plan["dark"])
+        check("relative calibration_dir resolves flat to absolute path",
+              os.path.isabs(rel_plan["flat"]), rel_plan["flat"])
+        check("relative calibration_dir resolves bias to absolute path",
+              os.path.isabs(rel_plan["bias"]), rel_plan["bias"])
+        check("resolved dark path points to existing file",
+              os.path.exists(rel_plan["dark"]), rel_plan["dark"])
+
+        cal_cmds = derive_calibration(rel_plan, {"is_cfa": True}, "debayer")
+        dark_cmd = next(c for c in cal_cmds if c.startswith("-dark="))
+        flat_cmd = next(c for c in cal_cmds if c.startswith("-flat="))
+        bias_cmd = next(c for c in cal_cmds if c.startswith("-bias="))
+
+        check("derive_calibration emits absolute -dark",
+              os.path.isabs(dark_cmd.split("=", 1)[1]), dark_cmd)
+        check("derive_calibration emits absolute -flat",
+              os.path.isabs(flat_cmd.split("=", 1)[1]), flat_cmd)
+        check("derive_calibration emits absolute -bias",
+              os.path.isabs(bias_cmd.split("=", 1)[1]), bias_cmd)
+
+        # Defense in depth: even if plan had an explicit relative string:
+        raw_rel_plan = {"dark": "./rel_dark.fit", "flat": "rel_flat.fit",
+                        "bias": "rel_bias.fit", "cc": {"enabled": False}}
+        raw_cmds = derive_calibration(raw_rel_plan, {"is_cfa": True}, "debayer")
+        check("derive_calibration converts raw relative dark to absolute",
+              os.path.isabs(next(c for c in raw_cmds if c.startswith("-dark=")).split("=", 1)[1]))
+        check("derive_calibration converts raw relative flat to absolute",
+              os.path.isabs(next(c for c in raw_cmds if c.startswith("-flat=")).split("=", 1)[1]))
+        check("derive_calibration converts raw relative bias to absolute",
+              os.path.isabs(next(c for c in raw_cmds if c.startswith("-bias=")).split("=", 1)[1]))
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 def test_chain_demosaic_placement():
     """The debayer flag must appear in exactly one of the two chains.

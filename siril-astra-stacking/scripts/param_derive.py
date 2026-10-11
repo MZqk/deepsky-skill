@@ -55,6 +55,7 @@ Usage:
 from __future__ import annotations
 
 import math
+import os
 
 #: Frame rotation above which a global star-alignment model is no longer
 #: trustworthy and drizzle is required. AltAz smart telescopes routinely exceed
@@ -332,11 +333,14 @@ def derive_calibration(calibration_plan, structure, chain):
     """
     args = []
     if calibration_plan.get("bias"):
-        args.append("-bias=%s" % calibration_plan["bias"])
+        bias_val = str(calibration_plan["bias"])
+        if not bias_val.startswith("="):
+            bias_val = os.path.abspath(bias_val)
+        args.append("-bias=%s" % bias_val)
     if calibration_plan.get("dark"):
-        args.append("-dark=%s" % calibration_plan["dark"])
+        args.append("-dark=%s" % os.path.abspath(str(calibration_plan["dark"])))
     if calibration_plan.get("flat"):
-        args.append("-flat=%s" % calibration_plan["flat"])
+        args.append("-flat=%s" % os.path.abspath(str(calibration_plan["flat"])))
 
     cc = calibration_plan.get("cc") or {}
     if cc.get("enabled") and calibration_plan.get("dark"):

@@ -157,7 +157,8 @@ def find_siril(explicit=None):
         Path to siril-cli, or ``None`` when not found.
     """
     if explicit:
-        return explicit if os.access(explicit, os.X_OK) else None
+        explicit_path = os.path.abspath(explicit)
+        return explicit_path if os.access(explicit_path, os.X_OK) else None
     from shutil import which
 
     found = which("siril-cli")
@@ -893,6 +894,8 @@ def run_pipeline(args):
         Process exit code.
     """
     started = time.time()
+    if getattr(args, "calibration_dir", None):
+        args.calibration_dir = os.path.abspath(args.calibration_dir)
     out_dir = os.path.abspath(args.out)
     os.makedirs(out_dir, exist_ok=True)
     target_name = args.target or os.path.basename(

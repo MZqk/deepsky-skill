@@ -7,7 +7,7 @@ license: Proprietary
 compatibility: "Requires siril-cli 1.4.x and Python 3.9+. Optional PWS mode requires sibling pws-stacking skill."
 metadata:
   slug: siril-astra-stacking
-  version: "1.4.1"
+  version: "1.4.2"
   displayName: Siril Astra Stacking
   summary: 使用 Siril 1.4 CLI 按设备元数据推导校准、配准与堆栈参数，无头叠加 FITS 序列，交付 32bit 线性母版、MTF 预览与可审计报告。
   tags: "astronomy, siril, stacking, fits, seestar"

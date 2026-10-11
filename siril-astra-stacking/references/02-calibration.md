@@ -77,6 +77,8 @@ tolerance = {"CCD-TEMP": 2.0, "GAIN": 3.0, "EXPTIME": 0.5}
 
 大小写不敏感，只扫 `.fit` / `.fits` / `.fts`。文件名不含对应片段的会被跳过，因此同一目录可以混放三类母帧。
 
+`--calibration-dir` 支持相对路径（例如 `--calibration-dir ./masters`）。流水线与母帧选取器会自动将其及匹配到的各母帧转换为绝对路径传递给 Siril，避免 Siril 在自身 `-d work_dir` 下因相对路径查找失败。
+
 ### 放宽容差
 
 ```python
