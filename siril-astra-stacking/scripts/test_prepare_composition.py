@@ -55,6 +55,24 @@ def make_run(root, specs):
         (root / label / (label + "_report.json")).write_text(json.dumps(report))
 
 
+def make_flat_run(root, specs, target_prefix="ngc6946"):
+    for label, options in specs:
+        target_name = "%s_%s" % (target_prefix, label)
+        master = root / ("%s_stacked_32bit.fits" % target_name)
+        write_master(master, label, **options)
+        report = {
+            "status": "ok", "completed_stages": ["commit"],
+            "artifacts": {
+                "master": str(master),
+                "preview": str(root / ("%s.png" % target_name)),
+            },
+            "stacking": {"frames_stacked": options.get("count", 8)},
+            "warnings": [], "calibration": {"warnings": []},
+        }
+        (root / ("%s_report.json" % target_name)).write_text(json.dumps(report))
+        (root / ("%s.png" % target_name)).write_bytes(b"fake_png")
+
+
 def values(path):
     header, _ = read_fits_header_with_warnings(str(path))
     count = header["NAXIS1"] * header["NAXIS2"] * header.get("NAXIS3", 1)
@@ -198,6 +216,35 @@ class CompositionTests(unittest.TestCase):
             self.assertTrue((out / "diagnostics" / "composition_manifest.json").is_file())
             self.assertTrue((out / "README.md").is_file())
             self.assertFalse((out / "03_raw_masters_archive").exists())
+
+    def test_collect_inputs_from_flat_directory(self):
+        make_flat_run(self.root, [("R", {"planes": 3}), ("G", {}), ("B", {})])
+        layers = composition.collect_inputs(self.root)
+        self.assertEqual([layer["filter"] for layer in layers], ["R", "G", "B"])
+        self.assertEqual(layers[0]["conversion"], "equal_mean_rgb")
+        self.assertTrue(Path(layers[0]["source"]).is_file())
+        self.assertTrue(Path(layers[0]["preview_source"]).is_file())
+
+    def test_collect_inputs_with_relocated_master(self):
+        make_flat_run(self.root, [("R", {}), ("B", {})])
+        # Corrupt absolute path in report to simulate moving directory across machines/paths
+        for report_path in self.root.glob("*_report.json"):
+            rep = json.loads(report_path.read_text(encoding="utf-8"))
+            rep["artifacts"]["master"] = "/nonexistent/old_path/" + Path(rep["artifacts"]["master"]).name
+            rep["artifacts"]["preview"] = "/nonexistent/old_path/" + Path(rep["artifacts"]["preview"]).name
+            report_path.write_text(json.dumps(rep), encoding="utf-8")
+
+        layers = composition.collect_inputs(self.root)
+        self.assertEqual([layer["filter"] for layer in layers], ["R", "B"])
+        self.assertTrue(Path(layers[0]["source"]).is_file())
+        self.assertTrue(Path(layers[0]["preview_source"]).is_file())
+
+    def test_ambiguous_reports_rejected(self):
+        # 2 in flat, 2 in nested
+        make_flat_run(self.root, [("R", {}), ("G", {})])
+        make_run(self.root, [("B", {}), ("H", {})])
+        with self.assertRaisesRegex(composition.FitsError, "ambiguous report structure"):
+            composition.collect_inputs(self.root)
 
 
 class RealCompositionTests(unittest.TestCase):

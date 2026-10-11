@@ -97,11 +97,26 @@ def inspect_pixels(path):
 
 def collect_inputs(run_dir):
     layers = []
-    for report_path in sorted(Path(run_dir).glob("*/*_report.json")):
+    run_path = Path(run_dir)
+    flat_reports = sorted(run_path.glob("*_report.json"))
+    nested_reports = sorted(run_path.glob("*/*_report.json"))
+
+    if len(flat_reports) >= 2 and len(nested_reports) >= 2:
+        raise FitsError("ambiguous report structure: found 2 or more reports in both run_dir and subdirectories")
+    elif len(flat_reports) >= 2:
+        report_paths = flat_reports
+    elif len(nested_reports) >= 2:
+        report_paths = nested_reports
+    else:
+        report_paths = flat_reports or nested_reports
+
+    for report_path in report_paths:
         report = json.loads(report_path.read_text(encoding="utf-8"))
         if report.get("status") != "ok" or "commit" not in report.get("completed_stages", []):
             raise FitsError("%s: not a completed successful stack" % report_path)
         source = Path(report.get("artifacts", {}).get("master") or "")
+        if not source.is_file() and (report_path.parent / source.name).is_file():
+            source = (report_path.parent / source.name).resolve()
         if not source.is_absolute() or not source.is_file():
             raise FitsError("%s: missing published master" % report_path)
         header, pixels, warnings = inspect_pixels(source)
@@ -130,11 +145,13 @@ def collect_inputs(run_dir):
         if count < 3:
             quality_warnings.append("fewer than three stacked frames; pixel rejection is unreliable")
         preview_path = report.get("artifacts", {}).get("preview")
-        preview_source = (
-            str(Path(preview_path).resolve())
-            if preview_path and Path(preview_path).is_file()
-            else None
-        )
+        preview_source = None
+        if preview_path:
+            p_cand = Path(preview_path)
+            if p_cand.is_file():
+                preview_source = str(p_cand.resolve())
+            elif (report_path.parent / p_cand.name).is_file():
+                preview_source = str((report_path.parent / p_cand.name).resolve())
         layers.append({
             "filter": label, "source": str(source.resolve()),
             "source_report": str(report_path.resolve()),
@@ -146,7 +163,7 @@ def collect_inputs(run_dir):
             "conversion": "equal_mean_rgb" if header["NAXIS"] == 3 else "mono_copy",
         })
     if not 2 <= len(layers) <= 8:
-        raise FitsError("expected 2 to 8 successful filter reports in immediate subdirectories")
+        raise FitsError("expected 2 to 8 successful filter reports in run_dir or its immediate subdirectories")
     if len({layer["filter"] for layer in layers}) != len(layers):
         raise FitsError("duplicate FILTER in stack reports")
     if len({str(layer["header"]["OBJECT"]).strip() for layer in layers}) != 1:
@@ -376,7 +393,7 @@ def prepare(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_dir", help="directory containing per-filter report subdirectories")
+    parser.add_argument("run_dir", help="directory containing filter reports (flat or in subdirectories)")
     parser.add_argument("--out", required=True, help="new directory for composition inputs")
     parser.add_argument("--monochrome", action="store_true", help="confirm a monochrome sensor")
     parser.add_argument(

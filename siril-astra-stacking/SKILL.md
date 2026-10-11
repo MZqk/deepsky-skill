@@ -7,7 +7,7 @@ license: Proprietary
 compatibility: "Requires siril-cli 1.4.x and Python 3.9+. Optional PWS mode requires sibling pws-stacking skill."
 metadata:
   slug: siril-astra-stacking
-  version: "1.4.2"
+  version: "1.4.3"
   displayName: Siril Astra Stacking
   summary: 使用 Siril 1.4 CLI 按设备元数据推导校准、配准与堆栈参数，无头叠加 FITS 序列，交付 32bit 线性母版、MTF 预览与可审计报告。
   tags: "astronomy, siril, stacking, fits, seestar"
@@ -73,7 +73,7 @@ python3 scripts/prepare_composition.py /data/NGC6946/run \
   --out /data/NGC6946/delivery --monochrome --bundle
 ```
 
-输入为各滤镜报告目录的共同父目录，报告位于其直接子目录。输出目录必须不存在。RGB drizzle 母版取三个同滤镜平面的等权平均；已有单通道另存副本；全局两遍配准后按最小公共区域导出 32-bit 单通道 FITS。输出仅删除副本的 BAYERPAT，不改变曝光记录或进行拉伸/亮度归一化。
+输入为各滤镜叠加输出目录（支持 Astra 直接输出的扁平目录，亦兼容按滤镜分设的直接子目录）。输出目录必须不存在。RGB drizzle 母版取三个同滤镜平面的等权平均；已有单通道另存副本；全局两遍配准后按最小公共区域导出 32-bit 单通道 FITS。输出仅删除副本的 BAYERPAT，不改变曝光记录或进行拉伸/亮度归一化。
 
 **精简交付包（`--bundle`）**：仅保留四项核心资产：根目录 `<FILTER>.fit`（Siril 图像合成直选即用）、`previews/`（各通道快速肉眼质检图）、`diagnostics/`（对齐清单与执行日志）及根目录 `README.md`。详细契约见 [05-output-contract.md §5.8 与 §5.9](references/05-output-contract.md)。
 

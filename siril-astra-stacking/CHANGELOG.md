@@ -2,6 +2,13 @@
 
 本文件记录 `siril-astra-stacking` 的独立版本变更。
 
+## [1.4.3] - 2026-10-11
+
+- **自适应兼容 Astra 扁平输出目录**：`prepare_composition.py` 的输入收集逻辑此前硬编码要求报告必须位于直接子目录（`RUN_DIR/*/*_report.json`），导致无法直接消费 `astra_stack.py` 单目标及同目录多通道叠加产出的扁平输出（如 `out/<target>_<FILTER>_report.json`）。现已支持自适应双拓扑识别：优先无缝直接消费 Astra 扁平输出根目录，同时向下兼容历史分滤镜子目录批处理结构；若两层同时存在 >=2 个报告，严谨拒绝并提示结构歧义。
+- **跨机器/跨目录搬迁自适应母版寻址**：若报告记录的 `artifacts.master` / `artifacts.preview` 绝对路径因目录迁移失效，自动回退查找报告同级目录同名母版及预览图，避免拷盘后误报找不到母版。
+- 命令行参数 help 更新为 `directory containing filter reports (flat or in subdirectories)`，报错文案更新为 `expected 2 to 8 successful filter reports in run_dir or its immediate subdirectories`。
+- 新增 `test_collect_inputs_from_flat_directory`、`test_collect_inputs_with_relocated_master` 与 `test_ambiguous_reports_rejected` 单元测试。
+
 ## [1.4.2] - 2026-10-11
 
 - **修复 `--calibration-dir` 相对路径支持**：此前 `--calibration-dir` 若传入相对路径（如文档示例中的 `--calibration-dir ./masters`），会直接将相对路径写入 Siril 脚本，而 Siril 在执行时工作目录切换至 `<target>.work`（`-d` 参数），导致其在 `work` 目录下查找母帧失败报错。现于 CLI 入口、`resolve_calibration_plan`、`_pick_master` 以及 `derive_calibration` 四层强制转换为绝对路径；`selftest.py` 自检新增 11 项断言覆盖相对路径解析与脚本生成，自检增至 825 项。

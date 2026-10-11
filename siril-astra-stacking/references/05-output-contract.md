@@ -263,7 +263,7 @@ Siril 自己追加扩展名。实现中传不带后缀的路径，生成后再�
 
 ## 5.8 合成输入契约
 
-`scripts/prepare_composition.py RUN_DIR --out OUTPUT_DIR --monochrome` 从 `RUN_DIR/*/*_report.json` 收集 2–8 个成功并完成 commit 的叠加报告，用 `artifacts.master` 定位原母版。要求同一 OBJECT、唯一且可安全命名的 FILTER、Float32 mono/RGB、有效曝光及 STACKCNT 与报告一致。`--monochrome` 是用户明确确认，不能由相机型号或图像尺寸替代。`--siril` 可指定 CLI，`--timeout` 默认每个 Siril 调用 3600 秒。
+`scripts/prepare_composition.py RUN_DIR --out OUTPUT_DIR --monochrome` 从 `RUN_DIR` 收集 2–8 个成功并完成 commit 的叠加报告（自适应支持 `RUN_DIR/*_report.json` 扁平 Astra 输出与 `RUN_DIR/*/*_report.json` 历史分滤镜子目录结构），用 `artifacts.master` 定位原母版（若绝对路径因目录迁移失效，自动回退查找报告同级目录同名母版）。要求同一 OBJECT、唯一且可安全命名的 FILTER、Float32 mono/RGB、有效曝光及 STACKCNT 与报告一致。`--monochrome` 是用户明确确认，不能由相机型号或图像尺寸替代。`--siril` 可指定 CLI，`--timeout` 默认每个 Siril 调用 3600 秒。
 
 单通道转换使用 Siril split/pm -nosum，RGB 同滤镜平面等权平均，不把其当作三次曝光。已有单通道另存副本。仅删除副本的 BAYERPAT；FILTER、OBJECT、STACKCNT、EXPTIME、LIVETIME 均核对原值。转换、配准和裁切不修改源母版或源报告，运行前后 SHA-256 必须一致。
 
