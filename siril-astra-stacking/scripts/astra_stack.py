@@ -42,6 +42,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 
@@ -93,7 +94,10 @@ EXIT_SIRIL_FAILED = 5
 EXIT_UNSUPPORTED_INPUT = 6
 EXIT_COMMIT_FAILED = 7
 
-SCHEMA_VERSION = "1.2"
+#: Bumped to 1.3 for the mono chain: channel_stats.medians_after becomes a
+#: single-key {"m": median} dict instead of three RGB keys, and
+#: stacking.output_naxis declares the published plane count.
+SCHEMA_VERSION = "1.3"
 
 #: ``--stack-engine`` choices. ``siril`` (default) is the wfwhm-weighted
 #: rejection stack; ``pws`` hands the registered frames to the Partition-Weighted
@@ -209,6 +213,23 @@ def collect_frames(input_dir):
     raise UnsupportedInputError("no FITS frames found in %s" % input_dir)
 
 
+def _filter_breakdown(frames):
+    """Group light frames by their FILTER keyword.
+
+    Returns sorted ``(value_or_None, count)`` pairs. Values are right-stripped
+    and upper-cased, matching the comparison used for flat matching. A missing
+    FILTER groups as ``None``.
+    """
+    counts = {}
+    for path in frames:
+        header, _warnings = read_fits_header_with_warnings(path)
+        value = header.get("FILTER")
+        value = str(value).strip().upper() if value else None
+        counts[value] = counts.get(value, 0) + 1
+    return sorted(counts.items(), key=lambda item: (item[0] is not None,
+                                                    item[0] or ""))
+
+
 def stage_workdir(input_dir, out_dir, target_name, force=False):
     """Create or reuse ``<out_dir>/<target>.work`` with symlinked inputs.
 
@@ -257,6 +278,52 @@ def stage_workdir(input_dir, out_dir, target_name, force=False):
     return work, state_path
 
 
+def _artifact_final_name(role, source, target_name):
+    """Published file name for one artifact role.
+
+    Single source of truth: ``atomic_publish`` renames with this name and
+    ``_published_paths`` predicts it, so the report can never name a path
+    that differs from the one the artifact actually lands on.
+
+    Args:
+        role: ``"master"``, ``"preview"``, ``"report"``, or anything else
+            (which keeps the source base name).
+        source: Absolute path of the artifact inside the work directory.
+        target_name: Base name of the run target.
+
+    Returns:
+        The file name to publish under.
+    """
+    if role == "master":
+        return "%s_stacked_32bit.fits" % target_name
+    if role == "preview":
+        return "%s.png" % target_name
+    if role == "report":
+        return "%s_report.json" % target_name
+    return os.path.basename(source)
+
+
+def _published_paths(out_dir, target_name, artifacts):
+    """Predict where each artifact will land, without touching the disk.
+
+    The commit stage fills the report in *before* publishing, so that a
+    process killed mid-commit still leaves a final report behind. That only
+    works if the destination is known up front.
+
+    Args:
+        out_dir: Destination directory.
+        target_name: Base name of the run target.
+        artifacts: Dict of role to absolute source path inside ``work_dir``.
+
+    Returns:
+        Dict of role to the absolute destination path.
+    """
+    return {
+        role: os.path.join(out_dir, _artifact_final_name(role, source, target_name))
+        for role, source in artifacts.items()
+    }
+
+
 def atomic_publish(work_dir, out_dir, target_name, artifacts):
     """Move finished artifacts from the work directory into place.
 
@@ -281,13 +348,7 @@ def atomic_publish(work_dir, out_dir, target_name, artifacts):
         for role, source in artifacts.items():
             if not os.path.exists(source):
                 raise RuntimeError("expected artifact missing: %s" % source)
-            final_name = os.path.basename(source)
-            if role == "master":
-                final_name = "%s_stacked_32bit.fits" % target_name
-            elif role == "preview":
-                final_name = "%s.png" % target_name
-            elif role == "report":
-                final_name = "%s_report.json" % target_name
+            final_name = _artifact_final_name(role, source, target_name)
             destination = os.path.join(out_dir, final_name)
             if os.path.exists(destination):
                 os.remove(destination)
@@ -474,6 +535,7 @@ def _run_pws_engine_stage(args, report, work_dir, out_dir, target_name, stem,
         Process exit code.
     """
     report["completed_stages"].append("stack(front-end)")
+    _stage("stack", "Siril front end, handing over to PWS")
     if front_end.returncode != 0:
         report["failed_stage"] = "stack"
         report["error"] = (
@@ -561,6 +623,8 @@ def _run_pws_engine_stage(args, report, work_dir, out_dir, target_name, stem,
                       if kw[0] == "STACKMODE"],
     }
     report["completed_stages"].append("stack")
+    _stage("stack", "PWS engine, %dx%d master" % (
+        conversion["width"], conversion["height"]))
 
     # -- post-analysis: report the engine's numbers --------------------------
     engine_json = runner_result.get("summary") or {}
@@ -600,13 +664,17 @@ def _run_pws_engine_stage(args, report, work_dir, out_dir, target_name, stem,
     # -- stage: preview (same contract as the Siril path) --------------------
     preview_path = os.path.join(work_dir, "%s.png" % target_name)
     try:
-        channel_statistics = _channel_statistics_from_args(args, master_path)
+        channel_statistics = _channel_statistics_from_args(
+            args, master_path, mono=True  # PWS output is always grayscale
+        )
     except FitsError as exc:
         report["failed_stage"] = "post-analysis"
         report["error"] = str(exc)
         _emit_final(report, out_dir, target_name)
         return EXIT_SIRIL_FAILED
-    mtf = derive_preview_mtf(channel_statistics["medians"])
+    # PWS output is always a single-channel master, so the preview midpoint
+    # comes from the mono branch. No pipeline lookup needed to know that.
+    mtf = derive_preview_mtf(channel_statistics["medians"], mono=True)
     siril_path = find_siril(args.siril)
     preview_ok, preview_note = _make_preview(
         siril_path, work_dir, master_path, preview_path, mtf
@@ -618,35 +686,13 @@ def _run_pws_engine_stage(args, report, work_dir, out_dir, target_name, stem,
     report["channel_stats"] = channel_statistics["report"]
     if preview_ok:
         report["completed_stages"].append("preview")
+    _stage("preview", "MTF midpoint %.4g" % mtf["mid"]
+           if preview_ok else "not produced")
 
     # -- stage: commit --------------------------------------------------------
-    report_path = os.path.join(work_dir, "%s_report.json" % target_name)
-    write_report(report_path, dict(report, status="ok"))
-    artifacts = {"master": master_path, "preview": preview_path,
-                 "report": report_path}
-    artifacts = {role: path for role, path in artifacts.items()
-                 if os.path.exists(path)}
-    try:
-        published = atomic_publish(work_dir, out_dir, target_name, artifacts)
-    except RuntimeError as exc:
-        report["failed_stage"] = "commit"
-        report["error"] = str(exc)
-        _emit_final(report, out_dir, target_name)
-        return EXIT_COMMIT_FAILED
-
-    report["artifacts"] = published
-    report["status"] = "ok"
-    report["completed_stages"].append("commit")
-    report["timings"]["total_s"] = round(time.time() - started, 3)
-    if args.keep_work:
-        report["work_dir"] = work_dir
-        report["notes"].append(
-            "--keep-work: scratch directory retained at %s" % work_dir
-        )
-    else:
-        shutil.rmtree(work_dir, ignore_errors=True)
-    _emit_final(report, out_dir, target_name)
-    return EXIT_OK
+    # Shared with the Siril path so the two engines cannot drift apart again.
+    return _commit_and_publish(report, args, started, work_dir, out_dir,
+                               target_name, master_path, preview_path)
 
 
 def _invoke_pws_runner(runner, photos, out_dir, frames_dir, tag, timeout):
@@ -693,10 +739,151 @@ def _invoke_pws_runner(runner, photos, out_dir, frames_dir, tag, timeout):
 
 
 def write_report(path, payload):
-    """Serialise the run report."""
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=False)
-        handle.write("\n")
+    """Serialise the run report atomically.
+
+    A crash mid-serialisation must leave either the previous report or no
+    report, never a truncated file that breaks ``json.load`` for the caller.
+
+    The temporary file is created in the destination directory because
+    ``os.replace`` is only atomic within a single filesystem; the default
+    temporary directory may well be on another volume.
+
+    No ``fsync`` is issued on purpose. This skill's durability contract is
+    the ``os.rename`` publish in :func:`atomic_publish`, which does not fsync
+    either; fsyncing only the report would be an inconsistent half-measure,
+    and reports reach tens of kilobytes. Surviving power loss is a separate
+    concern that has to cover the whole commit chain at once.
+
+    Args:
+        path: Destination path of the JSON report.
+        payload: JSON-serialisable report content.
+
+    Raises:
+        OSError: If the destination is unwritable or the rename fails.
+        TypeError: If ``payload`` is not JSON-serialisable.
+
+    Note:
+        A host that mediates file operations (sandboxes, policy agents) can
+        refuse the rename with an exception that is not an ``OSError``. That
+        propagates unchanged; callers degrade it to a warning rather than
+        letting it mask the run's actual outcome.
+    """
+    directory = os.path.dirname(os.path.abspath(path))
+    base = os.path.basename(path)
+    # The dot prefix keeps the scratch file out of collect_frames' globs.
+    handle_fd, temporary = tempfile.mkstemp(
+        prefix="." + base + ".", suffix=".tmp", dir=directory
+    )
+    try:
+        with os.fdopen(handle_fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=False)
+            handle.write("\n")
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            # Broad catch on purpose: a policy-mediated host can refuse the
+            # cleanup with its own exception type, and losing the scratch file
+            # is preferable to masking the original error.
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+
+
+# --------------------------------------------------------------------------
+# Output contract
+#
+# stdout carries data (the generated .sir script under --dry-run); stderr
+# carries diagnostics (per-stage progress, warnings, and one closing summary
+# line). The JSON report remains the machine-readable contract -- these lines
+# exist so a human or a shell pipeline can tell what happened without opening
+# the report. Every exit path writes the report; only main() prints the
+# summary, so it cannot be missed by a branch that forgets to.
+# --------------------------------------------------------------------------
+
+#: Suppresses progress lines only. Set once per main() call from --quiet, so
+#: repeated in-process calls (the self-test does this) never leak the flag.
+_QUIET = False
+
+
+def _set_quiet(value):
+    """Record whether progress lines are suppressed.
+
+    Args:
+        value: Truthy to suppress progress lines.
+    """
+    global _QUIET
+    _QUIET = bool(value)
+
+
+def _emit(message):
+    """Write one diagnostic line to stderr, unless --quiet is in effect."""
+    if _QUIET:
+        return
+    print("[astra] %s" % message, file=sys.stderr, flush=True)
+
+
+def _stage(name, detail=""):
+    """Report that a stage completed successfully.
+
+    Progress is printed where work succeeds, not at every return: a failure
+    already produces the summary line and the report's ``error`` field, so a
+    line per exit would only add noise.
+
+    Args:
+        name: Stage name, e.g. ``"probe"``.
+        detail: Optional measured value to show after the name.
+    """
+    _emit("%-11s %s" % (name + ":", detail) if detail else "%s:" % name)
+
+
+def _warn(message):
+    """Write a warning to stderr. Never suppressed by --quiet.
+
+    A report that could not be written is exactly the kind of failure a
+    caller would otherwise never notice, so it must stay visible.
+
+    Args:
+        message: Warning text.
+    """
+    print("[astra] warning: %s" % message, file=sys.stderr, flush=True)
+
+
+def _finish(code, report_path):
+    """Write the closing summary line. Called once per run from main().
+
+    Reads back the report to describe what actually happened rather than
+    re-deriving it: the exit code alone does not identify the failing stage.
+
+    Args:
+        code: Process exit code.
+        report_path: Absolute path of the report, for the caller's reference.
+    """
+    target = stages = stage = total = None
+    try:
+        with open(report_path, "r", encoding="utf-8") as handle:
+            report = json.load(handle)
+        target = report.get("target")
+        stages = len(report.get("completed_stages") or [])
+        stage = report.get("failed_stage")
+        total = (report.get("timings") or {}).get("total_s")
+    except (OSError, ValueError) as exc:
+        _warn("could not read back %s (%s)" % (report_path, exc))
+
+    fields = ["target=%s" % (target or "?")]
+    if code == EXIT_OK:
+        fields.append("stages=%s" % (stages if stages is not None else "?"))
+    else:
+        fields.append("exit=%d" % code)
+        if stage:
+            fields.append("stage=%s" % stage)
+    if isinstance(total, float):
+        fields.append("total_s=%.1fs" % total)
+    fields.append("report=%s" % report_path)
+    print("[astra] %-7s %s" % ("OK" if code == EXIT_OK else "FAILED",
+                               "  ".join(fields)),
+          file=sys.stderr, flush=True)
 
 
 def run_pipeline(args):
@@ -745,6 +932,7 @@ def run_pipeline(args):
         return EXIT_SIRIL_MISSING
     report["siril"]["path"] = siril_path
     report["siril"]["version"] = siril_version(siril_path)
+    _stage("probe", report["siril"]["version"] or "siril-cli located")
 
     version = report["siril"]["version"] or ""
     if "1.4" not in version:
@@ -759,6 +947,27 @@ def run_pipeline(args):
     except UnsupportedInputError as exc:
         report["failed_stage"] = "probe"
         report["error"] = str(exc)
+        _emit_final(report, out_dir, target_name)
+        return EXIT_UNSUPPORTED_INPUT
+
+    # One run produces one master for one filter. A directory mixing filters
+    # would be stacked as a single sequence with the FIRST frame's flat applied
+    # to every frame (measured: 145 L/R/G/B/Ha/SII frames silently stacked
+    # together, B flat on all), so refuse instead of guessing.
+    filter_groups = _filter_breakdown(frames)
+    if len(filter_groups) > 1:
+        breakdown = ", ".join(
+            "%s: %d frame(s)" % (value or "<no FILTER>", count)
+            for value, count in filter_groups
+        )
+        report["failed_stage"] = "probe"
+        report["error"] = (
+            "the input directory mixes %d distinct FILTER values (%s). One run "
+            "produces one master for one filter; different filters need "
+            "different master flats and must not be merged into one stack. "
+            "Bucket the frames by FILTER into separate directories and run the "
+            "tool once per filter." % (len(filter_groups), breakdown)
+        )
         _emit_final(report, out_dir, target_name)
         return EXIT_UNSUPPORTED_INPUT
 
@@ -777,6 +986,9 @@ def run_pipeline(args):
         "warnings": header_warnings,
     }
     report["warnings"].extend(header_warnings)
+    _stage("probe", "%d frames, %sx%s, %s" % (
+        len(frames), header.get("NAXIS1"), header.get("NAXIS2"),
+        "CFA" if report["input"]["bayerpat"] else "RGB"))
     if len(frames) < 2:
         report["failed_stage"] = "probe"
         report["error"] = ("at least 2 light frames are required for stacking; "
@@ -803,6 +1015,7 @@ def run_pipeline(args):
         "confidence": device["confidence"],
         "profile": device["profile"],
     }
+    _stage("identify", "%s (%s)" % (device["id"], device["class"]))
 
     # -- stage: plan --------------------------------------------------------
     try:
@@ -825,6 +1038,7 @@ def run_pipeline(args):
     work_dir, state_path = stage_workdir(
         args.input, out_dir, target_name, force=not args.resume
     )
+    _stage("workdir", os.path.basename(work_dir))
     if args.resume:
         report["warnings"].append(
             "--resume requested; the work directory was rebuilt because "
@@ -844,7 +1058,10 @@ def run_pipeline(args):
     initial_chain = args.force_chain
     if (not args.dry_run and initial_chain is None
             and header.get("NAXIS") == 2 and not calibration_plan.get("flat")):
-        initial_chain = "drizzle"  # Keep CFA until the measured chain is known.
+        # No early demosaic: drizzle rejects an already-debayered sequence
+        # ("This sequence is not mono / CFA, cannot drizzle."), so the CFA
+        # frames have to survive calibration for the probe to measure.
+        initial_chain = "drizzle"
     pipeline = derive_pipeline(header, device, calibration_plan, None,
                                force_chain=initial_chain)
     initial_calibration = list(pipeline["calibrate"])
@@ -860,6 +1077,7 @@ def run_pipeline(args):
 
     if args.dry_run:
         report["completed_stages"].append("calibrate(dry-run)")
+        _stage("calibrate", "planned only")
     elif calibrate_builder is not None:
         calibrate_script = os.path.join(work_dir, "astra_calibrate.sir")
         try:
@@ -892,6 +1110,7 @@ def run_pipeline(args):
         report["completed_stages"].append("calibrate")
         _record_cosmetic_correction(report, calibration_plan, calibrate_builder,
                                     calibrate_script, "completed")
+        _stage("calibrate", "applied")
 
     # -- stage: transform probe ---------------------------------------------
     # Probe transforms can also serve the final apply step when pixels stay unchanged.
@@ -960,6 +1179,9 @@ def run_pipeline(args):
             report["error"] = "transform probe registration is invalid: %s" % exc
             _emit_final(report, out_dir, target_name)
             return EXIT_SIRIL_FAILED
+        _stage("probe-reg", "span %.1f px, rotation %.2f deg, scale %.3f%%" % (
+            probe_summary["span"], probe_summary["rotation_max_deg"],
+            probe_summary["scale_dev_max"] * 100.0))
 
     # Re-derive now that real transform data exists, so the chain decision is
     # evidence-based rather than a guess.
@@ -974,6 +1196,8 @@ def run_pipeline(args):
                probe_summary.get("rotation_max_deg", 0.0),
                probe_summary.get("scale_dev_max", 0.0))
         )
+
+    _stage("plan", "chain=%s, engine=%s" % (pipeline["chain"], args.stack_engine))
 
     master_path = os.path.join(work_dir, "%s_stacked_32bit.fits" % target_name)
 
@@ -1002,6 +1226,34 @@ def run_pipeline(args):
                              else None)
         except FitsError:
             probe_regdata = None
+        if pipeline["chain"] == "mono":
+            # Refuse here rather than letting evaluate_gate speak. The gate's
+            # cfa branch blames drizzle for writing per-frame canvases of
+            # differing sizes, which is factually wrong for mono -- mono uses
+            # -framing=current and its canvases match. Letting that message
+            # through would be the report lying about why the run stopped.
+            report["stack_engine"] = {
+                "eligible": False,
+                "verdict": "fail",
+                "frame_count": 0,
+                "wfwhm_p10": None,
+                "wfwhm_p90": None,
+                "dispersion_ratio": None,
+                "outlier_frames": 0,
+                "reasons": [
+                    "the mono chain keeps the frames as single-channel CFA; the "
+                    "PWS engine's grayscale conversion and partition weighting "
+                    "are validated on demosaiced RGB input only"
+                ],
+            }
+            report["failed_stage"] = "stack"
+            report["error"] = (
+                "PWS gate refused this run: %s. The default Siril stack produces "
+                "the NAXIS=2 mono master directly."
+                % "; ".join(report["stack_engine"]["reasons"])
+            )
+            _emit_final(report, out_dir, target_name)
+            return EXIT_SIRIL_FAILED
         # The engine consumes the frames *after* the chain's apply step: a CFA
         # input on the debayer chain becomes RGB by then, so the gate keys on
         # the decided chain, not the raw input kind. Only the drizzle chain
@@ -1021,6 +1273,19 @@ def run_pipeline(args):
         report["notes"].append(
             "PWS engine runner: %s" % engine["runner"]
         )
+
+    if args.rgb_equal and pipeline["chain"] == "mono":
+        # Caught here rather than in main() because the chain is only known
+        # after the probe. Emitting -rgb_equal for a single-plane master would
+        # hand Siril a combination nothing has ever validated.
+        report["failed_stage"] = "stack"
+        report["error"] = (
+            "--rgb-equal requires a three-channel master; the mono chain "
+            "produces NAXIS=2. Drop the flag, or pin --force-chain debayer to "
+            "get an RGB master."
+        )
+        _emit_final(report, out_dir, target_name)
+        return EXIT_SIRIL_FAILED
 
     debayer_only = (not args.dry_run and "-debayer" not in initial_calibration
                     and "-debayer" in pipeline["calibrate"]
@@ -1084,7 +1349,21 @@ def run_pipeline(args):
             "pin it, or run for real."
         )
         report["status"] = "ok"
+        # A dry run keeps its scratch directory: the generated .sir lives there
+        # and is the only executable thing it produced. The report has to point
+        # at it, otherwise the directory is simply undiscoverable.
+        report["work_dir"] = work_dir
+        report["notes"].append(
+            "--dry-run: the scratch directory is kept so the generated script "
+            "stays inspectable; the next run without --resume rebuilds it. "
+            "Path: %s" % work_dir
+        )
         report["timings"]["total_s"] = round(time.time() - started, 3)
+        _stage("dry-run", "script on stdout (%d bytes)" % len(script_text))
+        # stdout carries data, so --quiet does not suppress it; redirect it to a
+        # file to save the script.
+        sys.stdout.write(script_text)
+        sys.stdout.flush()
         _emit_final(report, out_dir, target_name)
         return EXIT_OK
 
@@ -1114,7 +1393,11 @@ def run_pipeline(args):
         handle.write(completed.stdout + "\n" + completed.stderr)
     early_selection = True
     diagnostics = completed.stdout + "\n" + completed.stderr
-    if (stack_engine == "siril" and pipeline["chain"] == "debayer"
+    # Mono shares -framing=current with debayer, so it hits the same
+    # "reference frame was filtered out" failure and needs the same single
+    # retry. Leaving it out would give mono a different recovery path than
+    # debayer for one identical hardware condition.
+    if (stack_engine == "siril" and pipeline["chain"] in ("debayer", "mono")
             and completed.returncode != 0
             and "Reference image is not included in the filtered list, aborting" in diagnostics
             and 'This is not compatible with framing mode "current"' in diagnostics):
@@ -1176,6 +1459,7 @@ def run_pipeline(args):
         report["error"] = "invalid stacking evidence: %s" % exc
         _emit_final(report, out_dir, target_name)
         return EXIT_SIRIL_FAILED
+    _stage("stack", "%d frame(s) stacked" % frames_stacked)
 
     transform_summary = summarize_transforms(
         regdata, report["input"]["width"] or 0, report["input"]["height"] or 0,
@@ -1206,13 +1490,18 @@ def run_pipeline(args):
     # Medians come from the stacked master, so the stretch adapts to the target's
     # actual brightness instead of relying on a hardcoded midpoint.
     try:
-        channel_statistics = _channel_statistics_from_args(args, master_path)
+        channel_statistics = _channel_statistics_from_args(
+            args, master_path, mono=pipeline["chain"] == "mono"
+        )
     except FitsError as exc:
         report["failed_stage"] = "post-analysis"
         report["error"] = str(exc)
         _emit_final(report, out_dir, target_name)
         return EXIT_SIRIL_FAILED
-    mtf = derive_preview_mtf(channel_statistics["medians"])
+    mtf = derive_preview_mtf(
+        channel_statistics["medians"],
+        mono=pipeline["chain"] == "mono",
+    )
     preview_ok, preview_note = _make_preview(
         siril_path, work_dir, master_path, preview_path, mtf
     )
@@ -1223,28 +1512,62 @@ def run_pipeline(args):
     report["channel_stats"] = channel_statistics["report"]
     if preview_ok:
         report["completed_stages"].append("preview")
+    _stage("preview", "MTF midpoint %.4g" % mtf["mid"]
+           if preview_ok else "not produced")
 
     report["notes"].extend(_parse_siril_log(completed.stdout))
     report["warnings"].extend(pipeline["chain_info"].get("degradations", []))
 
     # -- stage: commit ------------------------------------------------------
+    code = _commit_and_publish(report, args, started, work_dir, out_dir,
+                               target_name, master_path, preview_path)
+    if code != EXIT_OK:
+        return code
+    return EXIT_OK
+
+
+def _commit_and_publish(report, args, started, work_dir, out_dir, target_name,
+                        master_path, preview_path):
+    """Finalise the report, publish the artifact set, and clean up scratch.
+
+    The report is written in its final form *before* anything is renamed into
+    the output directory. A run killed during commit therefore leaves either
+    the previous complete result or a complete new one — never a report whose
+    ``artifacts``/``completed_stages``/``timings`` fields are half filled in.
+    That is also why ``artifacts`` is populated from :func:`_published_paths`
+    rather than from the return value of :func:`atomic_publish`: the
+    destinations have to be known before the publish happens.
+
+    Args:
+        report: Mutable run report, already carrying every stage result.
+        args: Parsed command line (``keep_work`` is honoured).
+        started: ``time.time()`` of the run start, for ``timings.total_s``.
+        work_dir: Scratch directory holding the artifacts.
+        out_dir: Output directory receiving the artifacts.
+        target_name: Base name of the run target.
+        master_path: Absolute path of the stacked master inside ``work_dir``.
+        preview_path: Absolute path of the MTF preview inside ``work_dir``.
+
+    Returns:
+        ``EXIT_OK`` on success, ``EXIT_COMMIT_FAILED`` if publishing failed.
+    """
     report_path = os.path.join(work_dir, "%s_report.json" % target_name)
-    write_report(report_path, dict(report, status="ok"))
+    # The self-describing path must be in the snapshot that gets published,
+    # and it names the *published* file, not this scratch copy.
+    report["report_path"] = os.path.join(
+        out_dir, "%s_report.json" % target_name)
     artifacts = {"master": master_path, "preview": preview_path,
                  "report": report_path}
-    artifacts = {role: path for role, path in artifacts.items()
-                 if os.path.exists(path)}
-    try:
-        published = atomic_publish(work_dir, out_dir, target_name, artifacts)
-    except RuntimeError as exc:
-        report["failed_stage"] = "commit"
-        report["error"] = str(exc)
-        _emit_final(report, out_dir, target_name)
-        return EXIT_COMMIT_FAILED
+    # Only the products that already exist may be advertised; the report is
+    # always about to be written, so it is not filtered here.
+    published_roles = {role: path for role, path in artifacts.items()
+                       if role == "report" or os.path.exists(path)}
 
-    report["artifacts"] = published
+    report["artifacts"] = _published_paths(out_dir, target_name, published_roles)
     report["status"] = "ok"
     report["completed_stages"].append("commit")
+    # Settled here, once: the idempotent rewrite at the end must not recompute
+    # it, or the two writes would differ again.
     report["timings"]["total_s"] = round(time.time() - started, 3)
     if args.keep_work:
         # Keep the scratch directory for inspection. Registration data in the .seq
@@ -1254,8 +1577,27 @@ def run_pipeline(args):
         report["notes"].append(
             "--keep-work: scratch directory retained at %s" % work_dir
         )
-    else:
+    write_report(report_path, report)
+
+    try:
+        published = atomic_publish(work_dir, out_dir, target_name, published_roles)
+    except RuntimeError as exc:
+        report["failed_stage"] = "commit"
+        report["error"] = str(exc)
+        _emit_final(report, out_dir, target_name)
+        return EXIT_COMMIT_FAILED
+
+    if published != report["artifacts"]:
+        # Defensive: the prediction above and the rename disagree, so trust the
+        # real destinations rather than leaving stale paths in the report.
+        report["artifacts"] = published
+        _emit_final(report, out_dir, target_name)
+    _stage("commit", "%d artifact(s) published" % len(published))
+
+    if not args.keep_work:
         shutil.rmtree(work_dir, ignore_errors=True)
+    # Idempotent rewrite: identical payload, as a safety net for the case where
+    # the rename above published a report that has since gone stale.
     _emit_final(report, out_dir, target_name)
     return EXIT_OK
 
@@ -1316,13 +1658,27 @@ def _run_siril(siril_path, work_dir, script_path, timeout):
     return completed.returncode, completed.stdout, log_path
 
 
-def _channel_statistics_from_args(args, master_path=None):
-    """Separate measured master statistics from optional preview-only input."""
+def _channel_statistics_from_args(args, master_path=None, mono=False):
+    """Separate measured master statistics from optional preview-only input.
+
+    Args:
+        args: Parsed command line.
+        master_path: Published master to sample, when one exists.
+        mono: True when the master is a single-channel CFA. Its medians come
+            back as ``{"m": median}`` rather than three RGB keys, and the
+            note must not describe it as a non-RGB master in general.
+    """
     notes = [
         "medians_after are whole-image planar RGB samples after stacking, including "
         "padding and object emission; they are not a sky-only measurement",
         "medians_before were not measured; no uniform per-channel gains were applied",
     ]
+    if mono:
+        notes[0] = (
+            "medians_after is the single whole-image plane of the mono master, "
+            "including padding and object emission; it is not a sky-only "
+            "measurement"
+        )
     measured = None
     rgb_master = False
     if master_path and os.path.exists(master_path) and not args.dry_run:
@@ -1330,7 +1686,16 @@ def _channel_statistics_from_args(args, master_path=None):
             header, _warnings = read_fits_header_with_warnings(master_path)
             rgb_master = header.get("NAXIS") == 3 and header.get("NAXIS3") == 3
             measured = estimate_channel_medians(master_path) or None
-            if not rgb_master:
+            if mono:
+                notes.append(
+                    "single-channel master: RGB channel statistics are not applicable"
+                )
+                if measured is None:
+                    notes.append(
+                        "mono master produced no finite sampled values; the "
+                        "preview midpoint falls back to the default"
+                    )
+            elif not rgb_master:
                 notes.append("non-RGB master: RGB channel statistics are not applicable")
             elif measured is None or len(measured) != 3:
                 raise FitsError("RGB master has no finite sampled values in one or more channels")
@@ -1514,6 +1879,10 @@ def _registration_report(pipeline, transform_summary):
         "span_px": info["span_px"],
         "degradations": info.get("degradations", []),
         "apply_args": list(pipeline["apply"]["args"]),
+        # Recorded so a caller can tell a mono run from a colour one without
+        # re-reading the geometry: True when the profile marks a monochrome
+        # sensor, whether or not the geometry then forced drizzle.
+        "mono_requested": bool(info.get("mono_requested")),
     }
     if pipeline["chain"] == "drizzle":
         report["flat_used"] = "none"
@@ -1555,6 +1924,10 @@ def _stacking_report(pipeline, transform_summary, filtered_in=None):
         "rejmap": stacking["rejmap"],
         "filters": stacking["filters"],
         "notes": stacking["notes"],
+        # The published master's plane count. 2 for the mono chain and for
+        # the PWS engine, 3 otherwise. Declared here so a consumer never has
+        # to open the FITS file to know what it is looking at.
+        "output_naxis": 2 if pipeline["chain"] == "mono" else 3,
     }
     if transform_summary:
         report["frames_registered"] = transform_summary.get("frame_count")
@@ -1574,6 +1947,12 @@ def _chain_disagreement_notes(pipeline, source_summary, header, device,
                               force_chain=None):
     """Review automatic selection against the final pre-transform registration."""
     if not source_summary or force_chain is not None:
+        return []
+    # Mono is decided by the device profile, not by the measured geometry, so
+    # re-running decide_chain here would compare the post-transform summary
+    # against the pre-probe decision and report a disagreement that is really
+    # just the rotation having been taken out. That is not a contradiction.
+    if pipeline["chain"] == "mono":
         return []
     recommendation = decide_chain(classify_input(header), source_summary, device)
     if recommendation["chain"] == "rgb" or pipeline["chain"] == recommendation["chain"]:
@@ -1653,14 +2032,28 @@ def _parse_siril_log(stdout):
 
 
 def _emit_final(report, out_dir, target_name):
-    """Write the report into the output directory even when a stage failed."""
+    """Write the report into the output directory even when a stage failed.
+
+    ``report_path`` is attached before serialising so it actually reaches the
+    file; it used to be assigned afterwards and so was never persisted. A
+    failed write is reported on stderr rather than swallowed: it is exactly
+    the failure a caller would otherwise never notice.
+
+    Every exception is caught, not just ``OSError``: a sandboxed or
+    policy-mediated host can refuse the rename with its own exception type,
+    and a report that cannot be written must degrade to a warning rather than
+    mask whatever the run was actually doing.
+    """
     report.setdefault("timings", {})
     path = os.path.join(out_dir, "%s_report.json" % target_name)
+    payload = dict(report, report_path=path)
     try:
-        write_report(path, report)
-        report["report_path"] = path
-    except OSError:
-        pass
+        write_report(path, payload)
+    except Exception as exc:  # noqa: BLE001 - a lost report must not mask the run
+        _warn("could not write %s: %s: %s"
+              % (path, type(exc).__name__, exc))
+        return
+    report["report_path"] = path
 
 
 def build_parser():
@@ -1684,9 +2077,11 @@ def build_parser():
     parser.add_argument("--rgb-equal", action="store_true",
                         help="explicitly equalize RGB backgrounds in Siril stacking "
                              "(default: off; not PCC/SPCC photometric calibration)")
-    parser.add_argument("--force-chain", choices=["drizzle", "debayer"],
+    parser.add_argument("--force-chain", choices=["drizzle", "debayer", "mono"],
                         default=None,
-                        help="override the automatic CFA chain decision")
+                        help="override the automatic CFA chain decision; mono "
+                             "keeps the frames CFA end to end and requires a "
+                             "profile that marks a monochrome sensor")
     parser.add_argument("--stack-engine", choices=list(STACK_ENGINES),
                         default="siril",
                         help="stacking engine: 'siril' (default) uses the "
@@ -1699,13 +2094,20 @@ def build_parser():
                              "directory containing pws_run.py (default: "
                              "sibling directory of this skill)")
     parser.add_argument("--dry-run", action="store_true",
-                        help="derive parameters and print the script, but do not "
-                             "invoke Siril")
+                        help="derive parameters and write the generated .sir "
+                             "script to stdout; Siril is not invoked (the "
+                             "script is printed only when it was generated "
+                             "successfully)")
     parser.add_argument("--resume", action="store_true",
                         help="reuse an existing work directory where possible")
     parser.add_argument("--keep-work", action="store_true",
                         help="keep the scratch directory even on success, so the "
                              ".seq registration data can be inspected")
+    parser.add_argument("--quiet", action="store_true",
+                        help="suppress the per-stage progress lines on stderr; "
+                             "the closing summary line and any warnings are "
+                             "still printed, and --dry-run still writes the "
+                             "script to stdout")
     parser.add_argument("--timeout", type=int, default=3600,
                         help="Siril timeout in seconds (default: 3600)")
     return parser
@@ -1716,42 +2118,89 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.rgb_equal and args.stack_engine != "siril":
         parser.error("--rgb-equal requires --stack-engine=siril; PWS produces grayscale")
+    # Set on every call rather than at import time, so repeated in-process
+    # calls (the self-test does this) never inherit a previous flag.
+    _set_quiet(args.quiet)
+    out_dir = os.path.abspath(args.out)
+    target = args.target or os.path.basename(
+        os.path.abspath(args.input.rstrip("/"))
+    )
+    report_path = os.path.join(out_dir, "%s_report.json" % target)
     try:
-        return run_pipeline(args)
+        code = run_pipeline(args)
     except KeyboardInterrupt:
         print("interrupted; the work directory was kept for inspection",
               file=sys.stderr)
+        _finish(EXIT_SIRIL_FAILED, report_path)
         return EXIT_SIRIL_FAILED
     except Exception as exc:  # noqa: BLE001 - report, never exit 0 on a crash
         # An uncaught exception must not be reported as success. The report is
         # written best-effort so the failure is still machine-readable.
         traceback_text = traceback.format_exc()
-        try:
-            out_dir = os.path.abspath(args.out)
-            os.makedirs(out_dir, exist_ok=True)
-            target = args.target or os.path.basename(
-                os.path.abspath(args.input.rstrip("/"))
-            )
-            path = os.path.join(out_dir, "%s_report.json" % target)
-            with open(path, "w", encoding="utf-8") as handle:
-                json.dump(
-                    {
-                        "schema_version": SCHEMA_VERSION,
-                        "status": "failed",
-                        "failed_stage": "internal",
-                        "error": "%s: %s" % (type(exc).__name__, exc),
-                        "traceback": traceback_text.splitlines()[-12:],
-                        "target": target,
-                        "input_dir": os.path.abspath(args.input),
-                    },
-                    handle,
-                    indent=2,
-                )
-                handle.write("\n")
-        except OSError:
-            pass
+        _write_internal_report(report_path, target, args.input, exc,
+                               traceback_text)
         traceback.print_exc()
+        _finish(EXIT_SIRIL_FAILED, report_path)
         return EXIT_SIRIL_FAILED
+    _finish(code, report_path)
+    return code
+
+
+def _write_internal_report(report_path, target, input_dir, exc, traceback_text):
+    """Write the crash report, without clobbering a published good result.
+
+    A crash *after* the artifacts were published used to overwrite the
+    complete report with this seven-field stub, which contradicts the rule
+    that a failure never damages the previous good output. In that case the
+    stub goes to a sibling file instead.
+
+    Args:
+        report_path: Where the ordinary report would be written.
+        target: Report target name.
+        input_dir: The input directory, recorded for context.
+        exc: The exception being reported.
+        traceback_text: Formatted traceback, tail of which is persisted.
+    """
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "status": "failed",
+        "failed_stage": "internal",
+        "error": "%s: %s" % (type(exc).__name__, exc),
+        "traceback": traceback_text.splitlines()[-12:],
+        "target": target,
+        "input_dir": os.path.abspath(input_dir),
+        "report_path": report_path,
+    }
+    try:
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        if _report_is_complete(report_path):
+            stem, extension = os.path.splitext(report_path)
+            report_path = "%s.internal%s" % (stem, extension)
+            payload["report_path"] = report_path
+            payload["note"] = (
+                "the previous report at %s describes a completed run and was "
+                "left untouched" % report_path.replace(".internal.json", ".json")
+            )
+        write_report(report_path, payload)
+    except Exception as write_exc:  # noqa: BLE001 - see _emit_final
+        _warn("could not write the crash report %s: %s: %s"
+              % (report_path, type(write_exc).__name__, write_exc))
+
+
+def _report_is_complete(path):
+    """Return True when ``path`` holds the report of a completed run.
+
+    Args:
+        path: Candidate report path.
+
+    Returns:
+        True if the file parses as JSON with ``status == "ok"``.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle).get("status") == "ok"
+    except Exception:  # noqa: BLE001 - any read problem means "not a good report"
+        return False
 
 
 if __name__ == "__main__":

@@ -13,23 +13,71 @@ CFA (NAXIS=2 + BAYERPAT)
   │    seqapplyreg -drizzle -pixfrac=1.0 -kernel=square -framing=max -filter-*
   │    stack rej w 4 3 -maximize -32b
   │
+  ├─ MONO 链路（profile 标记单色传感器）：calibrate -cfa
+  │    register -2pass
+  │    seqapplyreg -framing=current -filter-*
+  │    stack rej w 4 3 -32b
+  │
   └─ DEBAYER 链路：calibrate -cfa -debayer [-equalize_cfa]
        register -2pass
        seqapplyreg -framing=current -filter-*
        stack rej w 4 3 -32b
 ```
 
-**不能混用的原因**（两条二进制消息，非文档）：
+### 3.1.1 去拜耳发生在哪一步（1.4.4 实测）
+
+**默认两条链路**（drizzle / debayer）的最终产物**都是三通道 RGB**，`BAYERPAT` 不会保留；**mono 链路**是唯一例外，产物为 `NAXIS=2` 且 `BAYERPAT` 保留。三者的差别在转换时机：
+
+| 阶段 | drizzle 链路 | debayer 链路 | mono 链路 |
+|---|---|---|---|
+| 输入 | `NAXIS=2` `BAYERPAT=RGGB` | 同 | 同 |
+| `calibrate ... -cfa` | `NAXIS=2` `BAYERPAT=RGGB` **仍单通道** | — | `NAXIS=2` **仍单通道** |
+| `calibrate ... -cfa -debayer` | 不执行 | **`NAXIS=3` `BAYERPAT` 消失** | 不执行 |
+| `seqapplyreg -drizzle` | **`NAXIS=3` `BAYERPAT` 消失** | 不执行 | 不执行 |
+| `seqapplyreg -framing=current` | 不执行 | 已是 RGB | **仍是 `NAXIS=2`** |
+| 母版 | `NAXIS=3` | `NAXIS=3` | **`NAXIS=2`，`BAYERPAT` 保留** |
+
+因此文档里说的「drizzle 保持 CFA」指的是**在 `seqapplyreg` 之前不提前去拜耳**，不是最终产物仍是 CFA。**mono 链路让这句话第一次字面成立**——它全程不转换，所以这句话在 mono 上就是字面意思。实测依据（NGC 6946 六通道，逐阶段读 FITS 头）：
+
+```
+calibrate -cfa              → NAXIS=2  BAYERPAT='RGGB'
+seqapplyreg -drizzle        → NAXIS=3  BAYERPAT=None
+对照：seqapplyreg（无 -drizzle）→ NAXIS=2  BAYERPAT='RGGB'
+```
+
+mono 链路的实测同样如此：`calibrate -cfa` → `register -2pass` → `seqapplyreg -framing=current` → `stack` 得到 `NAXIS=2` / `BAYERPAT='RGGB'`，100% 像素有效、动态范围 0→1.0。
+
+**Siril 1.4.4 没有 `-mono` 参数**（已对二进制核验，`stack` 的用法串里只有 `rej|mean` 与若干 `-flag`）。mono 因此不是叠加上的一枚开关，而是**「不出现 `-debayer`」本身**。这也决定了它与 drizzle 互斥：`seqapplyreg -drizzle` 内部自行去拜耳，无论 `calibrate` 阶段发没发 `-debayer`。
+
+**drizzle 确实要求输入是 CFA**，且会自行去拜耳：对已 `-debayer` 的 RGB 序列使用 drizzle 会被拒绝——
+
+```
+This sequence is not mono / CFA, cannot drizzle.
+```
+
+这条同时解释了「三条链路不可混用」的技术原因（见下）。
+
+**不能混用的原因**（三条二进制消息，非文档）：
 
 ```
 Cannot use drizzle on non-bayer sensors, aborting.
+This sequence is not mono / CFA, cannot drizzle.
 Applying interpolation on a sequence opened as CFA is a bad idea.
 ```
 
-- drizzle 只吃 CFA。先 debayer 就失去 drizzle 能力。
+- drizzle 只吃 CFA。先 debayer 就失去 drizzle 能力（实测拒绝信息如上）。
 - CFA 数据用普通插值会破坏拜耳结构。所以走 drizzle 就不能用普通 seqapplyreg。
+- 反过来 drizzle 会在内部去拜耳，因此 drizzle 链路**不需要**、也**不能**在 `calibrate` 阶段预先 `-debayer`。
 
 `NAXIS=3` → RGB 路径，drizzle 不适用（非 Bayer 传感器）。
+
+### 3.1.2 `Applying interpolation on a sequence opened as CFA is a bad idea.` 在单色传感器上是误报
+
+mono 链路必然触发这条警告（它用 `seqapplyreg -framing=current` 而序列仍是 CFA）。该警告针对**拜耳彩色**阵列：那里像素交错记录红/绿/蓝，普通插值会把颜色插错。
+
+**单色传感器没有这个问题**：每个位置只记录同一个窄带信号的强度，「CFA」只是模拟排列，像素之间不存在可被插值破坏的颜色信息。实测背景处三平面差异仅 1.95e-06（数值噪声量级），亮处的 9% 差异全部来自去拜耳插值权重不同、而非三个波段的信息。
+
+因此 mono 链路的报告里会记录这条警告已被评估并忽略，**不是**被静默吞掉。彩色传感器上 mono 不可用（`--force-chain mono` 被拒），所以不会真的丢色。
 
 ## 3.2 判定阈值
 

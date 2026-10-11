@@ -195,3 +195,5 @@ stack ap_c_astra_ts rej w 4 3 -norm=addscale -weight=wfwhm -maximize -rejmap -32
 ```
 
 `-maximize` 与 `seqapplyreg -framing=max` 配对出现，缺一即被生成器拒绝。自动 CFA 转为 debayer 时上述序列名相应变为 `d_c_<stem>` 和 `ap_d_c_<stem>`。
+
+**mono 链路不使用 `-maximize`**（它走 `-framing=current`，画布不扩展），序列名保持 `ap_c_<stem>`。`-maximize` 仅由 `chain == "drizzle"` 触发，见 `param_derive.derive_stacking`。

@@ -116,6 +116,38 @@ SIGNATURES = [
         },
     },
     {
+        "id": "zwo_asiair_dslr",
+        "class": "traditional",
+        "description": "ZWO ASIAIR driving a DSLR in PTP mode (e.g. Nikon D5100)",
+        "match": {
+            "CREATOR": r"(?i)^zwo\s+asiair",
+        },
+        "any_of": [
+            {"INSTRUME": r"(?i)nikon|canon|pentax|sony"},
+        ],
+        "profile": {
+            "flats_available": True,
+            "dark_embedded": False,
+            "cfa_sensor": "dslr (model from INSTRUME)",
+            "mono_sensor_capable": True,
+            "mount": "equatorial",
+            "field_rotation_per_frame": False,
+            "mosaic_capable": False,
+            "live_stacking": False,
+            "min_pairs": 8,
+            "calibration_optional_keys": ["CCD-TEMP", "GAIN"],
+            "notes": "DSLRs captured via PTP expose no CCD-TEMP and no GAIN "
+                     "keyword; calibration masters are matched on the remaining "
+                     "keywords when both sides lack them. The body is a "
+                     "monochrome sensor behind an external filter wheel, so "
+                     "when the geometry stays within thresholds the mono chain "
+                     "is chosen and the master keeps BAYERPAT as NAXIS=2; "
+                     "override with --device-profile "
+                     "'{\"zwo_asiair_dslr\": {\"mono_sensor_capable\": false}}' "
+                     "to restore the three-channel master.",
+        },
+    },
+    {
         "id": "zwo_seestar_generic",
         "class": "smart",
         "description": "ZWO Seestar family, model not pinned",
@@ -261,27 +293,41 @@ def _float(value):
         return None
 
 
-def match_master(light_header, master_header, tolerance):
+def match_master(light_header, master_header, tolerance, optional_keys=None):
     """Return ``(matched, score, deltas)`` for a light/master pair.
 
     A master matches when every key in ``tolerance`` is present in both headers
     and within tolerance. The score is the sum of normalised deltas, so the
     tightest-fitting master wins.
 
+    Keys listed in ``optional_keys`` are skipped when they are absent from
+    **both** headers. This exists for DSLR-style captures (ASIAIR + camera in
+    PTP mode) where ``CCD-TEMP`` and ``GAIN`` can never be written: requiring
+    them would make calibration matching impossible for the whole class of
+    hardware. If either side *does* carry the key, it is still compared
+    normally, so the relaxation cannot hide a real mismatch.
+
     Args:
         light_header: Header of the light frame being calibrated.
         master_header: Header of the candidate master.
         tolerance: Dict of keyword to allowed absolute deviation, e.g.
             ``{"CCD-TEMP": 2.0, "GAIN": 3.0, "EXPTIME": 0.5}``.
+        optional_keys: Optional iterable of keywords that may be skipped when
+            missing on both sides.
 
     Returns:
         ``(True, score, deltas)`` on success, ``(False, None, None)`` otherwise.
     """
+    optional = set(optional_keys or ())
     deltas = {}
     score = 0.0
     for keyword, allowed in tolerance.items():
         light_value = _float(light_header.get(keyword))
         master_value = _float(master_header.get(keyword))
+        if light_value is None and master_value is None:
+            if keyword in optional:
+                continue
+            return False, None, None
         if light_value is None or master_value is None:
             return False, None, None
         delta = abs(light_value - master_value)
@@ -313,7 +359,24 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
     """
     tolerance = tolerance or {"CCD-TEMP": 2.0, "GAIN": 3.0, "EXPTIME": 0.5}
     profile = device["profile"]
+    optional_keys = list(profile.get("calibration_optional_keys") or ())
     warnings = []
+    if optional_keys:
+        missing = [key for key in optional_keys
+                   if _float(light_header.get(key)) is None]
+        if missing:
+            warnings.append(
+                "calibration matching skips %s: absent from the light header "
+                "(DSLR-style capture), masters are matched on the remaining "
+                "keywords" % "/".join(missing)
+            )
+
+    # EXPTIME only constrains dark matching. Flat and bias masters are always
+    # shot at their own exposure (sub-second bias, ~1 s flats), so comparing
+    # their exposure against the light's would reject every correct master;
+    # flat matching is instead constrained by FILTER equality below.
+    exposure_free_tolerance = {key: value for key, value in tolerance.items()
+                               if key != "EXPTIME"}
     plan = {
         "bias": None,
         "dark": None,
@@ -332,7 +395,8 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
         )
     else:
         plan["dark"] = _pick_master(
-            calibration_dir, "dark", light_header, tolerance
+            calibration_dir, "dark", light_header, tolerance,
+            optional_keys=optional_keys,
         )
         if plan["dark"] is None:
             raise CalibrationMissing(
@@ -344,7 +408,10 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
             )
 
     if profile.get("flats_available"):
-        plan["flat"] = _pick_master(calibration_dir, "flat", light_header, tolerance)
+        plan["flat"] = _pick_master(
+            calibration_dir, "flat", light_header, exposure_free_tolerance,
+            optional_keys=optional_keys, require_filter_match=True,
+        )
         if plan["flat"] is None:
             warnings.append(
                 "master flat not found; proceeding without flat-field correction"
@@ -358,17 +425,30 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
 
     # Bias is optional in both branches: Siril accepts an expression such as
     # -bias="=64*$OFFSET" when the offset is known from the header instead.
-    plan["bias"] = _pick_master(calibration_dir, "bias", light_header, tolerance)
+    plan["bias"] = _pick_master(
+        calibration_dir, "bias", light_header, exposure_free_tolerance,
+        optional_keys=optional_keys,
+    )
 
     return plan
 
 
-def _pick_master(directory, kind, light_header, tolerance):
-    """Return the best-matching master of ``kind``, or ``None``."""
+def _pick_master(directory, kind, light_header, tolerance, optional_keys=None,
+                 require_filter_match=False):
+    """Return the best-matching master of ``kind``, or ``None``.
+
+    With ``require_filter_match=True`` (used for flats) a master whose
+    ``FILTER`` keyword differs from the light's is rejected; masters that do
+    not carry ``FILTER`` at all are still considered, since stacking can strip
+    headers.
+    """
     if not directory or not os.path.isdir(directory):
         return None
 
     from fits_probe import read_fits_header
+
+    light_filter = light_header.get("FILTER")
+    light_filter = str(light_filter).strip().upper() if light_filter else None
 
     best = None
     best_score = None
@@ -388,8 +468,15 @@ def _pick_master(directory, kind, light_header, tolerance):
             master_header = read_fits_header(path)
         except Exception:  # noqa: BLE001 - skip unusable master frame
             continue
+        if require_filter_match and light_filter:
+            master_filter = master_header.get("FILTER")
+            master_filter = (str(master_filter).strip().upper()
+                             if master_filter else None)
+            if master_filter and master_filter != light_filter:
+                continue
         matched, score, _deltas = match_master(
-            light_header, master_header, tolerance
+            light_header, master_header, tolerance,
+            optional_keys=optional_keys,
         )
         if matched and (best_score is None or score < best_score):
             best, best_score = path, score

@@ -19,6 +19,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -55,6 +57,9 @@ from synth_fits import write_cfa_sequence, write_rgb_sequence
 
 PASSED = []
 FAILED = []
+#: stderr lines emitted by astra_stack's _warn during the current test, so a
+#: test can assert that a warning was actually surfaced.
+FAILED_WARNINGS = []
 
 
 def check(label, condition, detail=""):
@@ -69,6 +74,32 @@ def check(label, condition, detail=""):
 
 def section(title):
     print("\n== %s ==" % title)
+
+
+def run_main(argv, entry=None):
+    """Call ``astra_stack.main`` in-process and capture both output streams.
+
+    Keeps the pipeline's progress lines and conclusion line out of the
+    self-test transcript, and gives tests something to assert on.
+
+    Must be called *inside* any ``patch.object`` context whose patches the
+    pipeline depends on, so the patches are still active while it runs.
+
+    Args:
+        argv: Argument list for ``main``.
+        entry: The imported ``astra_stack`` module. Defaults to a local import.
+
+    Returns:
+        ``(exit_code, stdout_text, stderr_text)``.
+    """
+    if entry is None:
+        from astra_stack import main as pipeline_main
+    else:
+        pipeline_main = entry.main
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = pipeline_main(argv)
+    return code, out.getvalue(), err.getvalue()
 
 
 # --------------------------------------------------------------------------
@@ -332,6 +363,33 @@ def test_channel_median_estimation():
     finally:
         os.unlink(temp_path)
 
+    # A mono master is NAXIS=2: one plane, and its median must still be
+    # measured, otherwise the preview silently falls back to a hard-coded
+    # midpoint that has nothing to do with the data.
+    mono_cards = [
+        build_card("SIMPLE", "T"), build_card("BITPIX", "-32"),
+        build_card("NAXIS", "2"), build_card("NAXIS1", str(width)),
+        build_card("NAXIS2", str(height)), build_card("BAYERPAT", "RGGB"),
+        build_card("END", ""),
+    ]
+    mono_header = pad_to_block("".join(mono_cards).encode("ascii"))
+    mono_payload = bytearray()
+    for _y in range(height):
+        for _x in range(width):
+            mono_payload += struct_mod.pack(">f", 0.017)
+    with tempfile.NamedTemporaryFile(suffix=".fits", delete=False) as handle:
+        handle.write(mono_header)
+        handle.write(pad_to_block(bytes(mono_payload)))
+        mono_path = handle.name
+    try:
+        mono_medians = estimate_channel_medians(mono_path)
+        check("mono master yields a single median", len(mono_medians) == 1,
+              mono_medians)
+        check("mono median is recovered",
+              abs(mono_medians.get("m", -1) - 0.017) < 1e-6, mono_medians)
+    finally:
+        os.unlink(mono_path)
+
 
 def test_channel_statistics_contract(tmp):
     section("planar RGB sampling and truthful color report")
@@ -571,6 +629,224 @@ def test_calibration_plan():
               type(exc).__name__ == "CalibrationMissing", type(exc).__name__)
 
 
+def test_chain_demosaic_placement():
+    """The debayer flag must appear in exactly one of the two chains.
+
+    Measured on Siril 1.4.4: both chains end in a three-channel RGB master,
+    but the drizzle chain has to stay CFA through ``calibrate`` because
+    ``seqapplyreg -drizzle`` rejects an already-debayered sequence with
+    ``This sequence is not mono / CFA, cannot drizzle.`` Getting this wrong is
+    silent -- the generated script still renders -- so it is asserted here
+    rather than left to a real run.
+    """
+    section("demosaic placement differs between the two chains")
+    from param_derive import derive_calibration, derive_pipeline
+
+    cfa_header = {"NAXIS": 2, "BAYERPAT": "RGGB", "CCD-TEMP": 10.0,
+                  "GAIN": 80, "EXPTIME": 300.0, "XPIXSZ": 4.77, "YPIXSZ": 4.77}
+    device = {"class": "traditional",
+              "profile": {"flats_available": True, "dark_embedded": False,
+                          "min_pairs": 8}}
+    mono_device = {"class": "traditional",
+                   "profile": {"flats_available": True, "dark_embedded": False,
+                               "min_pairs": 8, "mono_sensor_capable": True}}
+    calibration = {"dark": "/test/d.fit", "bias": "/test/b.fit",
+                   "flat": "/test/f.fit", "cc": {"enabled": False}}
+
+    drizzle_cal = derive_calibration(calibration, {"is_cfa": True}, "drizzle")
+    debayer_cal = derive_calibration(calibration, {"is_cfa": True}, "debayer")
+    mono_cal = derive_calibration(calibration, {"is_cfa": True}, "mono")
+
+    check("drizzle chain does not demosaic during calibration",
+          "-debayer" not in drizzle_cal, drizzle_cal)
+    check("debayer chain demosaics during calibration",
+          "-debayer" in debayer_cal, debayer_cal)
+    check("mono chain does not demosaic during calibration",
+          "-debayer" not in mono_cal, mono_cal)
+    check("mono chain does not equalize RGB layers",
+          "-equalize_cfa" not in mono_cal, mono_cal)
+
+    # And the same must hold through the full pipeline derivation, which is
+    # what actually decides the emitted script. Mono needs a profile that marks
+    # a monochrome sensor, otherwise the request is refused by design.
+    for chain, expects_debayer in (("drizzle", False), ("debayer", True),
+                                   ("mono", False)):
+        chain_device = mono_device if chain == "mono" else device
+        pipeline = derive_pipeline(cfa_header, chain_device, calibration, None,
+                                   force_chain=chain)
+        emitted = list(pipeline["calibrate"])
+        has_debayer = "-debayer" in emitted
+        check("%s pipeline %s an early demosaic"
+              % (chain, "carries" if expects_debayer else "avoids"),
+              has_debayer == expects_debayer, emitted)
+        check("%s pipeline keeps CFA handling in calibration" % chain,
+              ("-cfa" in emitted) or not pipeline.get("is_cfa", True), emitted)
+
+
+#: A device whose profile marks a monochrome sensor: the only case in which
+#: the mono chain may be chosen. Quoted rather than built by identify_device
+#: so this test cannot drift with the signature table.
+MONO_DEVICE = {
+    "id": "test_mono_sensor",
+    "class": "traditional",
+    "profile": {
+        "flats_available": True,
+        "dark_embedded": False,
+        "min_pairs": 8,
+        "mono_sensor_capable": True,
+    },
+}
+
+#: A colour device with the same geometry and calibration: identical inputs
+#: must still pick debayer, so the mono decision keys on the profile alone.
+RGB_DEVICE = {
+    "id": "test_colour_sensor",
+    "class": "traditional",
+    "profile": {
+        "flats_available": True,
+        "dark_embedded": False,
+        "min_pairs": 8,
+    },
+}
+
+MONO_HEADER = {
+    "NAXIS": 2, "BAYERPAT": "RGGB", "BITPIX": 16,
+    "CCD-TEMP": 10.0, "GAIN": 80, "EXPTIME": 300.0,
+    "XPIXSZ": 4.77, "YPIXSZ": 4.77,
+}
+
+MONO_CALIBRATION = {
+    "dark": "/test/d.fit", "bias": "/test/b.fit", "flat": "/test/f.fit",
+    "cc": {"enabled": False},
+}
+
+
+def test_mono_chain():
+    """Mono must be reachable only for a mono sensor and only from debayer.
+
+    Siril 1.4.4 has no ``-mono`` flag (verified against the binary), so
+    "mono" means precisely "never demosaic": ``calibrate -cfa`` with no
+    ``-debayer``, then ``seqapplyreg -framing=current``. Measured end to end
+    that this yields ``NAXIS=2`` with ``BAYERPAT`` intact.
+
+    Drizzle cannot produce mono -- ``seqapplyreg -drizzle`` demosaics
+    internally -- which is why mono is reachable only from the debayer
+    branch and why ``--force-chain mono`` has to bypass the thresholds
+    rather than merely outrank them.
+    """
+    section("mono chain produces a single-channel master")
+    from param_derive import derive_pipeline
+
+    quiet = {"mosaic": False, "rotation_max_deg": 0.5, "scale_dev_max": 0.001,
+             "span": 30.0, "frame_count": 4}
+
+    pipeline = derive_pipeline(MONO_HEADER, MONO_DEVICE, MONO_CALIBRATION, quiet)
+    check("mono device picks the mono chain", pipeline["chain"] == "mono",
+          pipeline["chain"])
+
+    emitted = list(pipeline["calibrate"])
+    check("mono never demosaics during calibration",
+          "-debayer" not in emitted, emitted)
+    check("mono keeps the frames CFA", "-cfa" in emitted, emitted)
+    check("mono does not balance RGB layers",
+          "-equalize_cfa" not in emitted, emitted)
+
+    check("mono uses ordinary interpolation",
+          pipeline["apply"]["args"] == ["-framing=current"],
+          pipeline["apply"]["args"])
+    check("mono does not upscale the canvas",
+          pipeline["stack"]["maximize"] is False, pipeline["stack"])
+
+    reason_text = "; ".join(pipeline["chain_info"]["reasons"])
+    check("mono decision is recorded in the report",
+          "monochrome sensor" in reason_text, reason_text)
+
+    # Same geometry, colour device: the profile must be the only difference,
+    # otherwise the mono decision leaks into ordinary colour work.
+    colour = derive_pipeline(MONO_HEADER, RGB_DEVICE, MONO_CALIBRATION, quiet)
+    check("colour device with identical inputs stays on debayer",
+          colour["chain"] == "debayer", colour["chain"])
+    check("colour device still demosaics",
+          "-debayer" in list(colour["calibrate"]), list(colour["calibrate"]))
+
+
+def test_mono_chain_conflicts():
+    """Drizzle wins over mono, and --force-chain mono overrides that."""
+    section("mono yields to drizzle unless explicitly forced")
+    from param_derive import decide_chain, classify_input, derive_pipeline
+
+    structure = classify_input(MONO_HEADER)
+
+    # Rotation past the threshold forces drizzle, where mono is unreachable.
+    rotated = {"mosaic": False, "rotation_max_deg": 12.0, "scale_dev_max": 0.001,
+               "span": 30.0, "frame_count": 4}
+    decision = decide_chain(structure, rotated, MONO_DEVICE)
+    check("large rotation takes drizzle instead of mono",
+          decision["chain"] == "drizzle", decision["chain"])
+    reason_text = "; ".join(decision["reasons"])
+    check("the refusal names the real reason", "drizzle" in reason_text,
+          reason_text)
+    check("the refusal points at --force-chain mono",
+          "--force-chain mono" in reason_text, reason_text)
+    check("the refusal explains why drizzle cannot stay mono",
+          "NAXIS=2" in reason_text, reason_text)
+
+    # Mosaic spans need -framing=max, which only drizzle provides.
+    mosaic = {"mosaic": True, "rotation_max_deg": 0.1, "scale_dev_max": 0.001,
+              "span": 9000.0, "frame_count": 4}
+    decision = decide_chain(structure, mosaic, MONO_DEVICE)
+    check("a mosaic also takes drizzle", decision["chain"] == "drizzle",
+          decision["chain"])
+    check("mosaic refusal points at --force-chain mono",
+          "--force-chain mono" in "; ".join(decision["reasons"]),
+          decision["reasons"])
+
+    # Explicit override must survive the thresholds, otherwise the suggestion
+    # printed in the refusal would be a lie.
+    forced = derive_pipeline(MONO_HEADER, MONO_DEVICE, MONO_CALIBRATION,
+                             rotated, force_chain="mono")
+    check("forced mono overrides the rotation threshold",
+          forced["chain"] == "mono", forced["chain"])
+    check("forced mono records that it was forced",
+          "--force-chain mono" in "; ".join(forced["chain_info"]["reasons"]),
+          forced["chain_info"]["reasons"])
+    check("forced mono still emits a mono script",
+          "-debayer" not in list(forced["calibrate"])
+          and forced["apply"]["args"] == ["-framing=current"]
+          and forced["stack"]["maximize"] is False,
+          (list(forced["calibrate"]), forced["apply"]["args"]))
+
+    # A colour device asking for mono is refused outright: its frames carry
+    # real Bayer colour data that must not be thrown away.
+    calm = {"mosaic": False, "rotation_max_deg": 0.5, "scale_dev_max": 0.001,
+            "span": 30.0, "frame_count": 4}
+    refused = derive_pipeline(MONO_HEADER, RGB_DEVICE, MONO_CALIBRATION,
+                              calm, force_chain="mono")
+    check("colour sensors cannot force mono",
+          refused["chain"] != "mono", refused["chain"])
+    check("the colour refusal explains the lost colour data",
+          "colour" in "; ".join(refused["chain_info"]["reasons"]).lower()
+          or "bayer" in "; ".join(refused["chain_info"]["reasons"]).lower(),
+          refused["chain_info"]["reasons"])
+
+    # The CLI must actually offer the override the refusal recommends,
+    # otherwise the advice cannot be followed.
+    import astra_stack as entry
+
+    parser = entry.build_parser()
+    try:
+        args = parser.parse_args(["/data", "--out", "/out", "--force-chain", "mono"])
+        check("--force-chain mono is accepted", args.force_chain == "mono",
+              args.force_chain)
+    except SystemExit:
+        check("--force-chain mono is accepted", False, "SystemExit")
+    try:
+        parser.parse_args(["/data", "--out", "/out", "--force-chain", "nonsense"])
+        check("--force-chain still rejects unknown values", False, "no SystemExit")
+    except SystemExit:
+        check("--force-chain still rejects unknown values", True)
+
+
 def test_cosmetic_parameters():
     section("dark-based cosmetic correction requires a master")
     from param_derive import derive_calibration
@@ -579,15 +855,88 @@ def test_cosmetic_parameters():
         for dark in (None, "/test/master dark.fit"):
             for low in (None, 3, 0):
                 plan = {"dark": dark, "cc": {"enabled": enabled, "siglo": low, "sighi": 3}}
-                actual = derive_calibration(plan, {"is_cfa": True}, "drizzle")
-                flags = [arg for arg in actual if arg.startswith("-cc=dark")]
-                expected = []
-                if enabled and dark:
-                    expected = ["-cc=dark 3" if low is None else "-cc=dark %s 3" % low]
-                check("cosmetic enabled=%s dark=%s low=%s" % (enabled, bool(dark), low),
-                      flags == expected, actual)
+                try:
+                    actual = derive_calibration(plan, {"is_cfa": True}, "drizzle")
+                except ValueError:
+                    actual = None
+                if enabled and dark and low is None:
+                    # Measured on siril-cli 1.4.4: only the bare default form
+                    # "-cc=dark" is scriptable; sigma values cannot be passed.
+                    check("cosmetic enabled=%s dark=%s low=%s" % (enabled, bool(dark), low),
+                          actual is not None and "-cc=dark" in actual, actual)
+                elif enabled and dark:
+                    check("custom cc sigmas refused (not scriptable in 1.4.4)",
+                          actual is None, actual)
+                else:
+                    check("cosmetic enabled=%s dark=%s low=%s" % (enabled, bool(dark), low),
+                          actual is not None and "-cc=dark" not in actual, actual)
                 check("cosmetic parameter derivation preserves the policy flag",
                       plan["cc"]["enabled"] is enabled)
+
+
+def test_mono_report_contract():
+    """The report must say whether a mono master was published.
+
+    ``output_naxis`` is the only place a consumer learns the plane count
+    without opening the FITS file, and ``mono_requested`` distinguishes "the
+    profile wanted mono but drizzle was required" from "this was never a mono
+    sensor".
+    """
+    section("mono report contract")
+    import astra_stack as entry
+    from param_derive import classify_input, derive_pipeline
+
+    calm = {"mosaic": False, "rotation_max_deg": 0.5, "scale_dev_max": 0.001,
+            "span": 30.0, "frame_count": 4}
+    rotated = {"mosaic": False, "rotation_max_deg": 12.0, "scale_dev_max": 0.001,
+               "span": 30.0, "frame_count": 4}
+
+    mono = derive_pipeline(MONO_HEADER, MONO_DEVICE, MONO_CALIBRATION, calm)
+    stacking = entry._stacking_report(mono, None)
+    registration = entry._registration_report(mono, None)
+    check("mono declares a two-plane master", stacking["output_naxis"] == 2,
+          stacking["output_naxis"])
+    check("mono is flagged in the registration section",
+          registration["mono_requested"] is True, registration)
+    check("mono registration names the chain",
+          registration["chain"] == "mono", registration["chain"])
+
+    colour = derive_pipeline(MONO_HEADER, RGB_DEVICE, MONO_CALIBRATION, calm)
+    check("colour chain declares a three-plane master",
+          entry._stacking_report(colour, None)["output_naxis"] == 3)
+    check("colour chain is not flagged as mono",
+          entry._registration_report(colour, None)["mono_requested"] is False)
+
+    # Drizzle was forced on a mono sensor: the flag stays on, because the
+    # profile did ask for mono -- that is exactly what a consumer needs to see
+    # in order to understand why a three-channel master appeared.
+    forced = derive_pipeline(MONO_HEADER, MONO_DEVICE, MONO_CALIBRATION, rotated)
+    check("drizzle on a mono sensor still reports three planes",
+          entry._stacking_report(forced, None)["output_naxis"] == 3)
+    check("drizzle on a mono sensor keeps the request visible",
+          entry._registration_report(forced, None)["mono_requested"] is True)
+    check("the drizzle refusal reaches the report reasons",
+          "--force-chain mono" in "; ".join(forced["chain_info"]["reasons"]),
+          forced["chain_info"]["reasons"])
+
+    # Mono is decided by the profile, so re-deciding from the post-transform
+    # summary would report a disagreement that is only the rotation leaving.
+    notes = entry._chain_disagreement_notes(
+        mono, rotated, MONO_HEADER, MONO_DEVICE
+    )
+    check("mono never reports a chain contradiction", notes == [], notes)
+
+    # A colour run still gets the review, so the guard is not blanket.
+    colour_notes = entry._chain_disagreement_notes(
+        colour, rotated, MONO_HEADER, RGB_DEVICE
+    )
+    check("colour runs are still reviewed for contradictions",
+          isinstance(colour_notes, list))
+
+    # The struct classification is untouched: mono frames are still CFA input.
+    structure = classify_input(MONO_HEADER)
+    check("mono input is still classified as CFA",
+          structure["is_cfa"] and structure["frame_kind"] == "cfa", structure)
 
 
 def test_pipeline_branches(tmp):
@@ -667,6 +1016,81 @@ def test_pipeline_branches(tmp):
     check("RGB never uses drizzle", pipeline["chain"] == "rgb", pipeline["chain"])
     check("RGB stack has no -maximize",
           pipeline["stack"]["maximize"] is False)
+
+
+def test_mono_pipeline_end_to_end(tmp):
+    """A mono sensor must produce a script that never demosaics.
+
+    Walks the real derivation and script builder for a DSLR header, so the
+    assertion covers the emitted ``.sir`` text rather than just the parameter
+    dict. The fake Siril is deliberately not involved: what matters here is
+    that the chain Siril would be handed keeps the frames CFA.
+    """
+    section("mono pipeline emits a never-demosaic script")
+    import shlex
+
+    import astra_stack as entry
+    from synth_fits import write_cfa_sequence
+
+    source = os.path.join(tmp, "dslr_src")
+    out = os.path.join(tmp, "dslr_out")
+    write_cfa_sequence(source, 64, 48, 3, headers="dslr")
+    header, _warnings = read_fits_header_with_warnings(
+        sorted(Path(source).glob("*.fit"))[0]
+    )
+
+    device = identify_device(header)
+    check("the DSLR fixture identifies as the ASIAIR profile",
+          device["id"] == "zwo_asiair_dslr", device["id"])
+    check("that profile marks a monochrome sensor",
+          device["profile"].get("mono_sensor_capable") is True,
+          device["profile"])
+
+    calibration = {"dark": "/test/d.fit", "bias": "/test/b.fit",
+                   "flat": "/test/f.fit", "cc": {"enabled": False}}
+    quiet = {"mosaic": False, "rotation_max_deg": 0.4, "scale_dev_max": 0.001,
+             "span": 12.0, "frame_count": 3}
+    pipeline = derive_pipeline(header, device, calibration, quiet)
+    check("the real DSLR header takes the mono chain",
+          pipeline["chain"] == "mono", pipeline["chain"])
+
+    with tempfile.TemporaryDirectory() as work:
+        master = os.path.join(work, "dslr_stacked_32bit.fits")
+        builder, registered = entry.build_script(
+            work, "dslr", pipeline, calibration, master,
+            include_calibration=True, registration_available=True,
+        )
+        text = builder.write(os.path.join(work, "astra_dslr.sir"))
+
+    commands = [shlex.split(line) for line in text.splitlines()
+                if line and not line.startswith("#")]
+    calibrate = next(c for c in commands if c[0] == "calibrate")
+    applyreg = next(c for c in commands if c[0] == "seqapplyreg")
+    stack = next(c for c in commands if c[0] == "stack")
+
+    check("the emitted calibrate command keeps CFA", "-cfa" in calibrate,
+          calibrate)
+    check("the emitted calibrate command has no -debayer",
+          "-debayer" not in calibrate, calibrate)
+    check("the emitted calibrate command has no -equalize_cfa",
+          "-equalize_cfa" not in calibrate, calibrate)
+    check("the emitted apply uses ordinary interpolation",
+          "-framing=current" in applyreg and "-drizzle" not in applyreg,
+          applyreg)
+    check("the emitted stack does not upscale", "-maximize" not in stack,
+          stack)
+    check("mono keeps the same applied sequence name as drizzle",
+          registered == "ap_c_dslr", registered)
+    check("no -rgb_equal reaches a mono script", "-rgb_equal" not in stack,
+          stack)
+
+    # The same body without the profile flag must still demosaic: the mono
+    # decision keys on the profile, not on the CFA structure alone.
+    colour_device = {"class": device["class"], "profile": dict(device["profile"])}
+    colour_device["profile"].pop("mono_sensor_capable")
+    colour_pipeline = derive_pipeline(header, colour_device, calibration, quiet)
+    check("the same header without the profile flag stays on debayer",
+          colour_pipeline["chain"] == "debayer", colour_pipeline["chain"])
 
 
 def test_chain_review():
@@ -869,6 +1293,11 @@ def test_preprocessing_reuse(tmp):
         ("recalibrate-missing-master", 2, None, True, 12, False, 2, 2, "ap_c_flow"),
         ("later-timeout", 2, None, False, 12, False, 1, 1, "ap_c_flow"),
         ("pws-gate-refused", 2, None, False, 12, False, 1, 1, None),
+        # Runs without --keep-work and with the work-directory cleanup
+        # interrupted, reproducing the real-world case where an external
+        # deletion guard kills the process during commit. The published
+        # report must already be final at that point.
+        ("commit-interrupted", 2, None, False, 12, False, 1, 1, "ap_c_flow"),
     ]
     for name, naxis, force, flat, rotation, dry, n_cal, n_reg, applied in cases:
         out = os.path.join(tmp, name)
@@ -967,6 +1396,10 @@ def test_preprocessing_reuse(tmp):
             Path(out).mkdir(parents=True, exist_ok=True)
             Path(out, "flow_stacked_32bit.fits").write_bytes(b"previous good master")
         args = [source, "--out", out, "--target", "flow", "--keep-work"]
+        if name == "commit-interrupted":
+            # Drop --keep-work so the run reaches the scratch cleanup, then let
+            # that cleanup abort the way a deletion guard would.
+            args = [source, "--out", out, "--target", "flow"]
         if force:
             args += ["--force-chain", force]
         if dry:
@@ -985,11 +1418,27 @@ def test_preprocessing_reuse(tmp):
                 patch.object(entry, "_run_siril", side_effect=fake_calibrate), \
                 patch.object(entry.subprocess, "run", side_effect=lambda cmd, **kw: execute(cmd[-1])), \
                 patch.object(entry, "_make_preview", side_effect=fake_preview), \
-                patch.object(entry, "_channel_statistics_from_args", side_effect=lambda a, *unused:
+                patch.object(entry, "_channel_statistics_from_args", side_effect=lambda a, *unused, **kw:
                     {"medians": None, "report": {"medians_before": None, "medians_after": None,
                      "gains_applied": None, "background_equalization": {"requested": a.rgb_equal,
                      "applied": bool(a.rgb_equal and not a.dry_run)}, "notes": []}}):
-            rc = entry.main(args)
+            if name == "commit-interrupted":
+                # Simulate an external deletion guard killing the process during
+                # scratch cleanup: everything the run published must already be
+                # final, because the cleanup is the last thing it does. Only the
+                # commit-stage removal is blocked -- stage_workdir also uses
+                # rmtree to rebuild, and that must keep working.
+                real_rmtree = entry.shutil.rmtree
+
+                def guarded_rmtree(path, *unused, **kwargs):
+                    if str(path).endswith(".work") and kwargs.get("ignore_errors"):
+                        raise KeyboardInterrupt("blocked")
+                    return real_rmtree(path, *unused, **kwargs)
+
+                with patch.object(entry.shutil, "rmtree", side_effect=guarded_rmtree):
+                    rc, stdout_text, stderr_text = run_main(args, entry=entry)
+            else:
+                rc, stdout_text, stderr_text = run_main(args, entry=entry)
         report = json.loads(Path(out, "flow_report.json").read_text())
         cc_notes = [note for note in report["notes"] if note.startswith("dark-based cosmetic correction [")]
         completed_cc = [note for note in cc_notes if "completed successfully" in note]
@@ -1010,6 +1459,29 @@ def test_preprocessing_reuse(tmp):
         if name in ("later-timeout", "pws-gate-refused"):
             check(name + " preserves earlier calibration on failure", rc == 5
                   and len(completed_cc) == 1 and not unconfirmed_cc, cc_notes)
+            continue
+        if name == "commit-interrupted":
+            # The scratch cleanup is the last thing a successful run does. When
+            # an external guard kills the process there, everything already
+            # published must still be final: the snapshot renamed into place by
+            # atomic_publish carries the complete report, not a partial one.
+            check(name + " aborts when cleanup is interrupted", rc == 5, rc)
+            published = report["artifacts"]
+            check(name + " publishes the complete artifact set",
+                  set(published) == {"master", "preview", "report"}
+                  and all(os.path.exists(path) for path in published.values()),
+                  published)
+            check(name + " records commit as the last completed stage",
+                  report["completed_stages"][-1] == "commit", report["completed_stages"])
+            check(name + " records total runtime",
+                  isinstance(report["timings"].get("total_s"), float), report["timings"])
+            check(name + " keeps the published report self-consistent",
+                  report["status"] == "ok" and report.get("failed_stage") is None,
+                  (report["status"], report.get("failed_stage")))
+            check(name + " records its own published path even when interrupted",
+                  report.get("report_path")
+                  == os.path.join(out, "flow_report.json"),
+                  report.get("report_path"))
             continue
         if name in ("no-dark", "cold-no-dark"):
             check(name + " reports not applicable and unknown device correction", len(cc_notes) == 1
@@ -1043,6 +1515,41 @@ def test_preprocessing_reuse(tmp):
         if rc:
             continue
         check(name + " never claims unused gains", report["channel_stats"]["gains_applied"] is None)
+        # Self-describing path: written into the snapshot that gets published,
+        # so downstream readers need not rebuild <out>/<target>_report.json.
+        check(name + " records its own published path",
+              report.get("report_path") == os.path.join(out, "flow_report.json"),
+              report.get("report_path"))
+        if dry:
+            # A dry run generates no master, so it publishes nothing and never
+            # reaches the commit stage. The scratch directory is kept on
+            # purpose; the report must point at it or it is undiscoverable.
+            check(name + " dry-run publishes nothing",
+                  report["artifacts"] == {} and "commit" not in report["completed_stages"],
+                  report["completed_stages"])
+            check(name + " dry-run points at the retained work directory",
+                  report.get("work_dir") == os.path.join(out, "flow.work")
+                  and os.path.isdir(report["work_dir"])
+                  and any("--dry-run" in note and report["work_dir"] in note
+                          for note in report["notes"]),
+                  report.get("work_dir"))
+        else:
+            # The published report must be the final state even if the process
+            # is killed during commit: artifacts/completed_stages/timings are
+            # filled in before atomic_publish renames the snapshot into place.
+            published = report["artifacts"]
+            check(name + " publishes the complete artifact set",
+                  set(published) == {"master", "preview", "report"}
+                  and all(os.path.exists(path) for path in published.values()),
+                  published)
+            check(name + " artifact paths point at the output directory",
+                  all(os.path.dirname(path) == os.path.abspath(out)
+                      for path in published.values()),
+                  published)
+            check(name + " records commit as the last completed stage",
+                  report["completed_stages"][-1] == "commit", report["completed_stages"])
+            check(name + " records total runtime",
+                  isinstance(report["timings"].get("total_s"), float), report["timings"])
         check(name + " truthful equalization state", report["channel_stats"]["background_equalization"]["requested"] == name.endswith("-equal")
               and report["channel_stats"]["background_equalization"]["applied"] == (name.endswith("-equal") and not dry))
         if not dry:
@@ -1562,8 +2069,9 @@ def test_real_rgb_equal(tmp):
             continue
         report=json.loads((out/"color_report.json").read_text())
         reports[enabled]=report
-        check("real color "+out.name+" schema updated",report["schema_version"]=="1.2")
+        check("real color "+out.name+" schema updated",report["schema_version"]=="1.3")
         stats=report["channel_stats"]
+        check("real color "+out.name+" publishes three planes",report["stacking"]["output_naxis"]==3)
         check("real color "+out.name+" truthful state",stats["gains_applied"] is None
               and stats["medians_before"] is None and stats["background_equalization"]["applied"]==enabled)
         check("real color "+out.name+" option only when requested",("-rgb_equal" in report["script_text"])==enabled)
@@ -1757,10 +2265,206 @@ def test_atomic_commit(tmp):
     except RuntimeError:
         check("missing artifact rejected", True)
 
+    # The report predicts its own destinations before publishing, so the two
+    # must agree exactly or the report would name files that do not exist.
+    from astra_stack import _published_paths
+
+    predicted = _published_paths(out, "target", {
+        "master": good, "preview": os.path.join(work, "p.png"),
+        "report": os.path.join(work, "r.json"),
+    })
+    check("predicted names match the published ones",
+          predicted["master"] == os.path.join(out, "target_stacked_32bit.fits")
+          and predicted["preview"] == os.path.join(out, "target.png")
+          and predicted["report"] == os.path.join(out, "target_report.json"),
+          predicted)
+
+
+def test_output_contract(tmp):
+    section("stdout carries the script, stderr narrates the run")
+    from unittest.mock import patch
+
+    import astra_stack as entry
+
+    src = os.path.join(tmp, "contract_src")
+    os.makedirs(src, exist_ok=True)
+    write_cfa_sequence(src, 64, 48, 3)
+
+    # Siril itself is stubbed: this layer only checks the stream contract, and
+    # depending on a local install would make it non-portable.
+    with patch.object(entry, "find_siril", return_value="/test/siril"), \
+            patch.object(entry, "siril_version", return_value="siril 1.4.4"):
+        loud_out = os.path.join(tmp, "contract_loud")
+        code, stdout_text, stderr_text = run_main(
+            [src, "--out", loud_out, "--target", "loud", "--dry-run"])
+        quiet_out = os.path.join(tmp, "contract_quiet")
+        quiet_code, quiet_stdout, quiet_stderr = run_main(
+            [src, "--out", quiet_out, "--target", "quiet", "--dry-run", "--quiet"])
+
+    check("dry-run succeeds", code == 0, code)
+    check("dry-run writes the script to stdout",
+          stdout_text.startswith("#") and "exit" in stdout_text, stdout_text[:120])
+    check("dry-run keeps the script off stderr", "exit" not in stderr_text,
+          stderr_text[-200:])
+    check("dry-run narrates progress by default",
+          stderr_text.count("[astra]") >= 3 and "probe" in stderr_text,
+          stderr_text[:300])
+    check("closing line names the report",
+          "report=%s" % os.path.join(loud_out, "loud_report.json") in stderr_text,
+          stderr_text[-200:])
+
+    check("--quiet run still succeeds", quiet_code == 0, quiet_code)
+    check("--quiet still writes the script to stdout",
+          "exit" in quiet_stdout and "seqapplyreg" in quiet_stdout,
+          quiet_stdout[:120])
+    check("--quiet drops the progress lines but keeps the conclusion",
+          "probe:" not in quiet_stderr and quiet_stderr.count("[astra]") == 1
+          and " OK " in quiet_stderr,
+          quiet_stderr)
+    check("--quiet conclusion names its own report",
+          "report=%s" % os.path.join(quiet_out, "quiet_report.json") in quiet_stderr,
+          quiet_stderr[-200:])
+
+
+def test_report_atomicity(tmp):
+    section("report writes never leave a truncated file")
+    from unittest.mock import patch
+
+    import astra_stack as entry
+    from astra_stack import write_report
+
+    out = os.path.join(tmp, "atomic_report")
+    os.makedirs(out, exist_ok=True)
+    path = os.path.join(out, "atomic_report.json")
+    write_report(path, {"status": "ok", "target": "atomic"})
+
+    def exploding_dump(payload, handle, **kwargs):
+        # Emit a plausible prefix, then fail: this is what a serialisation
+        # error or a kill mid-write looks like on disk.
+        handle.write('{"status": "ok", "targ')
+        raise TypeError("simulated serialisation failure")
+
+    with patch.object(entry.json, "dump", side_effect=exploding_dump):
+        try:
+            write_report(path, {"status": "failed"})
+            check("write failure propagates", False, "no exception")
+        except TypeError:
+            check("write failure propagates", True)
+
+    with open(path, "r", encoding="utf-8") as handle:
+        survived = json.load(handle)
+    check("previous report survives a failed rewrite",
+          survived == {"status": "ok", "target": "atomic"}, survived)
+    leftovers = [name for name in os.listdir(out) if name.endswith(".tmp")]
+    check("failed rewrite leaves no scratch file", not leftovers, leftovers)
+
+    # A failure with no previous report must not leave a half-written one.
+    fresh = os.path.join(out, "fresh_report.json")
+    with patch.object(entry.json, "dump", side_effect=exploding_dump):
+        try:
+            write_report(fresh, {"status": "failed"})
+        except TypeError:
+            pass
+    check("failed first write creates nothing", not os.path.exists(fresh))
+    check("failed first write leaves no scratch file",
+          not [name for name in os.listdir(out) if name.endswith(".tmp")],
+          os.listdir(out))
+
+    # A policy-mediated host (sandbox, file-policy agent) can refuse the rename
+    # with an exception that is not an OSError. Such a refusal must degrade to
+    # a warning, never propagate and mask what the run was actually doing.
+    class PolicyRefusal(Exception):
+        """Stand-in for a host agent's own exception type."""
+
+    def refuse(source, destination):
+        raise PolicyRefusal("rename refused by file policy")
+
+    guarded = os.path.join(out, "guarded_report.json")
+    del FAILED_WARNINGS[:]
+    real_warn = entry._warn
+    # Swallow the deliberately provoked warnings: they are asserted through
+    # FAILED_WARNINGS, and printing them would only pollute the transcript.
+    entry._warn = FAILED_WARNINGS.append
+    try:
+        with patch.object(entry.os, "replace", side_effect=refuse):
+            try:
+                write_report(guarded, {"status": "ok"})
+                check("policy refusal propagates out of write_report", False,
+                      "no exception")
+            except PolicyRefusal:
+                check("policy refusal propagates out of write_report", True)
+
+            # Must degrade to a warning instead of propagating.
+            entry._emit_final({"status": "ok"}, out, "guarded")
+            check("_emit_final survives a non-OSError refusal", True)
+
+            # And the crash path must not blow up either.
+            entry._write_internal_report(os.path.join(out, "crash_report.json"),
+                                         "t", "/nonexistent",
+                                         ValueError("boom"), "Traceback...")
+            check("_write_internal_report survives a non-OSError refusal", True)
+    finally:
+        entry._warn = real_warn
+
+    check("non-OSError refusal is reported, not silent",
+          any("could not write" in line for line in FAILED_WARNINGS),
+          FAILED_WARNINGS)
+    check("the warning names the exception type",
+          any("PolicyRefusal" in line for line in FAILED_WARNINGS),
+          FAILED_WARNINGS)
+    check("_report_is_complete tolerates a missing path",
+          entry._report_is_complete(os.path.join(out, "does-not-exist.json"))
+          is False)
+
+
+def test_mixed_filter_refusal(tmp):
+    section("mixed-filter input is refused, not silently stacked")
+    from astra_stack import EXIT_UNSUPPORTED_INPUT, main
+
+    mixed = os.path.join(tmp, "mixed")
+    os.makedirs(mixed, exist_ok=True)
+    write_cfa_sequence(mixed, 64, 48, 2)
+    # Synthetic frames carry FILTER='IRCUT'; patch one frame to 'R' in place
+    # (same card width) to fabricate a mixed directory.
+    second = sorted(
+        os.path.join(mixed, name) for name in os.listdir(mixed)
+    )[1]
+    with open(second, "rb") as handle:
+        data = handle.read()
+    assert b"FILTER  = 'IRCUT   '" in data
+    data = data.replace(b"FILTER  = 'IRCUT   '", b"FILTER  = 'R       '", 1)
+    with open(second, "wb") as handle:
+        handle.write(data)
+
+    out = os.path.join(tmp, "mixed_out")
+    code, stdout_text, stderr_text = run_main([mixed, "--out", out])
+    check("mixed-filter run exits UNSUPPORTED_INPUT",
+          code == EXIT_UNSUPPORTED_INPUT, code)
+    report_path = os.path.join(out, "mixed_report.json")
+    with open(report_path, "r", encoding="utf-8") as handle:
+        report = json.load(handle)
+    check("refusal names both filters",
+          "IRCUT" in (report.get("error") or "")
+          and "R" in (report.get("error") or ""),
+          report.get("error"))
+    check("refusal happened in probe stage",
+          report.get("failed_stage") == "probe", report.get("failed_stage"))
+    check("no master published",
+          not os.path.exists(os.path.join(out, "mixed_stacked_32bit.fits")))
+    # The report has always been written; stderr used to be empty, which left a
+    # caller with an exit code and nothing to explain it.
+    check("refusal keeps stdout clean", stdout_text == "", stdout_text[:120])
+    check("refusal explains itself on stderr",
+          "[astra]" in stderr_text and "FAILED" in stderr_text
+          and "exit=%d" % EXIT_UNSUPPORTED_INPUT in stderr_text
+          and "stage=probe" in stderr_text
+          and report_path in stderr_text,
+          stderr_text[-300:])
+    check("refusal does not claim success", " OK " not in stderr_text, stderr_text)
+
 
 def test_failure_isolation(tmp):
     section("failure keeps the previous good result")
-    from astra_stack import main
 
     src = os.path.join(tmp, "src")
     out = os.path.join(tmp, "out")
@@ -1773,16 +2477,30 @@ def test_failure_isolation(tmp):
     lone = os.path.join(tmp, "lone")
     os.makedirs(lone, exist_ok=True)
     write_cfa_sequence(lone, 64, 48, 1)
-    code = main([lone, "--out", out])
+    code, _, stderr_text = run_main([lone, "--out", out])
     check("single-frame run fails", code != 0, code)
     with open(marker, "r", encoding="ascii") as handle:
         content = handle.read()
     check("previous result untouched", content == "PREVIOUS GOOD RESULT", content)
+    check("failure names the exit code and stage",
+          "exit=%d" % code in stderr_text and "stage=probe" in stderr_text,
+          stderr_text[-200:])
 
 
 # --------------------------------------------------------------------------
 # entry point
 # --------------------------------------------------------------------------
+
+def test_composition_preparation():
+    import unittest
+    from test_prepare_composition import CompositionTests
+
+    section("composition preparation")
+    output = io.StringIO()
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(CompositionTests)
+    result = unittest.TextTestRunner(stream=output).run(suite)
+    check("composition unit tests pass", result.wasSuccessful(), output.getvalue())
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1795,6 +2513,7 @@ def main():
 
     tmp = tempfile.mkdtemp(prefix="astra-selftest-")
     try:
+        test_composition_preparation()
         test_sequence_stem()
         test_fits_roundtrip(tmp)
         test_rejected_inputs(tmp)
@@ -1802,6 +2521,11 @@ def main():
         test_seq_parsing(tmp)
         test_device_identification(tmp)
         test_calibration_plan()
+        test_chain_demosaic_placement()
+        test_mono_chain()
+        test_mono_chain_conflicts()
+        test_mono_report_contract()
+        test_mono_pipeline_end_to_end(tmp)
         test_cosmetic_parameters()
         test_pipeline_branches(tmp)
         test_chain_review()
@@ -1819,6 +2543,9 @@ def main():
         test_pws_black_corners(tmp)
         test_pws_xisf_conversion(tmp)
         test_atomic_commit(tmp)
+        test_output_contract(tmp)
+        test_report_atomicity(tmp)
+        test_mixed_filter_refusal(tmp)
         test_failure_isolation(tmp)
         if args.real:
             test_real_pipeline(tmp, args.keep)

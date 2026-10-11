@@ -27,6 +27,8 @@ references/06-siril-1.4-constraints.md
 references/07-failure-and-resume.md
 references/08-pws-engine.md
 scripts/astra_stack.py
+scripts/prepare_composition.py
+scripts/test_prepare_composition.py
 scripts/device_signatures.py
 scripts/fits_probe.py
 scripts/param_derive.py

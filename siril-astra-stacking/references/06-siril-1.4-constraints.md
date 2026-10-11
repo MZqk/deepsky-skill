@@ -101,7 +101,20 @@ targetXY  → targetXY
 
 正确顺序：`calibrate` → `register -2pass`（探测）→ 读并验证 `.seq` 判链路 → 复用同一数据状态的注册信息 → `seqapplyreg -filter-*` → `stack`。格式转换后保留必要的重新注册。
 
-## 6.6 `-framing=max` 依赖 drizzle 权重
+## 6.6 `-cc=dark` 的 sigma 不可脚本化（实测 1.4.4）
+
+手册（`commands/calibrate.rst`）写 `-cc=dark` 后可跟 `siglo`/`sighi`，**CLI 实际不接受**：
+
+| 写法 | 实测结果 |
+|---|---|
+| `-cc=dark 3` | `Unknown parameter 3, aborting.` —— 解析器不消费后续数字；日志里 "using sigma 3.00 for hot pixels" 是内置默认值的输出，不是读到了参数 |
+| `-cc=dark=3` | `Unknown argument -cc=dark=3, aborting.` |
+| `"-cc=dark 3"`（整体加引号） | `Unknown argument -cc=dark 3, aborting.` —— 引号使它成为单个 token |
+| `-cc=dark`（裸写） | ✅ 热像元 sigma 3、冷像元关闭（即默认值） |
+
+**生成器行为**：只输出裸 `-cc=dark`（等价于计划默认 `siglo=None, sighi=3`）；自定义 sigma 直接拒绝（`ValueError`），绝不静默降级成默认值。
+
+## 6.7 `-framing=max` 依赖 drizzle 权重
 
 ```
 Drizzle stacking cannot be performed because drizzle weights are missing.
@@ -121,7 +134,7 @@ Framing method "cog" requires all images to be of same size, aborting
 Cannot compute overlap statistics if -maximize is not enabled. Disabling
 ```
 
-## 6.7 静默降级清单（最危险）
+## 6.8 静默降级清单（最危险）
 
 这些**只记日志、不报错、不中断**：
 
@@ -133,10 +146,11 @@ Cannot compute overlap statistics if -maximize is not enabled. Disabling
 
 对策：生成期静态校验拦截前两项；第三项在参数层直接不生成该 flag。
 
-## 6.8 drizzle 的约束
+## 6.9 drizzle 的约束
 
 ```
 Cannot use drizzle on non-bayer sensors, aborting.
+This sequence is not mono / CFA, cannot drizzle.
 Cannot drizzle sequences with images of different sizes, aborting.
 Applying interpolation on a sequence opened as CFA is a bad idea.
 Drizzle: CFA pattern mismatch between reference image and image #%d, using reference pattern.
@@ -148,7 +162,51 @@ Drizzle: CFA pattern mismatch between reference image and image #%d, using refer
 
 > `Note: when using -drizzle on images taken with a color camera, the input images must not be debayered. In that case, star detection will always occur on the green pixels`
 
-## 6.9 `-minpairs` 默认 8
+### 6.9.1 drizzle 会自行去拜耳（1.4.4 实测，文档未载）
+
+对已经 `-debayer` 的 RGB 序列使用 drizzle，被拒绝的信息是上面第二条：
+
+```
+This sequence is not mono / CFA, cannot drizzle.
+```
+
+由此可确认：**drizzle 要求输入仍是 CFA，并在内部完成去拜耳**。逐阶段实测（NGC 6946 S 桶，读 FITS 头）：
+
+```
+calibrate -cfa                      → NAXIS=2  BAYERPAT='RGGB'
+seqapplyreg -drizzle                → NAXIS=3  BAYERPAT=None    ← 转换发生在这里
+对照：seqapplyreg -framing=current  → NAXIS=2  BAYERPAT='RGGB'
+```
+
+因此**默认两条链路**（drizzle / debayer）的**最终产物都是三通道 RGB**，`BAYERPAT` 不保留；差别只在转换时机（debayer 链路在 `calibrate`，drizzle 链路在 `seqapplyreg`）。这条也是「drizzle 链路不能在 `calibrate` 阶段预先 `-debayer`」的技术原因，代码里的 `-debayer` 只挂在 `chain == "debayer"` 分支上，`selftest.py::test_chain_demosaic_placement` 守住这个不变量。
+
+### 6.9.2 `stack` 没有 `-mono`（1.4.4 实测，文档未载）
+
+`stack` 的完整用法串（从二进制核验）：
+
+```
+stack seqfilename { rej | mean } [rejection type] [sigma_low sigma_high] [-rejmap[s]]
+  [-nonorm, -norm=] [-fastnorm] [-overlap_norm] [-weight={noise|wfwhm|nbstars|nbstack}]
+  [-feather=] [-rgb_equal] [-output_norm] [-out=filename] [-maximize] [-upscale] [-32b]
+```
+
+**没有 `-mono`**。`strings` 里唯一的 `-mono*` 是 `-monosensor=`（SPCC 参数，无关）。所以单通道母版不可能靠叠加上加一个开关实现，只能靠**全程不去拜耳**：`calibrate -cfa`（无 `-debayer`）→ `register -2pass` → `seqapplyreg -framing=current` → `stack`，实测得到 `NAXIS=2` / `BAYERPAT='RGGB'`，100% 像素有效、动态范围 0→1.0。
+
+这条与 6.9.1 合起来说明 mono 与 drizzle **互斥**：drizzle 无论 `calibrate` 阶段如何都会内部去拜耳，所以 mono 只能从 debayer 分支进入。
+
+**覆盖缺口**：`seqapplyreg -drizzle` 在自检的合成 CFA 夹具（3 帧 64×48，`BAYERPAT=GRBG`）上报 `Error in line 3 ('seqapplyreg'): invalid arguments.`，而真实数据可用——drizzle 对序列另有隐含要求（帧数/尺寸/模式），合成夹具覆盖不到该路径。因此 drizzle 的**脚本生成**有断言覆盖，**实际执行**只有真实数据验证过。
+
+mono 链路走 `-framing=current`，与 debayer 同路径，**不受这条限制**；但它的实际执行同样只有真实数据验证过。
+
+### 6.9.4 极窄带母版的中位数可能是 0.0
+
+实测 NGC 6946 的 Hα 与 SII 窄带桶走 mono 后，`estimate_channel_medians` 返回 `{"m": 0.0}`：这两个滤镜极窄，扣掉天空背景后整幅图 **74% 的像素精确为 0**（对比 G 桶为 0%）。这不是采样失败——`>0` 的像素占 25.56%、99 分位 0.00044，数据本身有效。
+
+后果是预览中点：`0.0 × 2.0` 被裁剪到下限 `0.01`，而非无数据时的默认 `0.028`。**该行为与 RGB 路径完全一致**（`{'r':0,'g':0,'b':0}` 同样得 `mid=0.01`），不是 mono 引入的偏差。
+
+顺带发现一个**既有**问题（RGB 路径同样存在，本版未改）：`report.preview.derived_from` 写 `... median 0.000000 x 2.0`，而实际 `mid` 是裁剪后的 `0.01`，**文案与数值不符**。
+
+## 6.10 `-minpairs` 默认 8
 
 ```
 log: Not enough star pairs (7): Image 1 skipped
@@ -161,7 +219,7 @@ Siril 默认要求 8 对星。小视场智能望远镜数据常只有 6–7 颗�
 
 星点检测在**绿通道**（`Findstar: processing for channel 1`）——合成数据若绿通道信号弱会检测不到星。
 
-## 6.10 脚本文件的限制
+## 6.11 脚本文件的限制
 
 | 限制 | 说明 |
 |---|---|
@@ -183,7 +241,7 @@ Siril 默认要求 8 对星。小视场智能望远镜数据常只有 6–7 颗�
 
 > `If you want to provide an argument that includes a string with spaces, for example a filename, you need to quote the entire argument not just the string.`
 
-## 6.11 不可脚本化的命令（scriptable=0）
+## 6.12 不可脚本化的命令（scriptable=0）
 
 ```
 setmag  seqsetmag  sequnsetmag  unsetmag
@@ -192,7 +250,7 @@ load_seq  ls  dir  clear  show  visu  tilt
 
 `load_seq` 不可用意味着序列名**不能用 `.` 替代**——必须显式写序列名。
 
-## 6.12 sirilpy 在 CLI 下不可用
+## 6.13 sirilpy 在 CLI 下不可用
 
 ```
 pyscript xxx.py
@@ -209,7 +267,7 @@ pyscript xxx.py
 - 无法用 `get_seq_regdata` 读变换 → 改解析 `.seq` 文本（见 03）
 - RGB 背景均衡可显式使用原生 `stack -rgb_equal`；统计由标准库读取 FITS 平面，外部中位数仅作为预览后备，不执行通道增益。
 
-## 6.13 禁用清单
+## 6.14 禁用清单
 
 ### 命令
 
@@ -248,7 +306,7 @@ seqsubsky sequencename { -rbf | degree } [-nodither] [-samples=20] [-tolerance=1
 
 需要 WCS 时走 `seqplatesolve` + `seqapplyreg`（1.3 引入的 astrometric registration），不是本工具的范围。
 
-## 6.14 其它实测细节
+## 6.15 其它实测细节
 
 ### `savepng` 自加后缀
 
@@ -264,6 +322,22 @@ savepng /tmp/out.png   →   实际写入 /tmp/out.png.png
 
 Siril 未定义结构化退出码语义。任一命令失败 → 脚本停止 → 退出码非 0（实测 1）。**无法区分是哪一步失败**，因此必须抓 `Error in line N ('cmdname')` 日志行来定位。
 
+### `failed to create new file (already exists?)` 不等于磁盘满
+
+```
+log: FITS error: failed to create new file (already exists?):
+log: FITS error: c_<stem>_NNNN.fit
+log: Sequence processing failed. Check the log.
+```
+
+这句容易被读成空间不足。**实测在磁盘空闲 65 GiB 时同样出现**，而目标文件往往已存在且大小正常——真正的含义是 Siril 无法创建输出文件（同名已存在、或写入被宿主策略/沙箱拦截），与磁盘余量无关。
+
+排查顺序：①`df -h` 确认余量（排除真空间不足）；②`ls -la` 看目标文件是否已存在且非空；③看是否运行在受限宿主下（沙箱/文件策略会拦截写入）。**不要只看这一句就断定是磁盘问题**——真实案例中一次是空间耗尽、另一次是策略拦截，症状完全一样。
+
+### 多帧序列的中途失败会留下半成品
+
+上述错误发生在序列处理中途时，work 目录里已写出一批 `c_<stem>NNNN.fit`（本例 69 帧全部存在、大小正常），但整批仍是失败的。**不能因为文件都在就认为处理成功**——以 Siril 的 `Script execution failed.` 与本工具报告的 `failed_stage` 为准。重跑前必须清掉 work 目录，否则残留文件会让下一次 `stage_workdir` 之外的路径判断产生混淆。
+
 ### 配置文件写入失败（macOS 沙箱）
 
 ```
@@ -273,6 +347,6 @@ log: Could not save the settings in .../config.1.4.ini: Failed to rename file ..
 
 在受限环境下属正常现象，不影响处理结果。
 
-## 6.15 文档版本差异
+## 6.16 文档版本差异
 
 `siril.readthedocs.io` 当前默认是 **1.5.0**，但 1.4 的命令在 1.5 中基本保留。**以本文件为准**，因为内容基于 1.4.4 实测。

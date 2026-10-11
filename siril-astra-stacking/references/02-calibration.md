@@ -51,9 +51,19 @@ Seestar 的暗场在**每次开机初始化时**拍摄并应用到导出帧。�
 tolerance = {"CCD-TEMP": 2.0, "GAIN": 3.0, "EXPTIME": 0.5}
 ```
 
-匹配要求三个关键字**都存在**且都在容差内。评分 = 归一化偏差之和，最紧的母帧胜出。
+匹配按母帧类型分键集：
 
-任何关键字缺失或超容差即判不匹配——不做"只按温度匹配"这类降级。
+| 母帧 | 参与匹配的键 | 说明 |
+|---|---|---|
+| dark | `CCD-TEMP`、`GAIN`、`EXPTIME` | 全键比较；评分 = 归一化偏差之和，最紧者胜出 |
+| flat | `CCD-TEMP`、`GAIN` **＋ FILTER 一致性** | `EXPTIME` 不参与——平场永远按自己的曝光拍，与 light 曝光比较会拒绝所有正确母帧；light 与母帧都带 `FILTER` 时必须相等，母帧缺 `FILTER` 时跳过该检查 |
+| bias | `CCD-TEMP`、`GAIN` | bias 可选，缺失只产生 warning |
+
+签名 profile 可声明 `calibration_optional_keys`（如单反的 `["CCD-TEMP", "GAIN"]`）：这些键**在 light 与母帧两侧都缺失时跳过**——单反经 PTP 拍摄物理上不产生这两键，强制要求会让整类设备无法校准。任一侧存在时仍正常比较，松弛不会掩盖真实失配。跳过时报告会写入对应 warning。
+
+任何未被豁免的关键字缺失或超容差即判不匹配——不做"只按温度匹配"这类降级。
+
+**PixInsight 母帧陷阱**：XISF 集成产物常以 `DATE-OBS`/`DATE-END` 替代 `EXPTIME`，转成 FITS 后 dark 匹配会因缺 `EXPTIME` 失败。需要人工确认源暗场曝光后注入该键（附 HISTORY 注明来源），工具不猜测。
 
 ### 目录约定
 
@@ -89,10 +99,14 @@ derive_calibration(calibration_plan, structure, chain)
 | 有 bias | `-bias=<path>` |
 | 有 dark | `-dark=<path>` |
 | 有 flat | `-flat=<path>` |
-| 有 dark **且** `cc.enabled` | `-cc=dark <sighi>` 或 `-cc=dark <siglo> <sighi>` |
+| 有 dark **且** `cc.enabled` | `-cc=dark`（裸写，见下） |
 | `structure.is_cfa` | `-cfa` |
 | CFA **且** chain == debayer | `-debayer` |
 | CFA **且** debayer **且** 有 flat | `-equalize_cfa` |
+
+### `-cc=dark` 只能裸写
+
+**实测 1.4.4**：手册声称 `-cc=dark [siglo] sighi`，但 CLI 实测 `-cc=dark 3` 报 `Unknown parameter 3`、`-cc=dark=3` 与整体加引号均被拒，**只有裸 `-cc=dark` 可用**（等价于热像元 sigma 3、冷像元关闭，即计划默认值）。生成器只输出裸形式；自定义 sigma 直接拒绝，绝不静默降级。详见 06 文档 6.6。
 
 ### 三个易错点
 
@@ -109,7 +123,7 @@ derive_calibration(calibration_plan, structure, chain)
 若母帧路径含空格，整个 token 必须加引号：
 
 ```
-calibrate sub "-dark=/masters/my dark.fit" -cc=dark 3
+calibrate sub "-dark=/masters/my dark.fit" -cc=dark
 ```
 
 而不是 `-dark="/masters/my dark.fit"`。生成器在 `siril_script_gen.quote_argument()` 中处理。

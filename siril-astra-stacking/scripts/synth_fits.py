@@ -73,6 +73,33 @@ TRADITIONAL_HEADER_FIELDS = [
 ]
 
 
+#: A DSLR body driven over PTP by an ASIAIR. The signature table marks this
+#: profile ``mono_sensor_capable``, so a CFA sequence written with these cards
+#: takes the mono chain; ``TRADITIONAL_HEADER_FIELDS`` above identifies a
+#: colour mono CMOS and must stay on debayer.
+DSLR_HEADER_FIELDS = [
+    ("TELESCOP", "'EQMod Mount'", "Telescope used to acquire this image"),
+    ("INSTRUME", "'Nikon DSC D5100'", "Instrument name"),
+    ("FILTER", "'L           '", "Active filter name"),
+    ("BAYERPAT", "'RGGB       '", "Bayer colour pattern"),
+    ("OBJECT", "'NGC 6946   '", "Name of the object of interest"),
+    ("EXPTIME", "300.", "[s] Exposure time duration"),
+    ("FOCALLEN", "250.", "[mm] Focal length"),
+    ("XPIXSZ", "4.76999998092651", "[um] Pixel X axis size"),
+    ("YPIXSZ", "4.76999998092651", "[um] Pixel Y axis size"),
+    ("IMAGETYP", "'Light '", "Type of image"),
+    ("CREATOR", "'ZWO ASIAIR'", "Capture software"),
+    ("PRODUCER", "'ZWO '", "Powered by ZWO"),
+]
+
+#: Header sets selectable by name from :func:`write_cfa_sequence`.
+HEADER_SETS = {
+    "smart": SMART_HEADER_FIELDS,
+    "traditional": TRADITIONAL_HEADER_FIELDS,
+    "dslr": DSLR_HEADER_FIELDS,
+}
+
+
 def _header(cards, width, height, bitpix, naxis, naxis3=None):
     entries = [
         build_card("SIMPLE", "T", "file does conform to FITS standard"),
@@ -136,7 +163,7 @@ def _transformed_stars(width, height, index, dx_step, dy_step, rotation_deg):
 
 def write_cfa_sequence(out_dir, width, height, frames, dx_step=3, dy_step=-2,
                        rotation_deg=0.0, smart=True, prefix="sub",
-                       blur_per_frame=0.0, vignetting=True):
+                       blur_per_frame=0.0, vignetting=True, headers=None):
     """Write a CFA (``NAXIS=2``) FITS sequence with known transforms.
 
     ``blur_per_frame`` adds that much Gaussian sigma-squared per frame index
@@ -144,12 +171,18 @@ def write_cfa_sequence(out_dir, width, height, frames, dx_step=3, dy_step=-2,
     with 20 frames and ``blur_per_frame=1.4`` the last frame's stars are twice
     as wide as the first's, which is what the PWS gate's dispersion test needs.
 
+    ``headers`` names an entry of :data:`HEADER_SETS` to identify the body; it
+    defaults to ``"smart"`` when ``smart`` is true and ``"traditional"``
+    otherwise. ``"dslr"`` exists because the mono chain is keyed on the device
+    profile, and a colour mono CMOS body would not reach it.
+
     Returns:
         List of ``(path, truth_dict)`` where ``truth_dict`` holds the intended
         ``dx``/``dy``/``rotation_deg`` for that frame.
     """
     os.makedirs(out_dir, exist_ok=True)
-    cards = SMART_HEADER_FIELDS if smart else TRADITIONAL_HEADER_FIELDS
+    key = headers or ("smart" if smart else "traditional")
+    cards = HEADER_SETS[key]
     header = _header(cards, width, height, 16, 2)
 
     written = []

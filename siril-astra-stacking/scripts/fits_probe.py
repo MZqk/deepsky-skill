@@ -488,34 +488,39 @@ def data_offset(path):
     raise FitsError("%s: no END card found in the first %d bytes" % (path, len(header)))
 
 
-def estimate_channel_medians(path, max_samples=200000):
-    """Sample physical RGB values from a planar Float32 FITS primary image.
+def _sample_plane_medians(path, header, channel_names, max_samples):
+    """Sample the same spatial positions in each plane of a planar FITS image.
 
-    FITS stores x fastest, then y, then the channel planes. The same spatial
-    positions are sampled in each plane within the total sample budget. These
-    are whole-image medians (including padding), not a sky-background estimate.
+    Shared by the RGB and mono branches of :func:`estimate_channel_medians`;
+    the plane count comes from ``len(channel_names)``.
+
+    Args:
+        path: FITS primary image with planar float planes.
+        header: Parsed header of ``path``.
+        channel_names: Keys for the returned dict, one per plane.
+        max_samples: Total sample budget across all planes.
+
+    Returns:
+        Dict of channel name to whole-image median, omitting empty planes.
     """
-    header = read_fits_header(path)
-    if (header.get("BITPIX") != -32 or header.get("NAXIS") != 3
-            or header.get("NAXIS3") != 3):
-        return {}
     width, height = header.get("NAXIS1"), header.get("NAXIS2")
     if type(width) is not int or type(height) is not int or min(width, height) < 1:
-        raise FitsError("invalid RGB image dimensions")
-    if type(max_samples) is not int or max_samples < 3:
-        raise ValueError("RGB sampling budget must be at least three")
+        raise FitsError("invalid image dimensions")
+    planes = len(channel_names)
+    if type(max_samples) is not int or max_samples < planes:
+        raise ValueError("sampling budget must cover every plane")
     scale, zero = header.get("BSCALE", 1), header.get("BZERO", 0)
     if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (scale, zero)):
         raise FitsError("invalid FITS pixel scaling")
     pixels = width * height
-    stride = max(1, (pixels + max_samples // 3 - 1) // (max_samples // 3))
+    stride = max(1, (pixels + max_samples // planes - 1) // (max_samples // planes))
     row_bytes, plane_bytes = width * 4, pixels * 4
     offset = data_offset(path)
-    if os.path.getsize(path) < offset + plane_bytes * 3:
-        raise FitsError("truncated RGB FITS primary image")
+    if os.path.getsize(path) < offset + plane_bytes * planes:
+        raise FitsError("truncated planar FITS primary image")
     medians = {}
     with open(path, "rb") as handle:
-        for channel, name in enumerate(("r", "g", "b")):
+        for channel, name in enumerate(channel_names):
             collected = []
             for y in range(height):
                 first = (-y * width) % stride
@@ -524,7 +529,7 @@ def estimate_channel_medians(path, max_samples=200000):
                 handle.seek(offset + channel * plane_bytes + y * row_bytes)
                 row = handle.read(row_bytes)
                 if len(row) != row_bytes:
-                    raise FitsError("truncated RGB FITS row")
+                    raise FitsError("truncated planar FITS row")
                 values = struct.unpack(">%df" % width, row)
                 for x in range(first, width, stride):
                     value = values[x] * scale + zero
@@ -534,3 +539,25 @@ def estimate_channel_medians(path, max_samples=200000):
                 import statistics
                 medians[name] = statistics.median(collected)
     return medians
+
+
+def estimate_channel_medians(path, max_samples=200000):
+    """Sample physical values from a planar Float32 FITS primary image.
+
+    FITS stores x fastest, then y, then the channel planes. The same spatial
+    positions are sampled in each plane within the total sample budget. These
+    are whole-image medians (including padding), not a sky-background estimate.
+
+    A mono master (``NAXIS=2``) yields a single ``{"m": median}`` entry so the
+    preview midpoint reflects the actual data; without this branch it would
+    silently fall back to the hard-coded default.
+    """
+    header = read_fits_header(path)
+    if header.get("BITPIX") != -32:
+        return {}
+    naxis = header.get("NAXIS")
+    if naxis == 2:
+        return _sample_plane_medians(path, header, ("m",), max_samples)
+    if naxis != 3 or header.get("NAXIS3") != 3:
+        return {}
+    return _sample_plane_medians(path, header, ("r", "g", "b"), max_samples)

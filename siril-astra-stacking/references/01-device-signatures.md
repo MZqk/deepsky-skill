@@ -54,6 +54,26 @@ XPIXSZ = 2.9  FOCALLEN = 250  APERTURE = 5.
 
 `STACKCNT` 表示该帧本应是 live stacking 的第几帧，`TOTALEXP` 是累计曝光秒数。live stacking 已做逐帧质量筛选并加权，混有被判废的帧——这正是智能分支需要先筛后拒的原因。
 
+### ZWO ASIAIR Mini + Nikon D5100 — NGC 6946 实测（传统设备）
+
+```
+CREATOR  = 'ZWO ASIAIR Mini'    ← 捕获软件，ASIAIR 家族的唯一稳定签名
+TELESCOP = 'EQMod Mount'        ← 赤道仪，不是设备名
+INSTRUME = 'Nikon DSC D5100 (PTP mode)'  ← DSLR 经 PTP 接入
+BAYERPAT = 'RGGB    '           ← CFA，NAXIS=2
+CCD-TEMP = <缺失>               ← 单反物理上没有传感器温控
+GAIN     = <缺失>               ← 单反增益=ISO，不写此键；ISO 只出现在文件名里
+EXPTIME  = 300.
+FILTER   = 'B       '
+XPIXSZ   = 4.76999998092651     FOCALLEN = 747
+```
+
+三个关键事实：
+
+1. **`CCD-TEMP`/`GAIN` 双缺是单反的结构性特征**，不是坏头。校准匹配必须靠 profile 的 `calibration_optional_keys: ["CCD-TEMP", "GAIN"]` 豁免，否则这一整类设备永远无法通过 dark 匹配。
+2. **`INSTRUME` 是 PTP 设备名**，把 DSLR 品牌名作为 `any_of` 判据可区分"ASIAIR+单反"与"ASIAIR+ZWO 相机"（后者写 `ZWO ASI...` 且有 GAIN/CCD-TEMP，需要独立条目）。
+3. ASIAIR 对单反**不写** `STACKCNT` 等智能望远镜标志，class 归 `traditional`。
+
 ### 逐帧 sub 与内部 master 的差异
 
 | | 逐帧保存的 sub | 设备内部 master |
@@ -93,14 +113,15 @@ XPIXSZ = 2.9  FOCALLEN = 250  APERTURE = 5.
 |---|---|---|
 | `flats_available` | 设备是否产平场 | 智能望远镜为 false → 跳过 flat，报告记 `smart_scope_no_flat` |
 | `dark_embedded` | 暗场是否已内嵌 | true → 不应用 master dark |
-| `cfa_sensor` | 传感器型号 | 报告与诊断 |
+| `cfa_sensor` | 传感器型号 | 报告与诊断（**不参与行为判定**） |
+| `mono_sensor_capable` | 是否为单色传感器 | true 且几何未触发 drizzle 时走 mono 链路，母版 `NAXIS=2`；缺省 false。彩色传感器上强制 mono 会被拒 |
 | `mount` | altaz / equatorial | AltAz 有持续场旋转 |
 | `field_rotation_per_frame` | 是否逐帧旋转 | AltAz 为 true |
 | `mosaic_capable` | 是否支持拼接 | Seestar 支持 mosaic 模式 |
 | `live_stacking` | 设备是否内部叠加 | true → 需先筛帧 |
 | `min_pairs` | `register -minpairs` | 4（Siril 默认 8 对小视场不足） |
 
-**未知 profile 字段一律报错，不填默认值。**
+**未知 profile 字段一律报错，不填默认值。**`mono_sensor_capable` 用独立布尔键而非复用 `cfa_sensor` 字符串：后者是人类可读的型号串（`"IMX533"` / `"dslr (model from INSTRUME)"` / `"unknown"`），字符串匹配脆弱，且 `unknown` 会被误判成单色。当前只有 `zwo_asiair_dslr` 为 true（ASIAIR 驱动的单反，机身是单色传感器、靠外部滤镜轮分光）。**行为变更**：该 profile 的既有用户会发现原本三通道的窄带桶变为单通道，可用 `--device-profile` 覆盖 `{"zwo_asiair_dslr": {"mono_sensor_capable": false}}` 退回。
 
 ## 1.5 扩展新设备
 

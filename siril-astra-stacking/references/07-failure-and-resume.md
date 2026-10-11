@@ -13,10 +13,12 @@
 | 2 | 设备无法识别 | 签名表未命中，`report.device.evidence` 给出线索 |
 | 3 | 校准帧缺失 | 传统设备缺 master dark，不可协商 |
 | 4 | 无可用帧 | 少于 2 帧 |
-| 5 | Siril 执行失败 | 任一阶段非 0 退出 |
-| 6 | 输入格式不支持 | 目录内只有视频 / SER / 预览图 |
+| 5 | Siril 执行失败 | 任一阶段非 0 退出；或**参数组合互斥**——`--stack-engine=pws` 与 mono 链路（PWS 的灰度转换与分区权重只在去拜耳 RGB 上验证过）、`--rgb-equal` 与 mono（单通道母版没有 RGB 背景可均衡） |
+| 6 | 输入格式不支持 | 目录内只有视频 / SER / 预览图；或**滤镜混放**——目录内出现多种 FILTER（probe 阶段逐帧读取并分组，报错列出各滤镜帧数并提示分桶） |
 | 7 | 产物发布失败 | 原子 rename 失败 |
 | — | 内部异常 | 捕获后写 `failed_stage: "internal"` + traceback 尾 12 行，**绝不返回 0** |
+
+参数组合互斥走退出码 5 而非 6：6 保留给「输入本身不可处理」（混放滤镜、无帧），而这是**功能组合**冲突，与 PWS 闸门拒绝同族。
 
 ## 7.2 work 目录
 
@@ -56,11 +58,13 @@ published = atomic_publish(work_dir, out_dir, target_name, artifacts)
 1. 三件套全部在 work 目录内**生成完毕**后才调用。
 2. `os.rename` 在 `out_dir` 内部完成——同一文件系统上的原子操作。
 3. 目标已存在时先 `os.remove` 再 rename。
-4. 任一环节抛错 → 抛出 `RuntimeError` → 退出码 7，已发布的文件保持不变。
+4. 任一环节抛错 → 抛出 `RuntimeError` → 退出码 7。
 
 含义：**上一份完好的母版要么完整保留，要么被新版本完整替换，绝不出现半写状态。**
 
-`selftest.py` 有两项对应测试：正常发布、以及失败时旧产物不被触碰。
+**边界（务必知悉）**：rename 按 master → preview → report 的顺序**逐项**执行，中途失败**不回滚**——已 rename 的产物留在 `out_dir`，未 rename 的保持原样，而旧文件已在第 3 步被删除。因此「失败时旧产物完全不受影响」只在失败发生在第一项之前成立。report恒为最后一项，所以崩溃时最可能缺的正是报告。
+
+`selftest.py` 有对应测试：正常发布、失败时旧产物不被触碰、预测路径与实际发布路径一致。
 
 ## 7.4 失败时的产物状态
 
@@ -71,9 +75,10 @@ published = atomic_publish(work_dir, out_dir, target_name, artifacts)
 | 校准缺失 | 退出 3，report 含 `calibration.kind` |
 | probe 失败 | 退出 5，**work 目录保留**供排查 |
 | stack 失败 | 退出 5，**work 目录保留** |
+| `--dry-run` 成功 | 退出 0，**work 目录有意保留**，report 含 `work_dir` |
 | 发布失败 | 退出 7，work 目录保留 |
 
-**成功时 work 目录被删除**；失败时保留。这样失败后可以直接查看 `.log` 与中间 FITS。
+**成功时 work 目录被删除**（`--keep-work` 除外）；失败时保留，`--dry-run` 也保留。这样失败后可以直接查看 `.log` 与中间 FITS。
 
 ## 7.5 report.json 始终写出
 
@@ -93,7 +98,51 @@ published = atomic_publish(work_dir, out_dir, target_name, artifacts)
 
 `completed_stages` 让调用方能精确知道进展到哪一步。
 
-## 7.6 日志捕获
+### 报告有两个写入时刻
+
+1. **commit 之前**：`_commit_and_publish`先把 `artifacts`（由 `_published_paths` 预计算）、`completed_stages`（含 `commit`）、`timings.total_s` 全部填好，写入 work 目录内的报告，再连同母版、预览一起 rename 发布。
+2. **commit 之后**：对输出目录内的同一文件做一次**内容完全相同**的重写（`total_s` 不会重算）。
+
+这样设计的唯一目的：**进程在 commit 窗口内被杀死时，已发布的报告仍是完整终态**。早期版本先写残缺快照、发布完才补字段，进程死在中间就会留下 `artifacts: {}`、缺 `commit`、`timings: {}` 的报告——2026-10-10 的NGC 6946 六通道实跑中有四份报告正是这个形态，而三件套其实已全部发布成功。
+
+`timings.total_s` 的口径是「commit 发起时刻」的耗时。
+
+### 新增/扩展的字段
+
+| 字段 | 含义 |
+|---|---|
+| `report_path` | 报告自身的绝对路径（自指字段） |
+| `work_dir` | 保留的 scratch 目录：`--keep-work` 成功时，或 `--dry-run` 时**总是**存在 |
+
+`<target>_report.internal.json`：仅在未捕获异常发生、且输出目录已存在一份 `status: "ok"` 的完整报告时出现（见 7.8）。
+
+## 7.6 输出契约
+
+**stdout 承载数据，stderr 承载诊断。** JSON report 始终是机器可读契约；这两条流是为了让人和 shell 管道不必打开报告就能判断发生了什么。
+
+| 通道 | 内容 |
+|---|---|
+| stdout | 仅 `--dry-run` 时输出生成的 `.sir` 脚本正文 |
+| stderr | 每阶段一行的进度、警告、末行结论 |
+
+**进度行**格式 `[astra] <stage>: <detail>`，只在阶段**成功推进**时打印：`probe` / `identify` / `plan` / `workdir` / `calibrate` / `probe-reg` / `stack` / `preview` / `commit`（dry-run 下为 `calibrate (dry-run)` / `stack(dry-run)`）。失败不单独打进度行——失败已有结论行与 report 的 `error` 字段，再加一行只是噪音。
+
+**结论行**由 `main()` 打印，**每条退出路径恰好一行**，无法遗漏：
+
+```
+[astra] OK       target=M42  stages=8  total_s=57.2s  report=/out/M42_report.json
+[astra] FAILED   target=M42  exit=6  stage=probe  report=/out/M42_report.json
+```
+
+**`--quiet` 只抑制进度行。** 结论行与警告行始终输出：结论行携带报告路径，是自动化流程抓取结果的唯一线索。`--dry-run` 的 stdout 脚本照常输出（stdout 是数据，不是诊断）——需要脚本文件时用 shell 重定向即可。
+
+报告写盘失败会打 `[astra] warning:` 且**不受 `--quiet` 抑制**：这类异常正是调用方最容易察觉不到的情况。`--stack-engine=pws --rgb-equal` 这类参数错误走 argparse 自身的 stderr。
+
+**报告写失败不会中断运行，也不会掩盖真实结局。** 策略型宿主（沙箱、文件策略代理）可能以**非 `OSError`** 的自有异常类型拒绝文件操作；`write_report` 的调用方一律捕全部异常并降级为警告，警告文本带异常类型名。因此「报告没写成」永远表现为一条 stderr 警告 + 缺失或过期的报告文件，而不会变成一个掩盖了真实 stage 的异常栈。
+
+**不要解析 stderr 作为数据源。** 需要结构化信息就读 `<target>_report.json`。
+
+## 7.7 日志捕获
 
 每个 Siril 调用都写独立日志：
 
@@ -108,7 +157,7 @@ published = atomic_publish(work_dir, out_dir, target_name, artifacts)
 
 这一步很重要：**Siril 的静默降级只出现在日志里**，不提取出来用户就看不到 median 禁用或 filter 空操作。
 
-## 7.7 未捕获异常的兜底
+## 7.8 未捕获异常的兜底
 
 ```python
 except Exception as exc:
@@ -119,7 +168,9 @@ except Exception as exc:
 
 **未捕获异常绝不返回 0。** 早期版本曾因 `stage_workdir` 返回值数量不匹配而抛出 `ValueError`，shell 仍报 `EXIT=0`，造成"看起来成功"的假象。现在任何崩溃都会写入 report 并返回非 0。
 
-## 7.8 `--resume` 的实际语义
+兜底报告复用与正常路径相同的原子写函数。若输出目录里已存在一份 `status: "ok"` 的完整报告（即崩溃发生在产物发布之后），兜底内容改写到 `<target>_report.internal.json`，**不覆盖已发布的成功报告**——早期版本会用七字段的 internal 报告直接盖掉完整报告，与「失败不污染产物」相矛盾。
+
+## 7.9 `--resume` 的实际语义
 
 ```bash
 python3 scripts/astra_stack.py /data/M42 --out ./results --resume
@@ -131,7 +182,7 @@ python3 scripts/astra_stack.py /data/M42 --out ./results --resume
 
 **不要**把它当作断点续跑工具。
 
-## 7.9 `--dry-run`
+## 7.10 `--dry-run`
 
 ```bash
 python3 scripts/astra_stack.py /data/M42 --out ./results --dry-run
@@ -142,17 +193,22 @@ python3 scripts/astra_stack.py /data/M42 --out ./results --dry-run
 - 完整走 probe → identify → plan
 - 生成 work 目录与全部 `.sir` 脚本
 - **不调用 Siril**
+- **把生成的 `.sir` 脚本正文写到 stdout**（重定向即可存盘：`> plan.sir`）
 - 在 report 中记录 `registration.chain` 与 `stacking` 参数
+- **保留 work 目录**，路径记录在 `report.work_dir`
 - 退出码 0
 
 用途：在没有 Siril 的环境里验证签名表与参数推导是否正确，或在真实运行前检查将要执行什么。
 
+work 目录是有意保留的：那份 `.sir` 是 dry-run 唯一的可执行产物，删掉就只剩 report 里的一段字符串，下次不带 `--resume` 运行会自动重建（见 7.9）。
+
 注意 dry-run 下链路决策**没有 probe 数据**，因此 `chain` 是基于 `transform_summary=None` 的保守判断（通常落到 debayer 或 rgb）。真实决策需要 `--force-chain` 或实际运行。
 
-## 7.10 排查手册
+## 7.11 排查手册
 
 | 症状 | 排查 |
 |---|---|
+| stderr 只有一行结论、没有进度行 | 加了 `--quiet`（结论行始终保留，这是预期行为） |
 | 退出 2 | 看 `report.device.evidence`，据此扩展签名表（见 01） |
 | 退出 3 | 确认 `--calibration-dir` 下文件名含 `dark` / `masterdark`，且头部有 `CCD-TEMP`/`GAIN`/`EXPTIME` 且在容差内 |
 | `Not enough star pairs` | 小视场数据在 profile 里调低 `min_pairs`；或检查绿通道信号是否过弱 |

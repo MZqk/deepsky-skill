@@ -4,7 +4,7 @@ This module owns the twelve behavioural decisions. It is pure logic -- no file
 writes, no Siril invocation -- so every branch is unit-testable and the generated
 ``.sir`` can be asserted without executing anything.
 
-Two chains exist for CFA data and they are strictly mutually exclusive:
+Three chains exist for CFA data. They are strictly mutually exclusive:
 
 * **drizzle chain** -- ``calibrate -cfa`` (no debayer) -> ``register -2pass``
   probe -> ``seqapplyreg -drizzle -framing=max`` -> ``stack rej ... -maximize``.
@@ -12,13 +12,30 @@ Two chains exist for CFA data and they are strictly mutually exclusive:
   frame.
 * **debayer chain** -- ``calibrate -cfa -debayer -equalize_cfa`` ->
   ``register`` -> ``seqapplyreg -framing=current`` -> ``stack rej ...``.
+* **mono chain** -- ``calibrate -cfa`` (no debayer, no equalize) ->
+  ``register`` -> ``seqapplyreg -framing=current`` -> ``stack rej ...``.
+  Identical to the debayer chain minus the demosaic, so the master stays
+  ``NAXIS=2`` with ``BAYERPAT`` intact. Chosen only when the device profile
+  marks a monochrome sensor, because for a colour sensor the demosaic is what
+  turns the Bayer mosaic into an image and dropping it would discard the
+  colour data outright.
 
 Why they cannot be mixed: Siril refuses drizzle on non-Bayer data
-(``Cannot use drizzle on non-bayer sensors, aborting.``) and warns against plain
-interpolation on CFA data (``Applying interpolation on a sequence opened as CFA
-is a bad idea.``). Debayering before registration would make the drizzle route
-unavailable; staying CFA makes ordinary interpolation lossy. The probe therefore
-decides the chain *before* any transformation is applied.
+(``Cannot use drizzle on non-bayer sensors, aborting.`` / ``This sequence is not
+mono / CFA, cannot drizzle.``) and warns against plain interpolation on CFA data
+(``Applying interpolation on a sequence opened as CFA is a bad idea.``).
+Debayering before registration would make the drizzle route unavailable; staying
+CFA makes ordinary interpolation lossy. The probe therefore decides the chain
+*before* any transformation is applied.
+
+The drizzle and debayer chains both end in a three-channel RGB master (measured
+on 1.4.4); only the timing of the demosaic differs. The debayer chain converts in
+``calibrate``; the drizzle chain leaves the data CFA and lets
+``seqapplyreg -drizzle`` do it, which is why it refuses a sequence that was
+already debayered. **Siril 1.4.4 has no ``-mono`` flag** (verified against the
+binary), so mono is not a stack option: it is the *absence* of ``-debayer``.
+That also makes mono unreachable from the drizzle branch, since drizzle
+demosaics internally no matter how the frames were calibrated.
 
 Two further Siril 1.4 traps are enforced here rather than left to the runtime:
 
@@ -52,6 +69,14 @@ SCALE_DEV_THRESHOLD = 0.05
 #: The span is measured reference-frame-independently, so it does not depend on
 #: which frame Siril picked as reference.
 MOSAIC_SPAN_FACTOR = 1.2
+
+#: Chain identifier for the monochrome-sensor path: the debayer chain without
+#: the demosaic, so the master stays ``NAXIS=2``. Not a Siril mode but the
+#: absence of ``-debayer``; Siril 1.4.4 exposes no ``-mono`` flag.
+MONO_CHAIN = "mono"
+
+#: Chain identifiers a caller may pin with ``--force-chain``.
+FORCEABLE_CHAINS = ("drizzle", "debayer", MONO_CHAIN)
 
 #: Frame-selection filters per device class. ``-filter-quality`` is intentionally
 #: absent: it is only populated by planetary DFT / Kombat registration and stays
@@ -144,7 +169,10 @@ def decide_chain(structure, transform_summary, device, force=None):
         transform_summary: Output of :func:`fits_probe.summarize_transforms`, or
             ``None`` when registration has not run yet.
         device: Output of :func:`device_signatures.identify_device`.
-        force: Optional ``"drizzle"`` / ``"debayer"`` to bypass detection.
+        force: Optional ``"drizzle"`` / ``"debayer"`` / ``"mono"`` to bypass
+            detection. ``"mono"`` bypasses the thresholds outright: otherwise
+            the override would be a silent no-op on exactly the wide-field
+            data that needs it most.
 
     Returns:
         Dict with ``chain``, ``reasons``, ``mosaic``, ``rotation_max_deg``,
@@ -162,6 +190,7 @@ def decide_chain(structure, transform_summary, device, force=None):
         return {
             "chain": "rgb",
             "reasons": ["NAXIS=3: already demosaiced, drizzle not applicable"],
+            "mono_requested": False,
             "mosaic": bool(transform_summary and transform_summary.get("mosaic")),
             "rotation_max_deg": transform_summary.get("rotation_max_deg", 0.0)
             if transform_summary else 0.0,
@@ -172,11 +201,46 @@ def decide_chain(structure, transform_summary, device, force=None):
             "degradations": degradations,
         }
 
-    if force in ("drizzle", "debayer"):
+    profile = device["profile"]
+    # Mono is a property of the sensor, not of this run: a monochrome body
+    # behind a filter wheel carries no per-pixel colour, so demosaicing it
+    # only interpolates one and the same signal into three copies. Colour
+    # sensors must never take this path -- for them the demosaic *is* the
+    # image, and dropping it discards the colour data outright.
+    mono_requested = force == MONO_CHAIN or bool(
+        profile.get("mono_sensor_capable"))
+
+    if force in FORCEABLE_CHAINS:
+        if force == MONO_CHAIN and not profile.get("mono_sensor_capable"):
+            # Refuse rather than silently demosaicing a colour sensor: the
+            # three planes are not three views of one signal, they are the
+            # only copy of the colour information in the data.
+            return {
+                "chain": "debayer",
+                "reasons": [
+                    "--force-chain mono was requested but the device profile "
+                    "does not mark a monochrome sensor; a Bayer colour mosaic "
+                    "needs -debayer to become an image, and skipping it would "
+                    "discard the colour data. Remove the flag, or point "
+                    "--device-profile at an override only if the sensor really "
+                    "is monochrome."
+                ],
+                "mono_requested": True,
+                "mosaic": bool(transform_summary and transform_summary.get("mosaic")),
+                "rotation_max_deg": transform_summary.get("rotation_max_deg", 0.0)
+                if transform_summary else 0.0,
+                "scale_dev_max": transform_summary.get("scale_dev_max", 0.0)
+                if transform_summary else 0.0,
+                "span_px": transform_summary.get("span", 0.0)
+                if transform_summary else 0.0,
+                "degradations": degradations,
+            }
         return {
             "chain": force,
-            "reasons": ["forced via %s" % ("--drizzle" if force == "drizzle"
-                                           else "--no-drizzle")],
+            # Name the flag that is actually accepted. The old text cited
+            # "--drizzle" and "--no-drizzle", neither of which exists.
+            "reasons": ["forced via --force-chain %s" % force],
+            "mono_requested": mono_requested,
             "mosaic": bool(transform_summary and transform_summary.get("mosaic")),
             "rotation_max_deg": transform_summary.get("rotation_max_deg", 0.0)
             if transform_summary else 0.0,
@@ -212,21 +276,45 @@ def decide_chain(structure, transform_summary, device, force=None):
             % (scale_dev * 100.0)
         )
 
-    chain = "drizzle" if reasons else "debayer"
-    if not reasons:
+    if reasons:
+        chain = "drizzle"
+        if mono_requested:
+            # Say why mono is not available *here*, and how to get it anyway.
+            # Silently handing back an RGB master would leave the caller with
+            # a three-channel file they never asked for.
+            reasons.append(
+                "the device profile marks a monochrome sensor, but the measured "
+                "geometry requires drizzle (%s); seqapplyreg -drizzle demosaics "
+                "internally, so a NAXIS=2 master is unreachable once drizzle is "
+                "chosen. Pass --force-chain mono to override and accept the "
+                "edge data that -framing=current will interpolate away."
+                % "; ".join(reasons)
+            )
+    elif mono_requested:
+        chain = MONO_CHAIN
+        reasons.append(
+            "device profile marks a monochrome sensor and the measured geometry "
+            "is within thresholds (span %.1f px, rotation %.2f deg, scale "
+            "deviation %.2f%%); nothing is demosaiced, so the master stays "
+            "NAXIS=2 with BAYERPAT=%s intact. Siril 1.4.4 has no -mono flag: "
+            "mono is the absence of -debayer."
+            % (span, rotation, scale_dev * 100.0, structure["bayerpat"])
+        )
+    else:
+        chain = "debayer"
         reasons.append(
             "span %.1f px, rotation %.2f deg, scale deviation %.2f%% all within "
             "thresholds; the simpler debayer chain is sufficient"
             % (span, rotation, scale_dev * 100.0)
         )
 
-    profile = device["profile"]
     if chain == "drizzle" and not profile.get("flats_available"):
         degradations.append("drizzle_without_flat_weights")
 
     return {
         "chain": chain,
         "reasons": reasons,
+        "mono_requested": mono_requested,
         "mosaic": mosaic,
         "rotation_max_deg": rotation,
         "scale_dev_max": scale_dev,
@@ -255,10 +343,25 @@ def derive_calibration(calibration_plan, structure, chain):
         # -cc=dark derives hot/cold pixel maps from a *master dark*. Without one it
         # is a no-op at best, so only emit it when a dark will actually be applied.
         # Smart scopes have their darks already subtracted and expose no master.
-        if cc.get("siglo") is not None:
-            args.append("-cc=dark %s %s" % (cc["siglo"], cc["sighi"]))
-        else:
-            args.append("-cc=dark %s" % cc["sighi"])
+        #
+        # Measured on siril-cli 1.4.4: only the BARE form is scriptable. The
+        # manual documents "-cc=dark [siglo] sighi", but "-cc=dark 3" aborts
+        # with "Unknown parameter 3" (the parser never consumes the values --
+        # the "sigma 3.00 for hot pixels" log line is the built-in default,
+        # not the argument), "-cc=dark=3" is rejected outright, and quoting
+        # "-cc=dark 3" as one token is rejected as an unknown argument. Bare
+        # "-cc=dark" means hot-only sigma 3 with cold pixels disabled, which
+        # is exactly the plan default (siglo=None, sighi=3).
+        if cc.get("siglo") is not None or cc.get("sighi") != 3:
+            raise ValueError(
+                "-cc=dark sigmas (siglo=%s, sighi=%s) cannot be expressed in a "
+                "Siril 1.4.4 script: the CLI parser rejects '-cc=dark 3' "
+                "('Unknown parameter'), '-cc=dark=3' and the quoted single "
+                "token ('Unknown argument'); only the bare default form "
+                "(-cc=dark: hot sigma 3, cold disabled) is supported"
+                % (cc.get("siglo"), cc.get("sighi"))
+            )
+        args.append("-cc=dark")
 
     if structure["is_cfa"]:
         args.append("-cfa")
@@ -287,6 +390,12 @@ def derive_registration(structure, chain, device, transform_summary):
             "drizzle chain selected, so the transform model must stay global "
             "(homography) and interpolation is deferred to drizzle"
         )
+    elif chain == MONO_CHAIN:
+        reasons.append(
+            "mono chain selected, so the frames stay CFA end to end; star "
+            "detection still runs on the green pixels, which is what the "
+            "BAYERPAT layout puts at the sampled positions"
+        )
     return {
         "probe_args": list(args) + ["-2pass"],
         "apply_args": list(args),
@@ -305,8 +414,9 @@ def derive_apply(structure, chain, device):
         ]
         notes = [
             "framing=max paired with stack -maximize to realise the bounding box",
-            "no -flat= : smart scopes produce no flats, so drizzle weights are "
-            "unavailable; recorded as a quality risk rather than synthesised",
+            "no -flat= on seqapplyreg: drizzle flat weighting stays off; this is "
+            "independent of calibration flats, which were already applied during "
+            "calibration when the device produces them",
         ]
         if structure["is_cfa"] and structure["bayerpat"]:
             notes.append(
@@ -316,6 +426,15 @@ def derive_apply(structure, chain, device):
     else:
         args = ["-framing=current"]
         notes = ["framing=current: no mosaic re-framing requested"]
+        if chain == MONO_CHAIN:
+            notes.append(
+                "Siril warns 'Applying interpolation on a sequence opened as "
+                "CFA is a bad idea'; that warning targets Bayer colour mosaics. "
+                "On a monochrome sensor every position measures the same "
+                "narrowband signal, so interpolation copies one signal into "
+                "three planes instead of mixing colours, and the master keeps "
+                "BAYERPAT"
+            )
     return {"args": args, "notes": notes}
 
 
@@ -380,12 +499,18 @@ def derive_stacking(device, chain, structure):
     }
 
 
-def derive_preview_mtf(channel_medians):
+def derive_preview_mtf(channel_medians, mono=False):
     """Derive a linked display stretch from whole-image channel medians.
 
     The minimum finite channel level sets an explicit midpoint above that level,
     clipped to 0.01..0.4. This is a reproducible display heuristic, not a sky-only
     estimate or color correction; object emission and padding affect the input.
+
+    Args:
+        channel_medians: Measured medians keyed by channel, or ``None``.
+        mono: True for a single-channel master, whose dict has one key. The
+            value is used directly instead of being called a "channel"
+            minimum, which would misdescribe a mono master as one of three.
     """
     values = [abs(v) for v in (channel_medians or {}).values()
               if isinstance(v, (int, float)) and math.isfinite(v)]
@@ -393,7 +518,10 @@ def derive_preview_mtf(channel_medians):
         background = min(values)
         mid = background * 2.0
         mid = min(max(mid, 0.01), 0.4)
-        derived_from = "minimum whole-image channel median %.6f x 2.0" % background
+        derived_from = (
+            "whole-image mono median %.6f x 2.0" % background if mono
+            else "minimum whole-image channel median %.6f x 2.0" % background
+        )
     else:
         mid = 0.028
         derived_from = "default; no channel medians available"
@@ -418,7 +546,9 @@ def derive_pipeline(header, device, calibration_plan, transform_summary=None,
         transform_summary: Output of
             :func:`fits_probe.summarize_transforms`, or ``None`` on the first
             pass when the chain has not been probed yet.
-        force_chain: Optional ``"drizzle"`` / ``"debayer"`` override.
+        force_chain: Optional ``"drizzle"`` / ``"debayer"`` / ``"mono"`` override.
+            ``"mono"`` requires a profile that marks a monochrome sensor;
+            asking for it on a colour sensor is refused rather than honoured.
 
     Returns:
         Dict with ``structure``, ``chain``, ``calibrate``, ``register``,
