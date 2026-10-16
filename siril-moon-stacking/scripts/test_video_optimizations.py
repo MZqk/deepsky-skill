@@ -207,7 +207,10 @@ def test_p0_p1():
                     low, middle, high = map(float,line.split()[1:4])
                     assert 0 <= low < high <= 1 and 0 < middle < 1
             verify = moon.load_json(mono/'verify_report.json')
-            assert all(verify.get(key) is not None for key in ('dark_halo_ratio','chalky_saturation_index','gradient_kurtosis'))
+            assert all(verify.get(key) is not None for key in ('dark_halo_ratio','chalky_saturation_index'))
+            assert verify['gradient_kurtosis'] is None and verify['brittleness_status'] == 'UNAVAILABLE'
+            assert verify['sharp_guard']['status'] == 'fallback' and verify['sharp_guard']['alpha'] == 0
+            assert verify['sharp_guard']['delivery']['status'] == 'unavailable'
             full = cv2.imread(str(mono/'moon_natural.jpg'),0)
             square = cv2.imread(str(mono/'moon_natural_square.jpg'),0)
             assert square.shape[0] == square.shape[1]

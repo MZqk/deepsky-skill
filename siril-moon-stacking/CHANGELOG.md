@@ -2,6 +2,19 @@
 
 本文件记录 `siril-moon-stacking` 的独立版本变更。
 
+## [1.2.0] - 2026-10-16
+
+- Add default `--wavelet-adapt auto|off` support to `postprocess` and `all`. Freeze per-scale noise, signal support and continuous regional weights from the pre-deconvolution reference; apply requested gains only where supported, sharing luminance weights across legacy RGB channels.
+- Use signed native Siril B-Spline planes: four detail layers and one unamplified residual at native sampling. Map gains by logarithmic physical scale for Drizzle, suppress unsupported scales, and limit extraction to the image size. Correct the previously redundant sixth reconstruction coefficient.
+- Persist and hash the frozen local detail-gain region for guard selection, delivered TIFF checks and `verify`; retain full-surface damage checks, independent guard controls and subsequent CLAHE/USM processing. Add adaptation diagnostics and trusted coverage to receipts and the comparison HUD.
+- Budget isolated temporary wavelet planes with the existing disk reserve and 25% margin, expose `--disk-budget-gb` to `postprocess`, and clean extraction files on success or failure. Fail explicitly on insufficient space or invalid planes.
+- Add native monochrome/RGB reconstruction, noise rejection, continuous regional protection, 1×/2×/3× scale mapping, compatibility and delivery regression coverage. Single-master statistics still require calibration on real lunar data.
+- Add a default full-chain sharpening guard, including manual presets, with a pre-deconvolution reference and fixed measurement regions. Select the highest safe enhancement fraction from 1, 0.75, 0.5 and 0.25, or fall back to the unsharpened reference.
+- Check dark and bright ringing, chalkiness, gradient kurtosis, flat-region noise, new clipping and measurable detail gain. Record unavailable evidence explicitly; reject non-finite candidates and fail on non-finite source pixels.
+- Add independent `--sharp-guard auto|off` controls to `postprocess` and `all`, stage diagnostics and selection receipts, delivered 16-bit TIFF verification, and guard status in the comparison HUD.
+- Generate natural/mineral float masters and display products from the selected result, retaining float mineral rendering and verifying TIFF agreement after rotation and sky padding. Clear stale incompatible display products on rerun.
+- Add synthetic safety, fallback, CLI, legacy-directory and native Siril regression coverage across mono/LRGB/legacy, deconvolution methods, mineral styles and sampling scales.
+
 ## [1.1.0] - 2026-10-02
 
 - Add fixed tracked lunar video crops and conservative peak disk budgets; reduce selected candidates when space is insufficient without rescaling source pixels.

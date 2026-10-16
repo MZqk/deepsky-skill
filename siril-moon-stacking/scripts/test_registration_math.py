@@ -469,7 +469,7 @@ def test_adaptive_sharpening_math() -> None:
 
     # 6. Test sharp_mode='none'
     res_none = _estimate_adaptive_sharpening(img, sharp_mode="none")
-    if res_none["wavelet_coeffs"] != [1.0, 1.0, 1.0, 1.0, 1.0, 1.0] or res_none["clahe_clip"] != 0.0:
+    if res_none["wavelet_coeffs"] != [1.0, 1.0, 1.0, 1.0, 1.0] or res_none["clahe_clip"] != 0.0:
         failures.append("Mode 'none' did not bypass wavelets and CLAHE")
 
     assert not failures, f"Failures in test_adaptive_sharpening_math: {failures}"

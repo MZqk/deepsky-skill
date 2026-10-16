@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -985,21 +986,26 @@ def _cached_video_profile(video: Path, work: Path, stride: int, min_signal_ratio
     return profile
 
 
-def _video_crop(profile, indices, margin: int, mode: str):
+def _video_crop(profile, indices, margin: int, mode: str, sky_margin_ratio: float = 0.25):
     if mode == "off":
         return None, "disabled"
     boxes = [r["box"] for r in profile["rows"] if r["index"] in indices]
     if not boxes or any(b is None for b in boxes):
         return None, "unreliable lunar localization; using full frame"
-    box = [max(0, int(np.floor(min(b[0] for b in boxes)))-margin), max(0, int(np.floor(min(b[1] for b in boxes)))-margin),
-           min(profile["width"], int(np.ceil(max(b[2] for b in boxes)))+margin), min(profile["height"], int(np.ceil(max(b[3] for b in boxes)))+margin)]
+    effective_margin = margin
+    if profile.get("circle") and margin == 64:
+        radius = float(profile["circle"][2])
+        effective_margin = max(margin, int(np.ceil(radius * sky_margin_ratio)))
+    box = [max(0, int(np.floor(min(b[0] for b in boxes)))-effective_margin), max(0, int(np.floor(min(b[1] for b in boxes)))-effective_margin),
+           min(profile["width"], int(np.ceil(max(b[2] for b in boxes)))+effective_margin), min(profile["height"], int(np.ceil(max(b[3] for b in boxes)))+effective_margin)]
     # Even origins preserve Bayer parity before demosaicing; no pixels are rescaled.
     box[0] -= box[0] % 2
     box[1] -= box[1] % 2
     return box, "tracked lunar disc and visible limb union"
 
 
-def _disk_frame_budget(work, args, width, height, channels, requested, existing=0, scale=1.0, importing=True):
+
+def _disk_available(work, args):
     free = shutil.disk_usage(work).free
     reserve = max(10*1024**3, int(free*0.1))
     available = max(0, free-reserve)
@@ -1007,14 +1013,21 @@ def _disk_frame_budget(work, args, width, height, channels, requested, existing=
     if cap is not None:
         if not np.isfinite(cap) or cap <= 0:
             die("--disk-budget-gb must be positive and finite")
-        used = sum(p.stat().st_size for p in work.iterdir() if p.is_file())
+        used = sum(p.stat().st_size for p in work.rglob("*") if p.is_file())
         available = min(available, max(0, int(cap*1024**3)-used))
+    return free, reserve, available
+
+
+def _disk_frame_budget(work, args, width, height, channels, requested, existing=0, scale=1.0, importing=True):
+    free, reserve, available = _disk_available(work, args)
     pixels = width*height*channels
     raw = ((pixels*2+2879)//2880+1)*2880
     aligned = ((int(pixels*4*scale**2)+2879)//2880+1)*2880
     drizzle_scratch = aligned if scale > 1 else 0
+    planes = _wavelet_plane_count((max(1, int(height*scale)), max(1, int(width*scale))), scale)
+    wavelet_scratch = (2*planes+1)*aligned if getattr(args, "wavelet_adapt", "auto") == "auto" else 0
     def peak(n):
-        return int(1.25*((max(0,n-existing)*raw if importing else 0) + n*(aligned+drizzle_scratch)+6*aligned))
+        return int(1.25*((max(0,n-existing)*raw if importing else 0) + n*(aligned+drizzle_scratch)+6*aligned+wavelet_scratch))
     low, high = 0, requested
     while low < high:
         middle = (low+high+1)//2
@@ -1051,7 +1064,7 @@ def _import_scored_video(video, work, args, seq_name):
         pool = list(range(start, profile["decoded_frames"]))
     if not pool:
         die("no video frames passed the import quality filter")
-    crop, crop_reason = _video_crop(profile, set(pool), int(getattr(args,"roi_margin",64)), getattr(args,"video_roi","auto"))
+    crop, crop_reason = _video_crop(profile, set(pool), int(getattr(args,"roi_margin",64)), getattr(args,"video_roi","auto"), float(getattr(args, "sky_margin", 0.25) or 0.25))
     width, height = (crop[2]-crop[0], crop[3]-crop[1]) if crop else (profile["width"], profile["height"])
     signature = {"source": profile["identity"]["sha256"], "crop": crop, "force_mono": bool(getattr(args,"force_mono",False)), "debayer": getattr(args,"video_debayer","auto"), "device": _resolve_device_arg(args)}
     previous = load_json(work/"import_receipt.json") if (work/"import_receipt.json").exists() else {}
@@ -3114,10 +3127,33 @@ def cmd_stack(args) -> None:
         f"(resampling={'drizzle x' + format(drizzle['scale'], 'g') if chosen['drizzle'] else 'interp ' + interp}, "
         f"framing={framing}, weight={'noise' if chosen['weight'] else 'none'})")
 
-    # Clean up intermediate resampled frames (r_*.fit) and Siril's drizzle
-    # scratch directory to conserve disk space.
+    # Preserve resampled reference frame for pixel-perfect comparison viewer
     resampled_fits = list(work.glob(f"r_{seq_name}*.fit"))
     if resampled_fits:
+        ref_idx = None
+        rank_json = work / "ranking.json"
+        if rank_json.exists():
+            try:
+                ref_idx = load_json(rank_json).get("reference_index")
+            except Exception:
+                pass
+        ref_cand = None
+        if ref_idx is not None:
+            for p in (work / f"r_{seq_name}{ref_idx:05d}.fit", work / f"r_{seq_name}{ref_idx:04d}.fit", work / f"r_{seq_name}{ref_idx}.fit"):
+                if p.exists():
+                    ref_cand = p
+                    break
+        if ref_cand is None and resampled_fits:
+            ref_cand = sorted(resampled_fits)[0]
+
+        if ref_cand and ref_cand.exists():
+            ref_dest = work / f"{seq_name}reference.fit"
+            try:
+                import shutil
+                shutil.copy2(ref_cand, ref_dest)
+            except Exception:
+                pass
+
         log(f"cleaning up {len(resampled_fits)} intermediate resampled frames (r_{seq_name}*.fit) to reclaim disk space...")
         for rf in resampled_fits:
             try:
@@ -4083,6 +4119,7 @@ def _render_deep_cine_mineral(
     ti_boost: float = 5.5,
     gamma: float = 1.00,
     px_scale: float = 1.0,
+    return_float: bool = False,
 ) -> np.ndarray:
     """Render authentic geological mineral moon via continuous chrominance space amplification.
 
@@ -4209,9 +4246,10 @@ def _render_deep_cine_mineral(
 
     # Flip vertically to match image row 0 at top convention
     rgb_fits = np.stack([final_r, final_g, final_b], axis=-1)
+    if return_float:
+        return np.moveaxis(rgb_fits, -1, 0).astype(np.float32)
     rgb_jpg = rgb_fits[::-1, :, :]
     bgr_jpg = cv2.cvtColor((rgb_jpg * 255.0).astype(np.uint8), cv2.COLOR_RGB2BGR)
-    return bgr_jpg
     return bgr_jpg
 
 
@@ -4407,6 +4445,364 @@ def _measure_chalky_saturation_index(lum_data: np.ndarray) -> float:
     chalky_count = int(np.count_nonzero(chalky_mask))
 
     return float(chalky_count / float(valid_count))
+
+
+def _guard_luminance(data: np.ndarray) -> np.ndarray:
+    if data.ndim == 2:
+        return np.asarray(data, dtype=np.float32)
+    if data.ndim == 3 and data.shape[0] == 3:
+        return (0.299 * data[0] + 0.587 * data[1] + 0.114 * data[2]).astype(np.float32)
+    raise ValueError("sharp guard requires a monochrome plane or channel-first RGB")
+
+
+def _wavelet_plane_count(shape, px_scale=1.0):
+    if not np.isfinite(px_scale) or px_scale < 1 or min(shape[-2:]) < 1:
+        raise ValueError("wavelet adaptation requires a finite scale >= 1 and nonempty image")
+    return max(0, min(5 + int(np.ceil(np.log2(px_scale))), int(np.floor(np.log2(min(shape[-2:])))) - 2))
+
+
+def _wavelet_gain_schedule(coefficients, planes, px_scale=1.0):
+    coefficients = np.asarray(coefficients, dtype=np.float64)
+    if not np.isfinite(px_scale) or px_scale < 1:
+        raise ValueError("wavelet scale must be finite and >= 1")
+    if coefficients.shape != (5,) or not np.all(np.isfinite(coefficients)) or np.any(coefficients < 0) or coefficients[-1] != 1:
+        raise ValueError("wavelet gains require four finite nonnegative detail gains and a unit residual")
+    result = []
+    for index in range(max(0, planes - 1)):
+        native_index = float(index - np.log2(px_scale))
+        increment = float(np.interp(native_index, np.arange(4), coefficients[:4] - 1)) if 0 <= native_index <= 3 else 0.0
+        result.append({"index": index, "native_index": native_index, "requested_gain": 1 + increment,
+                       "reason": "subnative_scale" if native_index < 0 else "unsupported_coarse_scale" if native_index > 3 else "unity_gain" if increment == 0 else None})
+    return result
+
+
+def _smoothstep(value):
+    value = np.clip(value, 0.0, 1.0)
+    return value * value * (3 - 2 * value)
+
+
+def _wavelet_confidence(reference_detail, ctx, index):
+    """Measure local support using only the unsharpened reference, never the candidate."""
+    import cv2
+
+    shape = ctx["base"].shape
+    empty = np.zeros(shape, np.float32)
+    flat = ctx.get("flat", np.zeros(shape, bool))
+    if ctx["reason"] or np.count_nonzero(flat) < 128:
+        return empty, {"reason": ctx["reason"] or "insufficient_noise_samples"}
+    detail = _guard_luminance(reference_detail) / ctx["scale"]
+    values = detail[flat]
+    noise = max(1.4826 * float(np.median(np.abs(values - np.median(values)))), 1e-6)
+    height, width = shape
+    cell = max(1, int(round(32 * ctx["px_scale"])))
+    rows, cols = int(np.ceil(height / cell)), int(np.ceil(width / cell))
+    grid = np.full((rows, cols), noise, np.float32)
+    for row in range(rows):
+        for col in range(cols):
+            region = np.s_[row*cell:min((row+1)*cell, height), col*cell:min((col+1)*cell, width)]
+            sample = detail[region][flat[region]]
+            if sample.size >= 64:
+                grid[row, col] = max(noise, 1.4826 * float(np.median(np.abs(sample - np.median(sample)))))
+    noise_map = cv2.resize(grid, (width, height), interpolation=cv2.INTER_LINEAR)
+    valid = ctx["valid"].astype(np.float32)
+    sigma = max(2 * ctx["px_scale"], 1.5 * 2**index)
+    mass = cv2.GaussianBlur(valid, (0, 0), sigma)
+    energy = cv2.GaussianBlur(detail * detail * valid, (0, 0), sigma) / np.maximum(mass, 1e-6)
+    snr = np.sqrt(np.maximum(energy - noise_map**2, 0)) / noise_map
+    confidence = _smoothstep((snr - 2) / 2)
+    norm = ctx["base"] / ctx["scale"]
+    confidence *= _smoothstep((norm - 0.05) / 0.10) * (1 - _smoothstep((norm - 0.85) / 0.13))
+    confidence *= 1 - 0.75 * np.maximum(ctx["neg"], ctx["pos"])
+    # Pad the mask so full-frame mosaic tiles also have a finite image-boundary distance.
+    distance = cv2.distanceTransform(np.pad(ctx["valid"].astype(np.uint8), 1), cv2.DIST_L2, 5)[1:-1, 1:-1]
+    confidence *= _smoothstep((distance - 2 * ctx["px_scale"]) / (6 * ctx["px_scale"]))
+    yy, xx = np.ogrid[:height, :width]
+    frame_distance = np.minimum(np.minimum(xx + 0.5, width - xx - 0.5), np.minimum(yy + 0.5, height - yy - 0.5))
+    radius = 2 * (2**(index + 1) - 1)
+    confidence *= _smoothstep((frame_distance - radius) / radius)
+    confidence *= valid
+    # shortcut: single-image SNR is statistical evidence; calibrate thresholds on a real lunar corpus.
+    return confidence.astype(np.float32), {"reason": None, "noise_sigma": noise,
+        "local_noise_range": [float(noise_map.min()), float(noise_map.max())]}
+
+
+def _reconstruct_trusted_wavelets(baseline, post_deconv, reference_dir, candidate_dir, planes, coefficients, px_scale=1.0):
+    from astropy.io import fits
+
+    if baseline.shape != post_deconv.shape or not np.all(np.isfinite(post_deconv)):
+        raise ValueError("invalid post-deconvolution wavelet source")
+    ctx = _sharp_guard_context(baseline, px_scale)
+    schedule = _wavelet_gain_schedule(coefficients, planes, px_scale)
+    candidate = post_deconv.copy()
+    reference_sum, candidate_sum = np.zeros_like(baseline), np.zeros_like(post_deconv)
+    support = np.zeros(ctx["base"].shape, bool)
+    for index in range(planes):
+        reference = fits.getdata(reference_dir / f"layer{index:02d}.fit", memmap=False).astype(np.float32)
+        detail = reference if reference_dir == candidate_dir else fits.getdata(candidate_dir / f"layer{index:02d}.fit", memmap=False).astype(np.float32)
+        if reference.shape != baseline.shape or detail.shape != post_deconv.shape or not np.all(np.isfinite(reference)) or not np.all(np.isfinite(detail)):
+            raise ValueError(f"invalid wavelet plane {index}: shape or non-finite pixels")
+        reference_sum += reference
+        candidate_sum += detail
+        if index == planes - 1:
+            continue
+        layer = schedule[index]
+        increment = layer["requested_gain"] - 1
+        if increment:
+            weight, statistics = _wavelet_confidence(reference, ctx, index)
+            candidate += increment * weight * detail
+            support |= weight >= 0.5
+            layer.update(statistics)
+        else:
+            weight = np.zeros(support.shape, np.float32)
+        layer["effective_gain_range"] = sorted([float(1 + increment * weight.min()), float(1 + increment * weight.max())])
+        layer["support_pixels"] = int(np.count_nonzero(weight >= 0.5))
+    errors = [float(np.max(np.abs(reference_sum - baseline))), float(np.max(np.abs(candidate_sum - post_deconv)))]
+    if max(errors) > 1e-6:
+        raise ValueError(f"Siril wavelet reconstruction mismatch: {errors}")
+    support &= ctx.get("structure", np.zeros(support.shape, bool))
+    pixels = int(np.count_nonzero(support))
+    receipt = {"mode": "auto", "status": "applied" if pixels >= 32 else "unavailable", "px_scale": px_scale,
+        "reference": "moon_unsharpened.fit", "requested_coefficients": list(coefficients), "planes": planes,
+        "layers": schedule, "residual_gain": 1.0, "reconstruction_error": errors,
+        "support_pixels": pixels, "support_coverage": pixels / max(int(np.count_nonzero(ctx["valid"])), 1),
+        "reason": None if pixels >= 32 else "insufficient_trusted_detail"}
+    return candidate.astype(np.float32), support, receipt
+
+
+def _run_wavelet_adaptation(args, work, baseline, post_deconv, detail_stem, coefficients, px_scale, has_deconv):
+    from astropy.io import fits
+
+    planes = _wavelet_plane_count(baseline.shape, px_scale)
+    schedule = _wavelet_gain_schedule(coefficients, planes, px_scale)
+    empty = np.zeros(baseline.shape[-2:], bool)
+    identity = all(value == 1 for value in coefficients)
+    free, reserve, available = _disk_available(work, args)
+    plane_bytes = ((baseline.size * 4 + 2879) // 2880 + 1) * 2880
+    scratch_planes = planes * (2 if has_deconv else 1) if not identity and planes >= 2 else 0
+    needed = int(np.ceil(1.25 * ((scratch_planes + 1) * plane_bytes + empty.size + 5760)))
+    if needed > available:
+        die(f"insufficient wavelet disk budget: need {needed} bytes, available {available}; use more disk space or explicitly --wavelet-adapt off")
+    budget = {"free_bytes": free, "reserve_bytes": reserve, "available_bytes": available,
+              "estimated_peak_additional_bytes": needed}
+    if identity or planes < 2:
+        reason = "identity_gains" if identity else "insufficient_image_size"
+        return post_deconv.copy(), empty, {"mode": "auto", "status": "bypassed" if identity else "unavailable",
+            "reason": reason, "planes": planes, "px_scale": px_scale, "layers": schedule,
+            "requested_coefficients": list(coefficients), "residual_gain": 1.0, "disk_budget": budget,
+            "support_pixels": 0, "support_coverage": 0.0}
+    with tempfile.TemporaryDirectory(prefix=".moon-wavelets-", dir=work) as scratch:
+        reference_dir = Path(scratch) / "reference"
+        candidate_dir = Path(scratch) / "candidate" if has_deconv else reference_dir
+        reference_dir.mkdir()
+        lines = [f'load "{work / "moon_unsharpened.fit"}"', f'cd "{reference_dir}"', f"extract {planes}"]
+        if has_deconv:
+            candidate_dir.mkdir()
+            lines += [f'load "{work / (detail_stem + "_base.fit")}"', f'cd "{candidate_dir}"', f"extract {planes}"]
+        lines.append("exit")
+        extracted = run_siril_script(args.siril, lines, Path(scratch), work / "logs/03_wavelet_extract.log", args.timeout)
+        if extracted["exit_code"] != 0:
+            die(f"wavelet extraction failed; see {extracted['log']}")
+        candidate, support, receipt = _reconstruct_trusted_wavelets(
+            baseline, post_deconv, reference_dir, candidate_dir, planes, coefficients, px_scale)
+    receipt["disk_budget"] = budget
+    return candidate, support, receipt
+
+
+def _load_wavelet_support(work, guard):
+    from astropy.io import fits
+
+    name = guard.get("detail_support_file")
+    if name is None:
+        return None
+    if name != "moon_wavelet_support.fit":
+        raise ValueError("invalid wavelet support filename")
+    support = fits.getdata(work / name, memmap=False)
+    if not np.all(np.isfinite(support)) or not np.all((support == 0) | (support == 1)):
+        raise ValueError("invalid wavelet support pixels")
+    digest = hashlib.sha256(support.astype(np.uint8).tobytes()).hexdigest()
+    if digest != guard.get("detail_support_sha256"):
+        raise ValueError("wavelet support hash mismatch")
+    return support.astype(bool)
+
+
+def _sharp_guard_context(baseline: np.ndarray, px_scale: float = 1.0, detail_support=None) -> dict:
+    """Freeze all measurement regions and intensity units before inspecting candidates."""
+    import cv2
+
+    if not np.all(np.isfinite(baseline)):
+        raise ValueError("sharp guard baseline contains non-finite pixels")
+    base = _guard_luminance(baseline)
+    scale = max(float(np.percentile(base, 99.95)), 1e-6)
+    norm = base / scale
+    valid = norm > 0.05
+    size = _odd(max(3, int(round(_px(5.0, px_scale)))))
+    interior = cv2.erode(
+        (valid & (norm < 0.95)).astype(np.uint8), np.ones((size, size), np.uint8),
+        borderType=cv2.BORDER_CONSTANT, borderValue=0,
+    ).astype(bool)
+    grad = cv2.magnitude(cv2.Sobel(norm, cv2.CV_32F, 1, 0), cv2.Sobel(norm, cv2.CV_32F, 0, 1))
+    neg, pos = _compute_edge_ringing_damping_mask(base, return_positive=True, px_scale=px_scale)
+    ctx = {"base": base, "source": baseline, "scale": scale, "valid": valid, "interior": interior,
+           "neg": neg, "pos": pos, "sigma": _px(1.0, px_scale), "px_scale": px_scale,
+           "detail_support": detail_support, "reason": None}
+    if detail_support is not None and (detail_support.shape != base.shape or not np.all(np.isfinite(detail_support))):
+        raise ValueError("invalid frozen wavelet support dimensions or pixels")
+    if np.count_nonzero(valid) < 500 or np.count_nonzero(interior) < 100:
+        ctx["reason"] = "insufficient_terrain"
+        return ctx
+    flat_limit, structure_limit, trim_limit = np.percentile(grad[interior], [20, 50, 99.8])
+    ctx["flat"] = interior & (grad <= flat_limit) & (neg <= 0.3) & (pos <= 0.3)
+    ctx["structure"] = interior & (grad > max(float(structure_limit), 1e-6))
+    if detail_support is not None:
+        ctx["structure"] = detail_support.astype(bool)
+    ctx["interior"] = interior & (grad <= trim_limit)
+    if np.count_nonzero(ctx["flat"]) < 32 or np.count_nonzero(ctx["structure"]) < 32:
+        ctx["reason"] = "unmeasurable_detail_or_noise"
+        return ctx
+    ctx["baseline"] = _sharp_guard_metrics(ctx, baseline)
+    return ctx
+
+
+def _sharp_guard_metrics(ctx: dict, candidate: np.ndarray) -> dict:
+    """Measure candidates in the baseline's fixed regions without clipping their peaks."""
+    import cv2
+
+    if not np.all(np.isfinite(candidate)):
+        return {"finite": False}
+    lum = _guard_luminance(candidate)
+    base = ctx["base"]
+    if lum.shape != base.shape:
+        raise ValueError("sharp guard candidate and baseline dimensions differ")
+    norm = lum / ctx["scale"]
+    grad = cv2.magnitude(cv2.Sobel(norm, cv2.CV_32F, 1, 0), cv2.Sobel(norm, cv2.CV_32F, 0, 1))
+    metrics = {"finite": True, "dhr": None, "positive_overshoot_ratio": None,
+               "csi": None, "gkm": None, "noise_mad": None, "detail_gradient": None}
+    for name, mask, delta in (("dhr", ctx["neg"], base - lum),
+                              ("positive_overshoot_ratio", ctx["pos"], lum - base)):
+        active = mask > 0.3
+        if np.count_nonzero(active) >= 10:
+            metrics[name] = float(np.maximum(delta[active], 0).sum() / (base[active].sum() + 1e-6))
+    valid = ctx["valid"]
+    if np.any(valid):
+        metrics["csi"] = float(np.count_nonzero(valid & (norm >= 0.88) & (grad < 0.008)) / np.count_nonzero(valid))
+    values = grad[ctx["interior"]]
+    if values.size >= 50:
+        std = float(np.std(values))
+        metrics["gkm"] = float(np.mean(((values - np.mean(values)) / std) ** 4)) if std > 1e-7 else 0.0
+    if "flat" in ctx and np.count_nonzero(ctx["flat"]) >= 32:
+        residual = norm - cv2.GaussianBlur(norm, (0, 0), ctx["sigma"])
+        values = residual[ctx["flat"]]
+        metrics["noise_mad"] = float(np.median(np.abs(values - np.median(values))))
+    if "structure" in ctx and np.count_nonzero(ctx["structure"]) >= 32:
+        metrics["detail_gradient"] = float(np.median(grad[ctx["structure"]]))
+    # Newly clipped pixels must not be hidden by normalizing to each candidate's maximum.
+    source = ctx["source"]
+    clipped = ((candidate >= 1) & (source < 1)) | ((candidate <= 0) & (source > 0)) | ((candidate < 0) & (source >= 0))
+    metrics["new_clipped_pixels"] = int(np.count_nonzero(clipped))
+    return metrics
+
+
+def _sharp_guard_reasons(ctx: dict, metrics: dict, require_gain: bool = True) -> list[str]:
+    if not metrics["finite"]:
+        return ["non_finite_candidate"]
+    if ctx["reason"]:
+        return [ctx["reason"]]
+    baseline = ctx["baseline"]
+    # shortcut: thresholds have synthetic coverage; calibrate on real lunar data before relaxing them.
+    limits = {"dhr": 0.035, "positive_overshoot_ratio": 0.035,
+              "csi": max(0.025, baseline["csi"] + 0.005),
+              "gkm": max(14.0, baseline["gkm"] * 1.10),
+              "noise_mad": max(baseline["noise_mad"] * 1.10, 1e-6)}
+    reasons = []
+    for name, limit in limits.items():
+        value = metrics[name]
+        if value is None and name in ("dhr", "positive_overshoot_ratio"):
+            continue
+        if value is None or not np.isfinite(value):
+            reasons.append(f"invalid_{name}")
+        elif value > limit:
+            reasons.append(name)
+    if metrics["new_clipped_pixels"]:
+        reasons.append("new_clipping")
+    detail = metrics["detail_gradient"]
+    if detail is None or not np.isfinite(detail):
+        reasons.append("invalid_detail_gain")
+    elif require_gain and detail < baseline["detail_gradient"] * 1.005:
+        reasons.append("insufficient_detail_gain")
+    return reasons
+
+
+def _select_guarded_sharpening(baseline: np.ndarray, candidate: np.ndarray, ctx: dict, mode: str = "auto", render=None) -> tuple[np.ndarray, dict]:
+    if candidate.shape != baseline.shape:
+        raise ValueError("sharp guard candidate and baseline shapes differ")
+    result = {"mode": mode, "status": "off" if mode == "off" else "fallback", "alpha": 1.0 if mode == "off" else 0.0,
+              "baseline": _sharp_guard_metrics(ctx, baseline), "attempts": []}
+    delivery_baseline = render(baseline) if render is not None else None
+    delivery_ctx = _sharp_guard_context(delivery_baseline, ctx["px_scale"], ctx["detail_support"]) if render is not None else None
+    if delivery_ctx is not None:
+        result["delivery_baseline"] = _sharp_guard_metrics(delivery_ctx, delivery_baseline)
+    if mode == "off":
+        if not np.all(np.isfinite(candidate)):
+            raise ValueError("sharpened image contains non-finite pixels")
+        result["selected"] = _sharp_guard_metrics(ctx, candidate)
+        if delivery_ctx is not None:
+            result["delivery_selected"] = _sharp_guard_metrics(delivery_ctx, render(candidate))
+        return candidate, result
+    for alpha in (1.0, 0.75, 0.5, 0.25):
+        trial = baseline + alpha * (candidate - baseline)
+        metrics = _sharp_guard_metrics(ctx, trial)
+        reasons = _sharp_guard_reasons(ctx, metrics)
+        attempt = {"alpha": alpha, "metrics": metrics, "reasons": reasons}
+        if delivery_ctx is not None and not reasons:
+            delivery = _sharp_guard_metrics(delivery_ctx, render(trial))
+            attempt["delivery"] = delivery
+            reasons.extend(f"delivery_{reason}" for reason in _sharp_guard_reasons(delivery_ctx, delivery))
+        result["attempts"].append(attempt)
+        if not reasons:
+            result.update(status="accepted" if alpha == 1.0 else "reduced", alpha=alpha, selected=metrics)
+            if delivery_ctx is not None:
+                result["delivery_selected"] = attempt["delivery"]
+            return trial.astype(np.float32), result
+    result["selected"] = result["baseline"]
+    if delivery_ctx is not None:
+        result["delivery_selected"] = result["delivery_baseline"]
+    return baseline.copy(), result
+
+
+def _compose_natural_lrgb(lum, color, circle_meta=None, px_scale=1.0):
+    """Keep the existing natural-color tone and limb treatment in float FITS coordinates."""
+    color_lum = _guard_luminance(color)
+    rgb = np.clip(color * (lum / np.maximum(color_lum, 1e-6)), 0.0, 1.0)
+    knee = 0.75
+    high = rgb > knee
+    rgb[high] = knee + (1.0 - knee) * np.tanh((rgb[high] - knee) / (1.0 - knee))
+    if circle_meta and circle_meta.get("active"):
+        yy, xx = np.mgrid[:lum.shape[0], :lum.shape[1]]
+        distance = float(circle_meta["radius"]) - np.hypot(xx - float(circle_meta["center_x"]), yy - float(circle_meta["center_y"]))
+        fade = np.clip((distance - _px(4.0, px_scale)) / _px(14.0, px_scale), 0.0, 1.0)
+        fade = fade * fade * (3.0 - 2.0 * fade)
+        rgb = lum + (rgb - lum) * fade
+        rgb *= np.clip((distance + _px(1.0, px_scale)) / _px(2.5, px_scale), 0.0, 1.0)
+    return np.clip(rgb, 0.0, 1.0).astype(np.float32)
+
+
+def _write_moon_product(work: Path, name: str, data: np.ndarray, header) -> None:
+    """Write the float master and both display formats from the same FITS-oriented pixels."""
+    import cv2
+    from astropy.io import fits
+
+    if not np.all(np.isfinite(data)):
+        raise ValueError(f"{name} contains non-finite pixels")
+    data = np.clip(data, 0.0, 1.0).astype(np.float32)
+    fits.writeto(work / f"{name}_master.fit", data, header=header, overwrite=True)
+    screen = np.moveaxis(data[[2, 1, 0], ::-1, :], 0, -1) if data.ndim == 3 else data[::-1, :]
+    for suffix, scale in (("tif", 65535), ("jpg", 255)):
+        if suffix == "tif" and name == "moon_mineral":
+            continue
+        pixels = np.rint(screen * scale).astype(np.uint16 if suffix == "tif" else np.uint8)
+        options = [int(cv2.IMWRITE_JPEG_QUALITY), 95] if suffix == "jpg" else []
+        if not cv2.imwrite(str(work / f"{name}.{suffix}"), pixels, options):
+            raise OSError(f"failed to write {name}.{suffix}")
 
 
 def _estimate_adaptive_midtone(
@@ -4624,25 +5020,25 @@ def _estimate_adaptive_sharpening(
             sigma_noise = float(np.std(lum_2d[~moon_mask])) if np.count_nonzero(~moon_mask) > 100 else 0.001
 
     if sharp_mode == "none":
-        w_coeffs = [1.00, 1.00, 1.00, 1.00, 1.00, 1.00]
+        w_coeffs = [1.00, 1.00, 1.00, 1.00, 1.00]
         clahe_clip = 0.0
         unsharp_amt = 0.0
         deconv_discount = 1.0
         noise_penalty = 1.0
     elif sharp_mode == "mellow":
-        w_coeffs = [1.01, 1.02, 1.03, 1.01, 1.00, 1.00]
+        w_coeffs = [1.01, 1.02, 1.03, 1.01, 1.00]
         clahe_clip = 0.0
         unsharp_amt = 0.0
         deconv_discount = 1.0
         noise_penalty = 1.0
     elif sharp_mode == "mild":
-        w_coeffs = [1.01, 1.04, 1.06, 1.03, 1.00, 1.00]
+        w_coeffs = [1.01, 1.04, 1.06, 1.03, 1.00]
         clahe_clip = 0.08
         unsharp_amt = 0.0
         deconv_discount = 1.0
         noise_penalty = 1.0
     elif sharp_mode == "crisp":
-        w_coeffs = [1.04, 1.10, 1.12, 1.08, 1.00, 1.00]
+        w_coeffs = [1.04, 1.10, 1.12, 1.08, 1.00]
         clahe_clip = 0.30
         unsharp_amt = 0.0
         deconv_discount = 1.0
@@ -4675,7 +5071,7 @@ def _estimate_adaptive_sharpening(
             w3 = max(w3, 1.06)
             w4 = max(w4, 1.03)
 
-        w_coeffs = [round(w1, 2), round(w2, 2), round(w3, 2), round(w4, 2), 1.00, 1.00]
+        w_coeffs = [round(w1, 2), round(w2, 2), round(w3, 2), round(w4, 2), 1.00]
         if has_deconv or sigma_noise > 0.0006:
             # When deconvolution is active, physical MTF restoration renders CLAHE redundant;
             # bypassing CLAHE completely prevents 13.5x shot noise amplification in flat maria
@@ -4710,7 +5106,8 @@ def _estimate_adaptive_sharpening(
         else:
             rec_damping = 0.55
 
-    wrecons_cmd = f"wrecons {w_coeffs[0]:.2f} {w_coeffs[1]:.2f} {w_coeffs[2]:.2f} {w_coeffs[3]:.2f} {w_coeffs[4]:.2f} {w_coeffs[5]:.2f}"
+    _wavelet_gain_schedule(w_coeffs, 5)
+    wrecons_cmd = "wrecons " + " ".join(f"{value:.2f}" for value in w_coeffs)
     clahe_lines = [f"clahe {clahe_clip:.2f} 32"] if clahe_clip > 0 else []
     unsharp_lines = [f"unsharp 1.0 {unsharp_amt:.2f}"] if unsharp_amt > 0 else []
 
@@ -4734,6 +5131,7 @@ def _estimate_adaptive_sharpening(
 
 def cmd_postprocess(args) -> None:
     from astropy.io import fits
+    import cv2
     import numpy as np
 
     work = Path(args.work).expanduser().resolve()
@@ -4756,6 +5154,8 @@ def cmd_postprocess(args) -> None:
     with fits.open(master, memmap=False) as hdul:
         hdr = hdul[0].header
         d = hdul[0].data
+    if not np.all(np.isfinite(d)):
+        die("master FITS contains non-finite pixels; repair the source before postprocessing")
 
     mosaic_mode = getattr(args, "mosaic_mode", "disc")
     px_scale = _resolve_px_scale(args, work, master)
@@ -4983,6 +5383,9 @@ def cmd_postprocess(args) -> None:
     wrecons_cmd = sharp_info["wrecons_cmd"]
     clahe_lines = sharp_info["clahe_lines"]
     unsharp_lines = sharp_info["unsharp_lines"]
+    wavelet_mode = getattr(args, "wavelet_adapt", "auto")
+    detail_lines = (["wavelet 5 2", wrecons_cmd, *clahe_lines, *unsharp_lines]
+                    if wavelet_mode == "off" else [])
 
     log(f"adaptive organic sharpening: mode='{sharp_mode}', contrast_ratio={sharp_info['contrast_ratio']:.2f}, seeing_cutoff={sharp_info.get('seeing_cutoff', 1.0):.2f}, mare_noise={sharp_info['sigma_noise']:.6f}")
     log(f"  - wavelet: {wrecons_cmd} (deconv discount={sharp_info['deconv_discount']:.2f}x, noise penalty={sharp_info['noise_penalty']:.2f})")
@@ -5016,13 +5419,13 @@ def cmd_postprocess(args) -> None:
                 "requires 1.4.4",
                 # --- Stage 1: Luminance High-Frequency Processing ---
                 "load moon_lum",
+                f"mtf {wb['bg_lum']:.6f} {mid_val:.2f} {wb['hi_lum']:.6f}",
+                "save moon_unsharpened",
+                "load moon_lum",
                 *deconv_lines,
                 f"mtf {wb['bg_lum']:.6f} {mid_val:.2f} {wb['hi_lum']:.6f}",
                 "save moon_lum_base",
-                "wavelet 5 2",
-                wrecons_cmd,
-                *clahe_lines,
-                *unsharp_lines,
+                *detail_lines,
                 "save moon_lum_sharp",
                 # --- Stage 2: Chrominance Balancing & Saturation ---
                 f"load {color_target}",
@@ -5032,16 +5435,6 @@ def cmd_postprocess(args) -> None:
                 "save moon_color_clean",
                 *sat_lines,
                 "save moon_color_sat",
-                # --- Stage 3: LRGB Composite ---
-                # 1. Natural LRGB Version (sharp lum + neutral balanced color)
-                "rgbcomp -lum=moon_lum_sharp moon_color_clean -out=moon_natural_master",
-                "load moon_natural_master",
-                "savetif moon_natural -astro",
-                "savejpg moon_natural 95",
-                # 2. Mineral LRGB Version (sharp lum + boosted mineral color)
-                "rgbcomp -lum=moon_lum_sharp moon_color_sat -out=moon_mineral_master",
-                "load moon_mineral_master",
-                "savejpg moon_mineral 95",
                 "exit",
             ]
         else:
@@ -5056,20 +5449,18 @@ def cmd_postprocess(args) -> None:
             lines = [
                 "requires 1.4.4",
                 f"load {color_target}",
+                f"mtf {wb['bg_r']:.6f} {mid_val:.2f} {wb['hi_r']:.6f} R",
+                f"mtf {wb['bg_g']:.6f} {mid_val:.2f} {wb['hi_g']:.6f} G",
+                f"mtf {wb['bg_b']:.6f} {mid_val:.2f} {wb['hi_b']:.6f} B",
+                "save moon_unsharpened",
+                f"load {color_target}",
                 *deconv_lines,
                 f"mtf {wb['bg_r']:.6f} {mid_val:.2f} {wb['hi_r']:.6f} R",
                 f"mtf {wb['bg_g']:.6f} {mid_val:.2f} {wb['hi_g']:.6f} G",
                 f"mtf {wb['bg_b']:.6f} {mid_val:.2f} {wb['hi_b']:.6f} B",
                 "save moon_base",
-                "wavelet 5 2",
-                wrecons_cmd,
-                *clahe_lines,
-                *unsharp_lines,
+                *detail_lines,
                 "save moon_sharp",
-                "savetif moon_natural -astro",
-                "savejpg moon_natural 95",
-                *sat_lines,
-                "savejpg moon_mineral 95",
                 "exit",
             ]
 
@@ -5080,16 +5471,14 @@ def cmd_postprocess(args) -> None:
         lines = [
             "requires 1.4.4",
             f"load {mono_target}",
+            f"mtf {bg_val:.6f} {mid_val:.2f} {hi_val:.6f}",
+            "save moon_unsharpened",
+            f"load {mono_target}",
             *deconv_lines,
             f"mtf {bg_val:.6f} {mid_val:.2f} {hi_val:.6f}",
             "save moon_base",
-            "wavelet 5 2",
-            wrecons_cmd,
-            *clahe_lines,
-            *unsharp_lines,
+            *detail_lines,
             "save moon_sharp",
-            "savetif moon_natural -astro",
-            "savejpg moon_natural 95",
             "exit",
         ]
 
@@ -5097,163 +5486,124 @@ def cmd_postprocess(args) -> None:
     if receipt["exit_code"] != 0:
         die(f"postprocessing failed (exit {receipt['exit_code']}); see {receipt['log']}")
 
-    # Apply subpixel anti-ringing damping to eliminate edge undershoot dark halos
+    guard_mode = getattr(args, "sharp_guard", "auto")
+    detail_stem = "moon_lum" if is_rgb and mineral_mode == "lrgb" else "moon"
+    baseline = fits.getdata(work / "moon_unsharpened.fit", memmap=False).astype(np.float32)
+    post_deconv = fits.getdata(work / f"{detail_stem}_base.fit", memmap=False).astype(np.float32)
+    detail_support = None
+    wavelet_only = None
+    if wavelet_mode == "auto":
+        wavelet_only, support, wavelet_receipt = _run_wavelet_adaptation(
+            args, work, baseline, post_deconv, detail_stem, sharp_info["wavelet_coeffs"], px_scale, has_deconv)
+        fits.writeto(work / "moon_wavelet_support.fit", support.astype(np.uint8), overwrite=True)
+        if wavelet_receipt["status"] != "bypassed":
+            detail_support = support
+        wavelet_receipt["support_file"] = "moon_wavelet_support.fit"
+        header = fits.getheader(work / f"{detail_stem}_base.fit")
+        fits.writeto(work / "moon_wavelet.fit", wavelet_only, header=header, overwrite=True)
+        if clahe_lines or unsharp_lines:
+            finish_lines = ["load moon_wavelet", *clahe_lines, *unsharp_lines, f"save {detail_stem}_sharp", "exit"]
+            finish = run_siril_script(args.siril, finish_lines, work, logs_dir / "03_wavelet_finish.log", args.timeout)
+            if finish["exit_code"] != 0:
+                die(f"wavelet contrast finishing failed; see {finish['log']}")
+        else:
+            fits.writeto(work / f"{detail_stem}_sharp.fit", wavelet_only, header=header, overwrite=True)
+    else:
+        (work / "moon_wavelet_support.fit").unlink(missing_ok=True)
+        (work / "moon_wavelet.fit").unlink(missing_ok=True)
+        wavelet_receipt = {"mode": "off", "status": "off", "support_coverage": None,
+                           "requested_coefficients": sharp_info["wavelet_coeffs"]}
+    receipt["wavelet_adaptation"] = wavelet_receipt
+    log(f"wavelet adaptation: {wavelet_receipt['status']}, trusted pixels={wavelet_receipt.get('support_pixels', 'N/A')}")
+    raw_candidate = fits.getdata(work / f"{detail_stem}_sharp.fit", memmap=False).astype(np.float32)
+    ctx = _sharp_guard_context(baseline, px_scale, detail_support)
+    candidate = raw_candidate
     strength = sharp_info["damping_strength"]
-    if anti_ringing != "off" and strength > 0.0:
-        import cv2
+    damping_enabled = anti_ringing != "off" and strength > 0
+    if guard_mode == "off" and is_rgb and mineral_mode == "legacy":
+        damping_enabled = False
+    if damping_enabled and np.all(np.isfinite(raw_candidate)):
+        damping_base = baseline if guard_mode == "auto" else post_deconv
+        base_lum = _guard_luminance(damping_base)
+        raw_lum = _guard_luminance(raw_candidate)
+        neg, pos = (ctx["neg"], ctx["pos"]) if guard_mode == "auto" else _compute_edge_ringing_damping_mask(
+            base_lum, return_positive=True, px_scale=px_scale)
+        damped_lum = _apply_anti_ringing_damping(
+            base_lum, raw_lum, neg, strength=strength, pos_mask=pos,
+            pos_strength=0.75, soft_knee=guard_mode == "off")
+        if raw_candidate.ndim == 3:
+            delta = raw_lum - base_lum
+            factor = np.divide(damped_lum - base_lum, delta, out=np.ones_like(delta), where=np.abs(delta) > 1e-8)
+            candidate = damping_base + factor * (raw_candidate - damping_base)
+        else:
+            candidate = damped_lum
+        before = _sharp_guard_metrics(ctx, raw_candidate)["dhr"]
+        after = _sharp_guard_metrics(ctx, candidate)["dhr"]
+        receipt["anti_ringing"] = {"mode": anti_ringing, "strength": strength,
+                                  "dhr_raw": before, "dhr_damped": after}
 
-        if is_rgb and mineral_mode == "lrgb":
-            lum_base_path = work / "moon_lum_base.fit"
-            lum_sharp_path = work / "moon_lum_sharp.fit"
-            if lum_base_path.exists() and lum_sharp_path.exists():
-                with fits.open(lum_base_path, memmap=False) as hd_base:
-                    lum_base_data = hd_base[0].data
-                with fits.open(lum_sharp_path, memmap=False) as hd_sharp:
-                    lum_sharp_data = hd_sharp[0].data
-                    sharp_hdr = hd_sharp[0].header
+    if is_rgb and mineral_mode == "lrgb":
+        clean_color = fits.getdata(work / "moon_color_clean.fit", memmap=False)
+        def render_natural(lum):
+            return _compose_natural_lrgb(lum, clean_color, wb.get("glare_meta"), px_scale)
+    else:
+        def render_natural(data):
+            return np.clip(data, 0.0, 1.0).astype(np.float32)
 
-                damp_mask_neg, damp_mask_pos = _compute_edge_ringing_damping_mask(
-                    lum_base_data, return_positive=True, px_scale=px_scale)
-                dhr_raw = _measure_dark_halo_ratio(lum_base_data, lum_sharp_data, damp_mask_neg)
-                lum_damped = _apply_anti_ringing_damping(
-                    lum_base_data,
-                    lum_sharp_data,
-                    damp_mask_neg,
-                    strength=strength,
-                    pos_mask=damp_mask_pos,
-                    pos_strength=0.75,
-                    soft_knee=True,
-                )
-                dhr_damped = _measure_dark_halo_ratio(lum_base_data, lum_damped, damp_mask_neg)
+    def render_for_guard(data):
+        return np.rint(render_natural(data) * 65535).astype(np.float32) / 65535
 
-                fits.writeto(lum_sharp_path, lum_damped, header=sharp_hdr, overwrite=True)
-                reduction = (1.0 - dhr_damped / max(dhr_raw, 1e-6)) * 100.0 if dhr_raw > 1e-5 else 0.0
-                log(f"anti-ringing damping applied (LRGB): mode='{anti_ringing}', strength={strength:.2f}, DHR={dhr_raw:.4f} -> {dhr_damped:.4f} (reduced {reduction:.1f}%)")
-                receipt["anti_ringing"] = {
-                    "mode": anti_ringing,
-                    "strength": strength,
-                    "dhr_raw": dhr_raw,
-                    "dhr_damped": dhr_damped,
-                    "reduction_percent": reduction,
-                }
-
-                # Refresh moon_natural.tif and moon_natural.jpg with damped lum and clean limb
-                clean_color_path = work / "moon_color_clean.fit"
-                if clean_color_path.exists() and (work / "moon_natural.tif").exists():
-                    with fits.open(clean_color_path, memmap=False) as hd_clean:
-                        c_clean = hd_clean[0].data
-                    lum_clean = 0.299 * c_clean[0] + 0.587 * c_clean[1] + 0.114 * c_clean[2]
-                    scale = lum_damped / np.maximum(lum_clean, 1e-6)
-                    rgb_damped = np.clip(c_clean * scale, 0.0, 1.0)
-
-                    # Soft-knee highlight protection (consistent with deep-cine mineral tone)
-                    knee = 0.75
-                    above_knee = rgb_damped > knee
-                    if np.any(above_knee):
-                        rgb_damped[above_knee] = knee + (1.0 - knee) * np.tanh((rgb_damped[above_knee] - knee) / (1.0 - knee))
-
-                    # Smooth limb desaturation to eliminate residual chromatic fringe
-                    if wb.get("glare_meta") and wb["glare_meta"].get("active"):
-                        gm = wb["glare_meta"]
-                        R_d = float(gm["radius"])
-                        cx_d, cy_d = float(gm["center_x"]), float(gm["center_y"])
-                        yy_d, xx_d = np.mgrid[0:c_clean.shape[1], 0:c_clean.shape[2]]
-                        r_d = np.sqrt((xx_d - cx_d)**2 + (yy_d - cy_d)**2)
-                        limb_dist_d = R_d - r_d
-                        fade_val_d = np.clip((limb_dist_d - _px(4.0, px_scale)) / _px(14.0, px_scale), 0.0, 1.0)
-                        limb_fade_d = fade_val_d * fade_val_d * (3.0 - 2.0 * fade_val_d)
-                        for ch in range(3):
-                            rgb_damped[ch] = lum_damped + (rgb_damped[ch] - lum_damped) * limb_fade_d
-                        space_gate = np.clip((limb_dist_d + _px(1.0, px_scale)) / _px(2.5, px_scale), 0.0, 1.0)
-                        rgb_damped *= space_gate
-
-                    rgb_screen = rgb_damped[:, ::-1, :]
-                    bgr_16 = np.transpose((rgb_screen[[2, 1, 0]] * 65535.0).astype(np.uint16), (1, 2, 0))
-                    bgr_8 = np.transpose((rgb_screen[[2, 1, 0]] * 255.0).astype(np.uint8), (1, 2, 0))
-                    cv2.imwrite(str(work / "moon_natural.tif"), bgr_16)
-                    cv2.imwrite(str(work / "moon_natural.jpg"), bgr_8, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-        elif not is_rgb:
-            base_path = work / "moon_base.fit"
-            sharp_path = work / "moon_sharp.fit"
-            if base_path.exists() and sharp_path.exists():
-                with fits.open(base_path, memmap=False) as hd_base:
-                    b_data = hd_base[0].data
-                with fits.open(sharp_path, memmap=False) as hd_sharp:
-                    s_data = hd_sharp[0].data
-                    s_hdr = hd_sharp[0].header
-
-                damp_mask_neg, damp_mask_pos = _compute_edge_ringing_damping_mask(
-                    b_data, return_positive=True, px_scale=px_scale)
-                dhr_raw = _measure_dark_halo_ratio(b_data, s_data, damp_mask_neg)
-                damped_mono = _apply_anti_ringing_damping(
-                    b_data,
-                    s_data,
-                    damp_mask_neg,
-                    strength=strength,
-                    pos_mask=damp_mask_pos,
-                    pos_strength=0.75,
-                    soft_knee=True,
-                )
-                dhr_damped = _measure_dark_halo_ratio(b_data, damped_mono, damp_mask_neg)
-
-                fits.writeto(sharp_path, damped_mono, header=s_hdr, overwrite=True)
-                reduction = (1.0 - dhr_damped / max(dhr_raw, 1e-6)) * 100.0 if dhr_raw > 1e-5 else 0.0
-                log(f"anti-ringing damping applied (mono): mode='{anti_ringing}', strength={strength:.2f}, DHR={dhr_raw:.4f} -> {dhr_damped:.4f} (reduced {reduction:.1f}%)")
-                receipt["anti_ringing"] = {
-                    "mode": anti_ringing,
-                    "strength": strength,
-                    "dhr_raw": dhr_raw,
-                    "dhr_damped": dhr_damped,
-                    "reduction_percent": reduction,
-                }
-                mono_screen = damped_mono[::-1, :]
-                m16 = (np.clip(mono_screen, 0.0, 1.0) * 65535.0).astype(np.uint16)
-                m8 = (np.clip(mono_screen, 0.0, 1.0) * 255.0).astype(np.uint8)
-                cv2.imwrite(str(work / "moon_natural.tif"), m16)
-                cv2.imwrite(str(work / "moon_natural.jpg"), m8, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+    selected, guard = _select_guarded_sharpening(baseline, candidate, ctx, guard_mode, render_for_guard)
+    guard["stages"] = {
+        "deconvolution": _sharp_guard_metrics(ctx, post_deconv),
+        "wavelet": (_sharp_guard_metrics(_sharp_guard_context(post_deconv, px_scale), wavelet_only if wavelet_only is not None else raw_candidate)
+                    if np.all(np.isfinite(post_deconv)) else {"finite": False}),
+        "combined": _sharp_guard_metrics(ctx, raw_candidate),
+    }
+    guard["deconvolution"] = {"executed": deconv_method, "retained_alpha": guard["alpha"]}
+    guard["baseline_file"] = "moon_unsharpened.fit"
+    guard["detail_file"] = f"{detail_stem}_sharp.fit"
+    if detail_support is not None:
+        guard["detail_support_file"] = "moon_wavelet_support.fit"
+        guard["detail_support_sha256"] = hashlib.sha256(detail_support.astype(np.uint8).tobytes()).hexdigest()
+    receipt["sharp_guard"] = guard
+    log(f"sharp guard: {guard['status']}, retained enhancement={guard['alpha']:.0%}")
+    if guard["status"] == "fallback":
+        log(f"sharp guard fallback: {guard['attempts'][0]['reasons']}")
+    sharp_header = fits.getheader(work / f"{detail_stem}_sharp.fit")
+    sharp_header["SHRPALPH"] = guard["alpha"]
+    sharp_header["SHRPGARD"] = guard["status"]
+    fits.writeto(work / f"{detail_stem}_sharp.fit", selected, header=sharp_header, overwrite=True)
+    fits.writeto(work / "moon_natural_baseline.fit", render_for_guard(baseline), header=hdr, overwrite=True)
+    _write_moon_product(work, "moon_natural", render_natural(selected), sharp_header)
 
     mineral_style = "natural" if severe_clipping else getattr(args, "mineral_style", "deep-cine")
     fe_boost = float(getattr(args, "mineral_fe_boost", 4.5))
     ti_boost = float(getattr(args, "mineral_ti_boost", 5.5))
     gamma = float(getattr(args, "mineral_gamma", 1.00))
     if is_rgb and mineral_mode == "lrgb" and mineral_style == "deep-cine":
-        lum_sharp_path = work / "moon_lum_sharp.fit"
-        color_bal_path = work / "moon_color_balanced.fit"
-        if lum_sharp_path.exists() and color_bal_path.exists():
-            with fits.open(lum_sharp_path, memmap=False) as hdul_l:
-                l_data = hdul_l[0].data
-            with fits.open(color_bal_path, memmap=False) as hdul_c:
-                c_data = hdul_c[0].data
-
-            c_meta = wb.get("glare_meta")
-            if mosaic_mode == "tile":
-                c_meta = dict(c_meta) if c_meta else {}
-                c_meta["is_tile"] = True
-                c_meta["active"] = False
-
-            import cv2
-            import shutil
-
-            deep_mineral_bgr = _render_deep_cine_mineral(
-                l_data,
-                c_data,
-                circle_meta=c_meta,
-                fe_boost=fe_boost,
-                ti_boost=ti_boost,
-                gamma=gamma,
-                px_scale=px_scale,
-            )
-
-            # Write deep-cine mineral JPG
-            cv2.imwrite(str(work / "moon_mineral.jpg"), deep_mineral_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-            log(f"deep-cine mineral moon rendered: Fe terracotta red (x{fe_boost:.1f}) + Ti cobalt blue (x{ti_boost:.1f}), bilateral chroma smoothing, shadow/ray rolloff")
+        c_meta = wb.get("glare_meta")
+        if mosaic_mode == "tile":
+            c_meta = dict(c_meta or {}, is_tile=True, active=False)
+        mineral = _render_deep_cine_mineral(
+            selected, wb.get("color_data", d), circle_meta=c_meta, fe_boost=fe_boost,
+            ti_boost=ti_boost, gamma=gamma, px_scale=px_scale, return_float=True)
+        _write_moon_product(work, "moon_mineral", mineral, sharp_header)
+    elif is_rgb:
+        if mineral_mode == "lrgb":
+            finish_lines = ["requires 1.4.4", "rgbcomp -lum=moon_lum_sharp moon_color_sat -out=moon_mineral_master", "exit"]
+        else:
+            finish_lines = ["requires 1.4.4", "load moon_sharp", *sat_lines, "save moon_mineral_master", "exit"]
+        finish = run_siril_script(args.siril, finish_lines, work, logs_dir / "03_color_finish.log", args.timeout)
+        if finish["exit_code"] != 0:
+            die(f"color finishing failed; see {finish['log']}")
+        _write_moon_product(work, "moon_mineral", fits.getdata(work / "moon_mineral_master.fit", memmap=False), sharp_header)
 
     receipt["mosaic_mode"] = mosaic_mode
     receipt["deconvolution"] = {"requested":requested_deconv,"applied":deconv_method,"reason":"trusted_optics" if optics["trusted"] else "missing_optical_metadata"}
     receipt["source_saturation_rgb"] = saturation
     receipt["conservative_color"] = severe_clipping
     receipt["luminance_channel"] = getattr(args,"luminance_channel","weighted")
-    dump_json(work / "postprocess_receipt.json", receipt)
 
     # Global calibration profile (P2: Multi-panel stitching consistency)
     active_profile = {
@@ -5322,12 +5672,18 @@ def cmd_postprocess(args) -> None:
         "products": {
             "natural_tif": str(work / "moon_natural.tif"),
             "natural_jpg": str(work / "moon_natural.jpg"),
-            "mineral_jpg": str(work / "moon_mineral.jpg") if (work / "moon_mineral.jpg").exists() else None,
+            "mineral_jpg": str(work / "moon_mineral.jpg") if is_rgb and (work / "moon_mineral.jpg").exists() else None,
         },
     }
     # Visual finishing: Orientation rotation & 1:1 Square close-up export
     rotate_deg = int(getattr(args, "rotate", 0) or 0)
+    tile_info["rotation_deg"] = rotate_deg
     square_crop = getattr(args, "square_crop", True)
+    for name in ("moon_natural_square.tif", "moon_natural_square.jpg", "moon_mineral_square.jpg"):
+        (work / name).unlink(missing_ok=True)
+    if not is_rgb:
+        for name in ("moon_mineral.jpg", "moon_mineral_master.fit"):
+            (work / name).unlink(missing_ok=True)
 
     product_files = [
         work / "moon_natural.tif",
@@ -5350,7 +5706,35 @@ def cmd_postprocess(args) -> None:
                     cv2.imwrite(str(pf), img_rot)
         log(f"orientation adjustment: rotated product images by {rotate_deg}° clockwise")
 
-    # 2. Export 1:1 Square Close-Up Master
+    # 2. Adaptive Lunar Sky Margins & Centering (Full-disc mode)
+    auto_margin = getattr(args, "auto_margin", True)
+    sky_margin_ratio = float(getattr(args, "sky_margin", 0.25) or 0.25)
+    if auto_margin and mosaic_mode == "disc" and (work / "moon_natural.jpg").exists():
+        nat_sample = cv2.imread(str(work / "moon_natural.jpg"), cv2.IMREAD_UNCHANGED)
+        if nat_sample is not None:
+            gray_s = cv2.cvtColor(nat_sample, cv2.COLOR_BGR2GRAY) if nat_sample.ndim == 3 else nat_sample
+            lunar_fit = _fit_lunar_limb_circle(gray_s.astype(np.float32))
+            if lunar_fit:
+                _, margin_meta = _apply_adaptive_sky_margins(
+                    nat_sample,
+                    circle=lunar_fit,
+                    sky_margin_ratio=sky_margin_ratio,
+                    auto_center=True,
+                    bg_val=0,
+                )
+                if margin_meta.get("applied") and any(p > 0 for p in margin_meta.get("padding", [])):
+                    padding = margin_meta["padding"]
+                    for pf in product_files:
+                        if pf.exists():
+                            img = cv2.imread(str(pf), cv2.IMREAD_UNCHANGED)
+                            if img is not None:
+                                img_padded = cv2.copyMakeBorder(img, *padding, cv2.BORDER_CONSTANT, value=0)
+                                cv2.imwrite(str(pf), img_padded)
+                    tile_info["adaptive_sky_margin"] = margin_meta
+                    log(f"adaptive sky margin: expanded & centered to {margin_meta['new_shape'][1]}x{margin_meta['new_shape'][0]} "
+                        f"(sky margin={sky_margin_ratio*100:.0f}%, padding={padding})")
+
+    # 3. Export 1:1 Square Close-Up Master
     if square_crop and (work / "moon_natural.jpg").exists():
         nat_sample = cv2.imread(str(work / "moon_natural.jpg"), cv2.IMREAD_UNCHANGED)
         if nat_sample is not None:
@@ -5370,8 +5754,12 @@ def cmd_postprocess(args) -> None:
                     cx_fit,cy_fit = cx_fit+ax,cy_fit+ay
                     x0,x1 = min(x0,int(np.floor(cx_fit-radius))),max(x1,int(np.ceil(cx_fit+radius)))
                     y0,y1 = min(y0,int(np.floor(cy_fit-radius))),max(y1,int(np.ceil(cy_fit+radius)))
-                side = int(np.ceil(max(x1-x0,y1-y0)*1.35))
-                cx, cy = (x0+x1)//2, (y0+y1)//2
+                    side = int(np.ceil(2.0 * radius * (1.0 + 2.0 * sky_margin_ratio)))
+                    cx, cy = int(np.round(cx_fit)), int(np.round(cy_fit))
+                else:
+                    side = int(np.ceil(max(x1-x0,y1-y0) * (1.0 + 2.0 * sky_margin_ratio)))
+                    cx, cy = (x0+x1)//2, (y0+y1)//2
+                side += side % 2
                 left, top = cx-side//2, cy-side//2
                 right, bottom = left+side, top+side
                 padding = [max(0,-top),max(0,bottom-sh),max(0,-left),max(0,right-sw)]
@@ -5382,10 +5770,15 @@ def cmd_postprocess(args) -> None:
                             padded = cv2.copyMakeBorder(image,*padding,cv2.BORDER_CONSTANT,value=0)
                             crop = padded[top+padding[0]:bottom+padding[0],left+padding[2]:right+padding[2]]
                             cv2.imwrite(str(work/(pf.stem+"_square"+pf.suffix)),crop)
-                tile_info["square_crop"] = {"box":[left,top,right,bottom],"padding":padding}
-                log(f"square export: full visible lunar bounds preserved, side={side}, padding={padding}")
+                tile_info["square_crop"] = {"box":[left,top,right,bottom],"padding":padding, "side": side}
+                log(f"square export: full visible lunar bounds preserved, side={side}, sky_margin={sky_margin_ratio*100:.0f}%, padding={padding}")
+
 
     dump_json(work / "mosaic_tile_info.json", tile_info)
+    receipt["sharp_guard"]["delivery"] = _verify_sharp_guard(work, guard, tile_info, px_scale)
+    dump_json(work / "postprocess_receipt.json", receipt)
+    if receipt["sharp_guard"]["delivery"]["status"] == "failed":
+        die(f"delivered TIFF failed sharp guard verification: {receipt['sharp_guard']['delivery']}")
     log(f"mosaic tile metadata exported to {work / 'mosaic_tile_info.json'}")
     log(f"postprocessing complete! Products in {work}:")
     log(f"  - Natural master TIFF: {work / 'moon_natural.tif'}")
@@ -5397,8 +5790,70 @@ def cmd_postprocess(args) -> None:
     if (work / "moon_mineral_square.jpg").exists():
         log(f"  - Mineral Square JPG:  {work / 'moon_mineral_square.jpg'}")
 
+    # Generate interactive HTML dual-window comparison viewer
+    if getattr(args, "html_report", True):
+        _render_reference_frame(
+            work=work,
+            active_profile=active_profile,
+            seq_name=getattr(args, "seq", "moon_"),
+            rotate_deg=rotate_deg,
+            square_crop=square_crop,
+            tile_info=tile_info,
+        )
+        html_file = _generate_comparison_html(
+            work=work,
+            report=None,
+            tile_info=tile_info,
+            active_profile=active_profile,
+        )
+        log(f"  - Comparison viewer:   {html_file}")
+
+
 
 # ------------------------------------------------------------------- 5. verify
+
+def _verify_sharp_guard(work: Path, guard: dict, tile_info: dict, px_scale: float) -> dict:
+    """Check the delivered TIFF, reversing display geometry before fixed-region QC."""
+    import cv2
+    from astropy.io import fits
+
+    baseline_path = work / "moon_natural_baseline.fit"
+    master_path = work / "moon_natural_master.fit"
+    if not baseline_path.exists() or not master_path.exists() or not guard:
+        return {"status": "unknown", "reason": "missing_full_baseline_or_receipt"}
+    try:
+        image = cv2.imread(str(work / "moon_natural.tif"), cv2.IMREAD_UNCHANGED)
+        if image is None or image.dtype != np.uint16:
+            return {"status": "failed", "reason": "missing_or_invalid_16bit_tiff"}
+        padding = tile_info.get("adaptive_sky_margin", {}).get("padding", [0, 0, 0, 0])
+        top, bottom, left, right = padding
+        image = image[top:image.shape[0] - bottom, left:image.shape[1] - right]
+        image = np.rot90(image, int(tile_info.get("rotation_deg", 0)) // 90)
+        if image.ndim == 3:
+            image = np.moveaxis(image[:, :, [2, 1, 0]], -1, 0)[:, ::-1, :]
+        else:
+            image = image[::-1, :]
+        delivered = image.astype(np.float32) / 65535
+        master = fits.getdata(master_path, memmap=False)
+        if delivered.shape != master.shape or not np.all(np.isfinite(master)):
+            return {"status": "failed", "reason": "invalid_float_master_or_geometry"}
+        error = float(np.max(np.abs(delivered - master)))
+        if error > 1.0 / 65535 + np.finfo(np.float32).eps:
+            return {"status": "failed", "reason": "tiff_master_mismatch", "max_error": error}
+        baseline = fits.getdata(baseline_path, memmap=False)
+        ctx = _sharp_guard_context(baseline, px_scale, _load_wavelet_support(work, guard))
+        metrics = _sharp_guard_metrics(ctx, delivered)
+        reasons = _sharp_guard_reasons(ctx, metrics, require_gain=guard.get("alpha", 0) > 0)
+        status = "off" if guard.get("mode") == "off" else "passed"
+        if ctx["reason"]:
+            status = "unavailable" if status != "off" else status
+        elif reasons and status != "off":
+            status = "failed"
+        return {"status": status, "max_error": error, "metrics": metrics, "reasons": reasons,
+                "source": "moon_natural.tif"}
+    except (OSError, ValueError, TypeError) as exc:
+        return {"status": "failed", "reason": str(exc)}
+
 
 def _background_metrics(data, sky_mask=None):
     """Channel-wise sky statistics; no claim when a sky region cannot be identified."""
@@ -5574,6 +6029,1651 @@ def _candidate_feedback(args):
             del args.feedback_round
 
 
+
+
+def _apply_adaptive_sky_margins(
+    image: np.ndarray,
+    circle: tuple | list | None = None,
+    sky_margin_ratio: float = 0.25,
+    auto_center: bool = True,
+    bg_val: float | int = 0,
+) -> tuple[np.ndarray, dict]:
+    """Expand sky boundaries and center the lunar disc with guaranteed sky margin ratio.
+
+    Adheres strictly to the authentic zero-distortion rule:
+    - Never rescales or interpolates lunar pixels (100% native resolution preserved).
+    - Expands bounding canvas using clean background padding.
+    - Symmetrically centers the lunar disc so that margins on all 4 sides are >= radius * sky_margin_ratio.
+    """
+    import cv2
+    import numpy as np
+
+    h, w = image.shape[:2]
+    meta = {
+        "applied": False,
+        "sky_margin_ratio": float(sky_margin_ratio),
+        "original_shape": [int(h), int(w)],
+        "new_shape": [int(h), int(w)],
+        "padding": [0, 0, 0, 0],
+    }
+
+    if circle is None:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+        gray_f = gray.astype(np.float32) if (gray.dtype != np.float32 and gray.dtype != np.float64) else gray.copy()
+        circle = _fit_lunar_limb_circle(gray_f)
+
+    if not circle:
+        meta["reason"] = "no reliable lunar limb circle fitted"
+        return image, meta
+
+    cx, cy, radius = float(circle[0]), float(circle[1]), float(circle[2])
+    if radius <= 10.0 or not np.isfinite(radius):
+        meta["reason"] = "invalid radius"
+        return image, meta
+
+    req_margin = int(np.ceil(radius * sky_margin_ratio))
+
+    if auto_center:
+        half_w = max(cx, w - cx, radius + req_margin)
+        half_h = max(cy, h - cy, radius + req_margin)
+
+        new_w = int(np.ceil(2.0 * half_w))
+        new_h = int(np.ceil(2.0 * half_h))
+        new_w += new_w % 2
+        new_h += new_h % 2
+
+        pad_left = int(np.round(new_w / 2.0 - cx))
+        pad_right = new_w - (pad_left + w)
+        pad_top = int(np.round(new_h / 2.0 - cy))
+        pad_bottom = new_h - (pad_top + h)
+    else:
+        pad_left = max(0, int(np.ceil(req_margin - (cx - radius))))
+        pad_right = max(0, int(np.ceil(req_margin - (w - (cx + radius)))))
+        pad_top = max(0, int(np.ceil(req_margin - (cy - radius))))
+        pad_bottom = max(0, int(np.ceil(req_margin - (h - (cy + radius)))))
+        new_w = w + pad_left + pad_right
+        new_h = h + pad_top + pad_bottom
+
+    pad_left = max(0, pad_left)
+    pad_right = max(0, pad_right)
+    pad_top = max(0, pad_top)
+    pad_bottom = max(0, pad_bottom)
+
+    if pad_left == 0 and pad_right == 0 and pad_top == 0 and pad_bottom == 0:
+        meta["applied"] = True
+        meta["reason"] = "margins already satisfied"
+        meta["circle"] = [cx, cy, radius]
+        meta["new_center"] = [cx, cy]
+        return image, meta
+
+    padding = [pad_top, pad_bottom, pad_left, pad_right]
+    padded = cv2.copyMakeBorder(image, *padding, cv2.BORDER_CONSTANT, value=bg_val)
+
+    meta["applied"] = True
+    meta["circle"] = [cx, cy, radius]
+    meta["new_shape"] = [padded.shape[0], padded.shape[1]]
+    meta["new_center"] = [cx + pad_left, cy + pad_top]
+    meta["padding"] = padding
+    meta["req_margin"] = req_margin
+    return padded, meta
+
+
+def _render_reference_frame(
+    work: Path,
+    active_profile: dict | None = None,
+    seq_name: str = "moon_",
+    rotate_deg: int = 0,
+    square_crop: bool = False,
+    tile_info: dict | None = None,
+) -> Path | None:
+    from astropy.io import fits
+    import cv2
+    import numpy as np
+
+    work = Path(work).expanduser().resolve()
+    out_ref = work / "moon_reference.jpg"
+    out_ref_square = work / "moon_reference_square.jpg"
+    out_raw_orig = work / "moon_raw_original.jpg"
+
+    # Locate ranking.json
+    rank_json = work / "ranking.json"
+    ref_idx = None
+    if rank_json.exists():
+        try:
+            r_info = load_json(rank_json)
+            ref_idx = r_info.get("reference_index")
+        except Exception:
+            pass
+
+    # Prioritize true unresampled, uncropped native sequence frames
+    # (Avoid r_*.fit or cropped reference.fit produced by seqapplyreg -framing=min)
+    candidates = []
+    if ref_idx is not None:
+        candidates.append(work / f"{seq_name}{ref_idx:05d}.fit")
+        candidates.append(work / f"{seq_name}{ref_idx:04d}.fit")
+        candidates.append(work / f"{seq_name}{ref_idx}.fit")
+
+    # Look for any uncropped sequence FITS frame in work directory
+    for f in sorted(work.glob(f"{seq_name}*.fit")):
+        name_lower = f.name.lower()
+        if not any(k in name_lower for k in ("master", "lum", "base", "sharp", "color", "clean", "sat", "feedback", "reference", "r_")):
+            candidates.append(f)
+
+    # Secondary fallback to intermediate or resampled reference frames
+    candidates.extend([
+        work / f"{seq_name}reference.fit",
+        work / "moon_reference.fit",
+    ])
+    if ref_idx is not None:
+        candidates.append(work / f"r_{seq_name}{ref_idx:05d}.fit")
+        candidates.append(work / f"r_{seq_name}{ref_idx:04d}.fit")
+
+    target_fit = None
+    for cand in candidates:
+        if cand.exists():
+            target_fit = cand
+            break
+
+    if target_fit is None or not target_fit.exists():
+        return out_ref if out_ref.exists() else None
+
+    try:
+        with fits.open(target_fit, memmap=False) as hdul:
+            data = hdul[0].data.astype(np.float32)
+    except Exception as exc:
+        log(f"reference frame render: failed to open {target_fit.name}: {exc}")
+        return out_ref if out_ref.exists() else None
+
+    # Handle NaNs or Infs
+    data = np.nan_to_num(data, nan=0.0, posinf=1.0, neginf=0.0)
+
+    # Normalize to [0.0, 1.0]
+    d_max = float(np.max(data))
+    if d_max > 1.5:
+        norm_factor = 65535.0 if d_max > 255.0 else 255.0
+        data = data / norm_factor
+    data = np.clip(data, 0.0, 1.0)
+
+    profile = active_profile or {}
+    if not profile and (work / "lunar_profile.json").exists():
+        try:
+            profile = load_json(work / "lunar_profile.json")
+        except Exception:
+            profile = {}
+
+    hist = profile.get("histogram", {})
+    wb = profile.get("white_balance", {})
+    mid_val = float(hist.get("midtone", 0.13))
+    mid_val = max(0.01, min(0.99, mid_val))
+
+    def _mtf_stretch(x, m):
+        denom = (2.0 * m - 1.0) * x - m
+        out = np.zeros_like(x)
+        mask = np.abs(denom) > 1e-7
+        out[mask] = (m - 1.0) * x[mask] / denom[mask]
+        return np.clip(out, 0.0, 1.0)
+
+    is_rgb = (data.ndim == 3 and data.shape[0] >= 3)
+    if is_rgb:
+        bg_r_prof = float(hist.get("bg_r", 0.0))
+        bg_g_prof = float(hist.get("bg_g", 0.0))
+        bg_b_prof = float(hist.get("bg_b", 0.0))
+        bg_r = bg_r_prof if bg_r_prof > 0.0 else _estimate_pedestal(data[0])
+        bg_g = bg_g_prof if bg_g_prof > 0.0 else _estimate_pedestal(data[1])
+        bg_b = bg_b_prof if bg_b_prof > 0.0 else _estimate_pedestal(data[2])
+
+        r_net = np.maximum(0.0, data[0] - bg_r)
+        g_net = np.maximum(0.0, data[1] - bg_g)
+        b_net = np.maximum(0.0, data[2] - bg_b)
+
+        # Suppress limb glare outside disk to match product sky baseline
+        try:
+            net_planes = np.stack([r_net, g_net, b_net], axis=0)
+            net_planes, _ = _suppress_lunar_limb_glare(net_planes, glare_mode="soft")
+            r_net, g_net, b_net = net_planes[0], net_planes[1], net_planes[2]
+        except Exception:
+            pass
+
+        hi_lum = float(hist.get("hi_lum", 1.0))
+        k_r = float(wb.get("k_r", 1.0))
+        k_b = float(wb.get("k_b", 1.0))
+
+        span_r = max(hi_lum - bg_r_prof, 1e-6)
+        span_g = max(hi_lum - bg_g_prof, 1e-6)
+        span_b = max(hi_lum - bg_b_prof, 1e-6)
+
+        r_lin = np.clip(r_net / span_r * k_r, 0.0, 1.0)
+        g_lin = np.clip(g_net / span_g, 0.0, 1.0)
+        b_lin = np.clip(b_net / span_b * k_b, 0.0, 1.0)
+
+        r_str = _mtf_stretch(r_lin, mid_val)
+        g_str = _mtf_stretch(g_lin, mid_val)
+        b_str = _mtf_stretch(b_lin, mid_val)
+
+        # FITS coordinates vertical flip to match display
+        r_str = r_str[::-1, :]
+        g_str = g_str[::-1, :]
+        b_str = b_str[::-1, :]
+
+        bgr = (np.stack([b_str, g_str, r_str], axis=-1) * 255.0).astype(np.uint8)
+    else:
+        plane = data if data.ndim == 2 else data[0]
+        bg_lum_prof = float(hist.get("bg_lum", hist.get("bg_g", 0.0)))
+        bg_lum = bg_lum_prof if bg_lum_prof > 0.0 else _estimate_pedestal(plane)
+        hi_lum = float(hist.get("hi_lum", 1.0))
+        span = max(hi_lum - bg_lum_prof, 1e-6)
+        p_net = np.maximum(0.0, plane - bg_lum)
+        gray_lin = np.clip(p_net / span, 0.0, 1.0)
+        gray_str = _mtf_stretch(gray_lin, mid_val)
+        gray_str = gray_str[::-1, :]
+        bgr = (gray_str * 255.0).astype(np.uint8)
+
+    # Render True Camera RAW view (native sensor FOV, unaligned, unpadded, no limb glare suppression, no pedestal subtraction)
+    try:
+        hi_lum_raw = float(hist.get("hi_lum", 1.0))
+        span_raw = max(hi_lum_raw, 1e-6)
+        if is_rgb:
+            k_r_val = float(wb.get("k_r", 1.0))
+            k_b_val = float(wb.get("k_b", 1.0))
+            r_raw_lin = np.clip(data[0] / span_raw * k_r_val, 0.0, 1.0)
+            g_raw_lin = np.clip(data[1] / span_raw, 0.0, 1.0)
+            b_raw_lin = np.clip(data[2] / span_raw * k_b_val, 0.0, 1.0)
+            r_raw_str = _mtf_stretch(r_raw_lin, mid_val)[::-1, :]
+            g_raw_str = _mtf_stretch(g_raw_lin, mid_val)[::-1, :]
+            b_raw_str = _mtf_stretch(b_raw_lin, mid_val)[::-1, :]
+            raw_orig_bgr = (np.stack([b_raw_str, g_raw_str, r_raw_str], axis=-1) * 255.0).astype(np.uint8)
+        else:
+            plane_raw = data if data.ndim == 2 else data[0]
+            gray_raw_lin = np.clip(plane_raw / span_raw, 0.0, 1.0)
+            gray_raw_str = _mtf_stretch(gray_raw_lin, mid_val)[::-1, :]
+            raw_orig_bgr = (gray_raw_str * 255.0).astype(np.uint8)
+
+        if rotate_deg in (90, 180, 270):
+            rot_flag_raw = {
+                90: cv2.ROTATE_90_CLOCKWISE,
+                180: cv2.ROTATE_180,
+                270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+            }[rotate_deg]
+            raw_orig_bgr = cv2.rotate(raw_orig_bgr, rot_flag_raw)
+
+        cv2.imwrite(str(out_raw_orig), raw_orig_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        log(f"original raw frame rendered: {out_raw_orig.name} (native {raw_orig_bgr.shape[1]}x{raw_orig_bgr.shape[0]}, unpadded, unaligned)")
+    except Exception as exc:
+        log(f"original raw frame render warning: {exc}")
+
+    # Orientation rotation if requested
+    if rotate_deg in (90, 180, 270):
+        rot_flag = {
+            90: cv2.ROTATE_90_CLOCKWISE,
+            180: cv2.ROTATE_180,
+            270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+        }[rotate_deg]
+        bgr = cv2.rotate(bgr, rot_flag)
+
+    # Rigid 1:1 sub-pixel coordinate alignment to finished product (moon_natural.jpg)
+    target_img_path = work / "moon_natural.jpg"
+    aligned_to_product = False
+    if target_img_path.exists():
+        try:
+            target_img = cv2.imread(str(target_img_path), cv2.IMREAD_UNCHANGED)
+            if target_img is not None:
+                tgt_h, tgt_w = target_img.shape[:2]
+                gray_tgt = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY) if target_img.ndim == 3 else target_img
+                gray_ref = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY) if bgr.ndim == 3 else bgr
+
+                c_tgt = _fit_lunar_limb_circle(gray_tgt.astype(np.float32))
+                c_ref = _fit_lunar_limb_circle(gray_ref.astype(np.float32))
+
+                cur_h, cur_w = bgr.shape[:2]
+                if c_tgt and c_ref:
+                    dx0 = float(c_tgt[0] - c_ref[0])
+                    dy0 = float(c_tgt[1] - c_ref[1])
+                else:
+                    dx0 = float((tgt_w - cur_w) / 2.0)
+                    dy0 = float((tgt_h - cur_h) / 2.0)
+
+                M0 = np.array([[1.0, 0.0, dx0], [0.0, 1.0, dy0]], dtype=np.float32)
+                ref_coarse = cv2.warpAffine(bgr, M0, (tgt_w, tgt_h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+
+                gray_coarse = cv2.cvtColor(ref_coarse, cv2.COLOR_BGR2GRAY) if ref_coarse.ndim == 3 else ref_coarse
+                if c_tgt:
+                    cxi, cyi = int(round(c_tgt[0])), int(round(c_tgt[1]))
+                    box_r = int(min(c_tgt[2] * 0.5, cxi, cyi, tgt_w - 1 - cxi, tgt_h - 1 - cyi))
+                else:
+                    cxi, cyi = tgt_w // 2, tgt_h // 2
+                    box_r = min(tgt_w, tgt_h) // 4
+                box_r = max(32, box_r)
+
+                tgt_roi = gray_tgt[cyi - box_r : cyi + box_r, cxi - box_r : cxi + box_r].astype(np.float32)
+                ref_roi = gray_coarse[cyi - box_r : cyi + box_r, cxi - box_r : cxi + box_r].astype(np.float32)
+
+                dx_fine, dy_fine = 0.0, 0.0
+                if tgt_roi.shape == ref_roi.shape and tgt_roi.shape[0] >= 32 and tgt_roi.shape[1] >= 32:
+                    hann = cv2.createHanningWindow((tgt_roi.shape[1], tgt_roi.shape[0]), cv2.CV_32F)
+                    (f_dx, f_dy), resp = cv2.phaseCorrelate(tgt_roi, ref_roi, hann)
+                    if resp > 0.08 and abs(f_dx) < 64 and abs(f_dy) < 64:
+                        dx_fine, dy_fine = f_dx, f_dy
+
+                total_dx = dx0 - dx_fine
+                total_dy = dy0 - dy_fine
+                M_final = np.array([[1.0, 0.0, total_dx], [0.0, 1.0, total_dy]], dtype=np.float32)
+                bgr = cv2.warpAffine(bgr, M_final, (tgt_w, tgt_h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+                aligned_to_product = True
+                log(f"reference frame aligned to product: offset=({total_dx:+.1f}, {total_dy:+.1f}) px, canvas={tgt_w}x{tgt_h}")
+        except Exception as exc:
+            log(f"reference frame product alignment note: {exc}")
+
+    if not aligned_to_product:
+        # Harmonize unpadded dimensions with moon_master.fit if master exists
+        master_fit = work / "moon_master.fit"
+        if master_fit.exists():
+            try:
+                with fits.open(master_fit, memmap=False) as mhdul:
+                    m_h = int(mhdul[0].header.get("NAXIS2", 0))
+                    m_w = int(mhdul[0].header.get("NAXIS1", 0))
+                if rotate_deg in (90, 270):
+                    m_h, m_w = m_w, m_h
+                if m_h > 0 and m_w > 0:
+                    cur_h, cur_w = bgr.shape[:2]
+                    if cur_h != m_h or cur_w != m_w:
+                        # Align dimensions to match master grid exactly
+                        if cur_h > m_h or cur_w > m_w:
+                            top = max(0, (cur_h - m_h) // 2)
+                            left = max(0, (cur_w - m_w) // 2)
+                            bgr = bgr[top:top + m_h, left:left + m_w]
+                        cur_h, cur_w = bgr.shape[:2]
+                        if cur_h < m_h or cur_w < m_w:
+                            pad_top = max(0, (m_h - cur_h) // 2)
+                            pad_bot = max(0, m_h - cur_h - pad_top)
+                            pad_left = max(0, (m_w - cur_w) // 2)
+                            pad_right = max(0, m_w - cur_w - pad_left)
+                            bgr = cv2.copyMakeBorder(bgr, pad_top, pad_bot, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0)
+            except Exception as exc:
+                log(f"reference frame dimension alignment note: {exc}")
+
+        # Apply adaptive sky padding if recorded in tile_info
+        adaptive_margin = (tile_info or {}).get("adaptive_sky_margin")
+        if not adaptive_margin and (work / "mosaic_tile_info.json").exists():
+            try:
+                adaptive_margin = load_json(work / "mosaic_tile_info.json").get("adaptive_sky_margin")
+            except Exception:
+                adaptive_margin = None
+        if adaptive_margin and adaptive_margin.get("applied"):
+            pad = adaptive_margin.get("padding")
+            if pad and any(p > 0 for p in pad):
+                bgr = cv2.copyMakeBorder(bgr, *pad, cv2.BORDER_CONSTANT, value=0)
+
+    cv2.imwrite(str(out_ref), bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+    log(f"reference frame rendered: {out_ref.name} (frame #{ref_idx or 'base'}, isometric MTF applied)")
+
+
+    # Also render square version if tile_info has square_crop info
+    if square_crop:
+        sq_info = (tile_info or {}).get("square_crop")
+        if not sq_info and (work / "mosaic_tile_info.json").exists():
+            try:
+                sq_info = load_json(work / "mosaic_tile_info.json").get("square_crop")
+            except Exception:
+                sq_info = None
+        if sq_info and "padding" in sq_info and "box" in sq_info:
+            try:
+                padding = sq_info["padding"]
+                left, top, right, bottom = sq_info["box"]
+                padded = cv2.copyMakeBorder(bgr, *padding, cv2.BORDER_CONSTANT, value=0)
+                crop = padded[top + padding[0]:bottom + padding[0], left + padding[2]:right + padding[2]]
+                cv2.imwrite(str(out_ref_square), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                log(f"reference square frame rendered: {out_ref_square.name}")
+            except Exception as exc:
+                log(f"reference square crop warning: {exc}")
+
+    return out_ref
+
+
+def _generate_comparison_html(
+    work: Path,
+    report: dict | None = None,
+    tile_info: dict | None = None,
+    active_profile: dict | None = None,
+) -> Path:
+    work = Path(work).expanduser().resolve()
+    out_html = work / "comparison.html"
+
+    # 1. Gather product images
+    manifest = {
+        "reference": "moon_reference.jpg" if (work / "moon_reference.jpg").exists() else None,
+        "referenceSquare": "moon_reference_square.jpg" if (work / "moon_reference_square.jpg").exists() else None,
+        "rawOriginal": "moon_raw_original.jpg" if (work / "moon_raw_original.jpg").exists() else None,
+        "targets": [],
+    }
+
+    candidates = [
+        ("natural", "自然写实母版 (Natural Master)", "moon_natural.jpg", False),
+        ("mineral", "电影级地质彩月 (Deep-Cine Mineral)", "moon_mineral.jpg", False),
+        ("natural_square", "1:1 自然方形特写 (Natural Square)", "moon_natural_square.jpg", True),
+        ("mineral_square", "1:1 彩月方形特写 (Mineral Square)", "moon_mineral_square.jpg", True),
+    ]
+
+    for tid, tname, tfile, is_sq in candidates:
+        if (work / tfile).exists():
+            manifest["targets"].append({
+                "id": tid,
+                "name": tname,
+                "file": tfile,
+                "square": is_sq,
+            })
+
+    if not manifest["targets"]:
+        # Fallback to any existing jpg
+        for jpg in sorted(work.glob("*.jpg")):
+            if jpg.name not in ("moon_reference.jpg", "moon_reference_square.jpg", "moon_raw_original.jpg"):
+                manifest["targets"].append({
+                    "id": jpg.stem,
+                    "name": jpg.name,
+                    "file": jpg.name,
+                    "square": "square" in jpg.name,
+                })
+
+    # 2. Gather HUD metrics
+    hud_data = {}
+    rep = report or {}
+    if not rep and (work / "verify_report.json").exists():
+        try:
+            rep = load_json(work / "verify_report.json")
+        except Exception:
+            rep = {}
+
+    ti = tile_info or {}
+    if not ti and (work / "mosaic_tile_info.json").exists():
+        try:
+            ti = load_json(work / "mosaic_tile_info.json")
+        except Exception:
+            ti = {}
+
+    prof = active_profile or {}
+    if not prof and (work / "lunar_profile.json").exists():
+        try:
+            prof = load_json(work / "lunar_profile.json")
+        except Exception:
+            prof = {}
+
+    post_rec = load_json(work / "postprocess_receipt.json") if (work / "postprocess_receipt.json").exists() else {}
+    guard = (report or {}).get("sharp_guard") or post_rec.get("sharp_guard") or {"status": "unknown", "alpha": None}
+    adaptation = (report or {}).get("wavelet_adaptation") or post_rec.get("wavelet_adaptation") or {"status": "unknown"}
+    guard_metrics = guard.get("verified_selected") or guard.get("selected") or {}
+    stack_rec = {}
+    if (work / "stack_receipt.json").exists():
+        try:
+            stack_rec = load_json(work / "stack_receipt.json")
+        except Exception:
+            stack_rec = {}
+
+    rank_rec = {}
+    if (work / "ranking.json").exists():
+        try:
+            rank_rec = load_json(work / "ranking.json")
+        except Exception:
+            rank_rec = {}
+
+    dev = rep.get("device") or {}
+    fl_val = rep.get("focal_length") or ti.get("focal_length")
+    ap_val = rep.get("aperture") or ti.get("aperture")
+    px_val = rep.get("pixel_size") or ti.get("pixel_size")
+    f_ratio = round(float(fl_val) / float(ap_val), 1) if fl_val and ap_val else None
+    airy_r = round((1.22 * 0.55 * float(fl_val)) / (float(ap_val) * float(px_val)), 2) if fl_val and ap_val and px_val else None
+
+    drz = rep.get("drizzle") or ti.get("drizzle") or stack_rec.get("drizzle") or {}
+    stk_frames = rep.get("stacked_frames") or stack_rec.get("stacked_frames")
+    reg_frames = rep.get("registered_frames") or rank_rec.get("registered_frames")
+    tot_frames = rep.get("candidate_frames") or rank_rec.get("candidate_frames") or rank_rec.get("total_frames")
+
+    hud_data = {
+        "device": {
+            "name": dev.get("id") or "Auto-detected",
+            "source": dev.get("match_source") or "FITS Header",
+            "confidence": dev.get("confidence") or "N/A",
+        },
+        "optics": {
+            "focal_length": float(fl_val) if fl_val else None,
+            "aperture": float(ap_val) if ap_val else None,
+            "pixel_size": float(px_val) if px_val else None,
+            "f_ratio": f_ratio,
+            "airy_r": airy_r,
+        },
+        "stacking": {
+            "stacked_frames": stk_frames,
+            "registered_frames": reg_frames,
+            "total_frames": tot_frames,
+            "ratio": f"{(stk_frames / tot_frames * 100):.1f}%" if stk_frames and tot_frames else None,
+            "method": stack_rec.get("stack_method", "Winsorized Rej Mean"),
+            "weight": stack_rec.get("weight", "noise"),
+        },
+        "drizzle": {
+            "enabled": bool(drz.get("enabled")),
+            "scale": drz.get("scale", 1.0),
+            "kernel": drz.get("kernel", "square"),
+            "pixfrac": drz.get("pixfrac", 1.0),
+        },
+        "quality": {
+            "sharp_guard": {"status": guard.get("status"), "alpha": guard.get("alpha")},
+            "wavelet_adaptation": {"status": adaptation.get("status"), "support_coverage": adaptation.get("support_coverage")},
+            "dhr": guard_metrics.get("dhr", rep.get("dark_halo_ratio")),
+            "dhr_status": rep.get("dark_halo_status"),
+            "csi": guard_metrics.get("csi", rep.get("chalky_saturation_index")),
+            "csi_status": rep.get("chalky_status"),
+            "gkm": guard_metrics.get("gkm", rep.get("gradient_kurtosis")),
+            "gkm_status": rep.get("brittleness_status"),
+            "bg_noise_std": rep.get("background_noise_std"),
+            "bg_noise_status": rep.get("background_noise_status"),
+        },
+        "color": {
+            "wb_kr": prof.get("white_balance", {}).get("k_r"),
+            "wb_kb": prof.get("white_balance", {}).get("k_b"),
+            "midtone": prof.get("histogram", {}).get("midtone"),
+            "mineral_style": prof.get("mineral", {}).get("mineral_style"),
+            "fe_boost": prof.get("mineral", {}).get("fe_boost"),
+            "ti_boost": prof.get("mineral", {}).get("ti_boost"),
+        },
+    }
+
+    import json
+    manifest_json = json.dumps(manifest)
+    hud_json = json.dumps(hud_data)
+
+    html_template = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Siril Moon Stacking · Dual-Window Linked Inspector</title>
+  <style>
+    :root {
+      --bg-dark: #07090e;
+      --bg-surface: #0f1523;
+      --bg-panel: #141c2e;
+      --border-color: #1e293b;
+      --border-highlight: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-cyan: #38bdf8;
+      --accent-blue: #2563eb;
+      --accent-amber: #f59e0b;
+      --accent-emerald: #10b981;
+      --accent-rose: #f43f5e;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-family);
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    /* Top Navigation Toolbar */
+    .toolbar {
+      height: 52px;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 100;
+    }
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-logo { font-size: 1.3rem; }
+    .brand-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-main);
+    }
+    .badge-sub {
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 2px 7px;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .controls-center {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-group {
+      display: flex;
+      background: var(--bg-panel);
+      padding: 3px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+    .btn-group button {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 5px 11px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+    .btn-group button:hover { color: var(--text-main); background: rgba(255, 255, 255, 0.05); }
+    .btn-group button.active {
+      color: #fff;
+      background: var(--accent-blue);
+      box-shadow: 0 1px 4px rgba(37, 99, 235, 0.35);
+    }
+
+    .tool-btn {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+    .tool-btn:hover { background: var(--border-highlight); border-color: var(--accent-cyan); }
+    .zoom-text {
+      font-size: 0.8rem;
+      color: var(--accent-cyan);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      min-width: 44px;
+      text-align: center;
+    }
+
+    .controls-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .target-select {
+      background: var(--bg-panel);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      outline: none;
+      cursor: pointer;
+    }
+    .target-select:focus { border-color: var(--accent-cyan); }
+    .hud-toggle-btn {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--accent-emerald);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+    .hud-toggle-btn.active {
+      background: var(--accent-emerald);
+      color: #07090e;
+    }
+
+    /* Main Viewport Workspace */
+    .workspace {
+      flex: 1;
+      position: relative;
+      background: #000;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* Mode: Side by Side */
+    .side-by-side-layout {
+      display: flex;
+      width: 100%;
+      height: 100%;
+    }
+    .side-panel {
+      flex: 1;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      border-right: 1px solid #1e293b;
+    }
+    .side-panel:last-child { border-right: none; }
+    .viewport {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      cursor: grab;
+      overflow: hidden;
+    }
+    .viewport:active { cursor: grabbing; }
+
+    .canvas-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    .canvas-layer img {
+      display: block;
+      pointer-events: none;
+      max-width: none;
+      max-height: none;
+    }
+
+    /* Floating Panel Badges */
+    .panel-pill {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 6px 12px;
+      border-radius: 8px;
+      pointer-events: none;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+    .pill-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ref-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-amber); display: inline-block; }
+    .ref-dot.raw-dot { background: #f97316; box-shadow: 0 0 6px rgba(249, 115, 22, 0.8); }
+    .master-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-cyan); display: inline-block; }
+    .pill-meta { font-size: 0.7rem; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
+
+    /* Crosshairs */
+    .crosshair-h, .crosshair-v {
+      position: absolute;
+      pointer-events: none;
+      z-index: 20;
+      display: none;
+    }
+    .crosshair-h {
+      left: 0;
+      width: 100%;
+      height: 1px;
+      background: rgba(56, 189, 248, 0.5);
+      box-shadow: 0 0 4px rgba(56, 189, 248, 0.8);
+    }
+    .crosshair-v {
+      top: 0;
+      height: 100%;
+      width: 1px;
+      background: rgba(56, 189, 248, 0.5);
+      box-shadow: 0 0 4px rgba(56, 189, 248, 0.8);
+    }
+
+    /* Mode: Split Slider Layout */
+    .split-layout {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: none;
+    }
+    .split-container {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      cursor: grab;
+    }
+    .split-container:active { cursor: grabbing; }
+    .split-clip-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .split-divider-line {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+      z-index: 30;
+      cursor: ew-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .split-divider-handle {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #0f172a;
+      border: 2px solid #38bdf8;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+      user-select: none;
+      letter-spacing: -2px;
+    }
+
+    /* Mode: Blink Toggle Layout */
+    .blink-layout {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: none;
+    }
+    .blink-indicator {
+      position: absolute;
+      bottom: 45px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border-color);
+      padding: 8px 18px;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 40;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    }
+
+    /* HUD Metrics Drawer */
+    .hud-panel {
+      position: absolute;
+      bottom: 38px;
+      right: 18px;
+      width: 360px;
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-highlight);
+      border-radius: 12px;
+      padding: 16px;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .hud-panel.hidden {
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+    }
+    .hud-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 8px;
+    }
+    .hud-title { font-size: 0.88rem; font-weight: 700; color: var(--text-main); }
+    .hud-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+    }
+    .metric-label { color: var(--text-muted); }
+    .metric-val {
+      color: var(--text-main);
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-weight: 600;
+    }
+    .status-badge {
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+    .status-excellent { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    .status-good { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+    .status-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
+    /* Bottom Status Bar */
+    .statusbar {
+      height: 28px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      z-index: 100;
+    }
+    .shortcut-hints { display: flex; gap: 14px; }
+    .kbd {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.72rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Toolbar -->
+  <header class="toolbar">
+    <div class="brand-section">
+      <span class="brand-logo">🌙</span>
+      <span class="brand-title">Siril Moon Stacking</span>
+      <span class="badge-sub">同步审验器</span>
+    </div>
+
+    <div class="controls-center">
+      <div class="btn-group">
+        <button id="btn-mode-side" class="active" title="双窗并排联动视图 (Tab)">🔲 双窗并排 (Side-by-Side)</button>
+        <button id="btn-mode-split" title="卷帘滑动对比视图 (Tab)">↔️ 卷帘对比 (Split Slider)</button>
+        <button id="btn-mode-blink" title="极速闪烁交替视图 (Space)">👁️ 闪烁交替 (Blink)</button>
+      </div>
+
+      <div style="width: 1px; height: 20px; background: var(--border-color); margin: 0 4px;"></div>
+
+      <div class="btn-group" id="ref-source-group" title="切换左侧参考图源 (快捷键 R)">
+        <button id="btn-ref-aligned" class="active" title="亚像素坐标配准版，与成片严格重合，专用于卷帘与闪烁微观细节对比 (R)">🎯 对齐对比帧</button>
+        <button id="btn-ref-raw" title="相机原生未裁剪画幅，无仿射平移、无扩边留白、无消光，真实还原单帧拍摄底片 (R)">📷 原生真实 RAW</button>
+      </div>
+
+      <div style="width: 1px; height: 20px; background: var(--border-color); margin: 0 4px;"></div>
+
+      <button id="btn-zoom-fit" class="tool-btn" title="适屏全貌 (0 / F)">适屏</button>
+      <button id="btn-zoom-100" class="tool-btn" title="100% 原始物理像素 (1)">100%</button>
+      <button id="btn-zoom-200" class="tool-btn" title="200% 高频细节超采样 (2)">200%</button>
+      <button id="btn-center" class="tool-btn" title="月盘一键居中 (C)">🎯 居中</button>
+      <span id="zoom-display" class="zoom-text">100%</span>
+    </div>
+
+    <div class="controls-right">
+      <select id="target-dropdown" class="target-select"></select>
+      <button id="btn-hud-toggle" class="hud-toggle-btn" title="显示/隐藏质检 HUD (H)">📊 质检 HUD</button>
+    </div>
+  </header>
+
+  <!-- Workspace Area -->
+  <main class="workspace" id="workspace">
+
+    <!-- Mode 1: Side by Side -->
+    <div id="side-layout" class="side-by-side-layout">
+      <!-- Left Panel: Reference -->
+      <div class="side-panel" id="panel-left">
+        <div class="panel-pill">
+          <div class="pill-title" id="ref-title-text"><span class="ref-dot"></span>单帧配准版 (Aligned Ref)</div>
+          <div class="pill-meta" id="ref-meta-text">1:1 亚像素对齐 · 等度 MTF · 专用于卷帘/闪烁微观比对</div>
+        </div>
+        <div class="viewport" id="viewport-left">
+          <div class="canvas-layer" id="layer-left">
+            <img id="img-left" src="" alt="参考单帧">
+          </div>
+          <div class="crosshair-h" id="ch-left-h"></div>
+          <div class="crosshair-v" id="ch-left-v"></div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Master -->
+      <div class="side-panel" id="panel-right">
+        <div class="panel-pill">
+          <div class="pill-title"><span class="master-dot"></span>堆叠增强成片 (Master)</div>
+          <div class="pill-meta" id="master-meta-text">Siril 剔除均值高动态堆叠</div>
+        </div>
+        <div class="viewport" id="viewport-right">
+          <div class="canvas-layer" id="layer-right">
+            <img id="img-right" src="" alt="堆叠成片">
+          </div>
+          <div class="crosshair-h" id="ch-right-h"></div>
+          <div class="crosshair-v" id="ch-right-v"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode 2: Split Slider -->
+    <div id="split-layout" class="split-layout">
+      <div class="split-container" id="viewport-split">
+        <div class="canvas-layer" id="layer-split-ref">
+          <img id="img-split-ref" src="" alt="参考单帧">
+        </div>
+        <div class="split-clip-layer" id="split-clip-container">
+          <div class="canvas-layer" id="layer-split-master">
+            <img id="img-split-master" src="" alt="堆叠成片">
+          </div>
+        </div>
+        <div class="split-divider-line" id="split-divider">
+          <div class="split-divider-handle">◀ ｜ ▶</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode 3: Blink Toggle -->
+    <div id="blink-layout" class="blink-layout">
+      <div class="viewport" id="viewport-blink">
+        <div class="canvas-layer" id="layer-blink">
+          <img id="img-blink" src="" alt="闪烁视图">
+        </div>
+        <div class="blink-indicator" id="blink-indicator">
+          <span>当前显示:</span>
+          <strong id="blink-status-text" style="color: var(--accent-cyan);">堆叠增强成片</strong>
+          <span style="font-size: 0.72rem; color: var(--text-muted);">(按空格键快速交替)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- HUD Drawer Panel (Default Hidden) -->
+    <aside class="hud-panel hidden" id="hud-panel">
+      <div class="hud-header">
+        <div class="hud-title">🌙 月面质检与光学参数 HUD</div>
+        <span class="badge-sub" id="hud-badge-device">光学母版</span>
+      </div>
+
+      <!-- Card 1: Optics -->
+      <div class="hud-card">
+        <div class="card-title">🔭 光学系统与设备</div>
+        <div class="metric-row"><span class="metric-label">拍摄设备</span><span class="metric-val" id="hud-device">-</span></div>
+        <div class="metric-row"><span class="metric-label">焦距 / 口径</span><span class="metric-val" id="hud-optics-fl">-</span></div>
+        <div class="metric-row"><span class="metric-label">焦比 / 艾里斑半径</span><span class="metric-val" id="hud-optics-airy">-</span></div>
+      </div>
+
+      <!-- Card 2: Stacking & Drizzle -->
+      <div class="hud-card">
+        <div class="card-title">🔄 选帧堆叠与 Drizzle</div>
+        <div class="metric-row"><span class="metric-label">叠加帧数</span><span class="metric-val" id="hud-stack-frames">-</span></div>
+        <div class="metric-row"><span class="metric-label">选帧保留率</span><span class="metric-val" id="hud-stack-ratio">-</span></div>
+        <div class="metric-row"><span class="metric-label">Drizzle 超采样</span><span class="metric-val" id="hud-drizzle">-</span></div>
+      </div>
+
+      <!-- Card 3: Quality Metrics -->
+      <div class="hud-card">
+        <div class="card-title">💎 伪影与质感量化指标</div>
+        <div class="metric-row"><span class="metric-label">防过锐 / 增强保留率</span><span class="metric-val" id="hud-sharp-guard">-</span></div>
+        <div class="metric-row"><span class="metric-label">自适应小波 / 可信覆盖率</span><span class="metric-val" id="hud-wavelet-adapt">-</span></div>
+        <div class="metric-row"><span class="metric-label">暗环比率 (DHR)</span><span class="metric-val" id="hud-dhr">-</span></div>
+        <div class="metric-row"><span class="metric-label">高光白垩指数 (CSI)</span><span class="metric-val" id="hud-csi">-</span></div>
+        <div class="metric-row"><span class="metric-label">梯度峰度脆裂度 (GKM)</span><span class="metric-val" id="hud-gkm">-</span></div>
+        <div class="metric-row"><span class="metric-label">深空残噪标准差</span><span class="metric-val" id="hud-noise">-</span></div>
+      </div>
+
+      <!-- Card 4: Color Profile -->
+      <div class="hud-card">
+        <div class="card-title">🎨 色彩校准与地质矿物</div>
+        <div class="metric-row"><span class="metric-label">灰世界白平衡 (kr, kb)</span><span class="metric-val" id="hud-wb">-</span></div>
+        <div class="metric-row"><span class="metric-label">MTF 中间调拉伸</span><span class="metric-val" id="hud-mtf">-</span></div>
+        <div class="metric-row"><span class="metric-label">钛(Ti) / 铁(Fe) 饱和度增益</span><span class="metric-val" id="hud-mineral-boost">-</span></div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- Bottom Status Bar -->
+  <footer class="statusbar">
+    <div class="shortcut-hints">
+      <span><span class="kbd">Space</span> 闪烁</span>
+      <span><span class="kbd">R</span> 切换对齐/原生RAW</span>
+      <span><span class="kbd">1</span> 100%</span>
+      <span><span class="kbd">2</span> 200%</span>
+      <span><span class="kbd">0</span> 适屏</span>
+      <span><span class="kbd">C</span> 居中</span>
+      <span><span class="kbd">Tab</span> 切换视图</span>
+      <span><span class="kbd">M</span> 切换成片</span>
+      <span><span class="kbd">H</span> 质检面板</span>
+    </div>
+    <div id="footer-dimensions">就绪</div>
+  </footer>
+
+  <script>
+    const IMAGES = """ + manifest_json + """;
+    const METRICS = """ + hud_json + """;
+
+    // Application state
+    const state = {
+      mode: 'side-by-side', // 'side-by-side' | 'split' | 'blink'
+      refSource: 'aligned', // 'aligned' | 'raw'
+      zoom: 1.0,
+      panX: 0,
+      panY: 0,
+      isDragging: false,
+      dragStartX: 0,
+      dragStartY: 0,
+      activeTarget: null,
+      splitPercent: 50.0,
+      isSplitting: false,
+      blinkIsRef: false,
+      imgWidth: 1000,
+      imgHeight: 1000,
+    };
+
+    // DOM Elements
+    const dom = {
+      sideLayout: document.getElementById('side-layout'),
+      splitLayout: document.getElementById('split-layout'),
+      blinkLayout: document.getElementById('blink-layout'),
+      hudPanel: document.getElementById('hud-panel'),
+      zoomDisplay: document.getElementById('zoom-display'),
+      targetDropdown: document.getElementById('target-dropdown'),
+      splitDivider: document.getElementById('split-divider'),
+      splitClipContainer: document.getElementById('split-clip-container'),
+      blinkStatusText: document.getElementById('blink-status-text'),
+      footerDim: document.getElementById('footer-dimensions'),
+
+      // Reference source toggles
+      btnRefAligned: document.getElementById('btn-ref-aligned'),
+      btnRefRaw: document.getElementById('btn-ref-raw'),
+      refTitleText: document.getElementById('ref-title-text'),
+      refMetaText: document.getElementById('ref-meta-text'),
+
+      // Images
+      imgLeft: document.getElementById('img-left'),
+      imgRight: document.getElementById('img-right'),
+      imgSplitRef: document.getElementById('img-split-ref'),
+      imgSplitMaster: document.getElementById('img-split-master'),
+      imgBlink: document.getElementById('img-blink'),
+
+      // Layers
+      layerLeft: document.getElementById('layer-left'),
+      layerRight: document.getElementById('layer-right'),
+      layerSplitRef: document.getElementById('layer-split-ref'),
+      layerSplitMaster: document.getElementById('layer-split-master'),
+      layerBlink: document.getElementById('layer-blink'),
+
+      // Crosshairs
+      chLeftH: document.getElementById('ch-left-h'),
+      chLeftV: document.getElementById('ch-left-v'),
+      chRightH: document.getElementById('ch-right-h'),
+      chRightV: document.getElementById('ch-right-v'),
+    };
+
+    // Initialize Dropdown & Images
+    function initTargets() {
+      dom.targetDropdown.innerHTML = '';
+      if (!IMAGES.targets || IMAGES.targets.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No product images found';
+        dom.targetDropdown.appendChild(opt);
+        return;
+      }
+
+      IMAGES.targets.forEach((t, idx) => {
+        const opt = document.createElement('option');
+        opt.value = t.file;
+        opt.textContent = t.name;
+        if (idx === 0) opt.selected = true;
+        dom.targetDropdown.appendChild(opt);
+      });
+
+      state.activeTarget = IMAGES.targets[0];
+      updateImageSources();
+    }
+
+    function updateImageSources() {
+      if (!state.activeTarget) return;
+
+      const isSquare = state.activeTarget.square;
+      let refSrc = '';
+      let titleHtml = '';
+      let metaText = '';
+
+      if (state.refSource === 'raw' && IMAGES.rawOriginal) {
+        refSrc = IMAGES.rawOriginal;
+        titleHtml = '<span class="ref-dot raw-dot"></span>相机原生 RAW (True Raw As-Shot)';
+        metaText = '原生未加工底片 · 原生画幅 · 无裁切扩边仿射';
+      } else if (isSquare && IMAGES.referenceSquare) {
+        refSrc = IMAGES.referenceSquare;
+        titleHtml = '<span class="ref-dot"></span>单帧配准版 (Aligned Square)';
+        metaText = '1:1 方形特写配准 · 视宁度第 1 名';
+      } else {
+        refSrc = IMAGES.reference || (state.activeTarget ? state.activeTarget.file : '');
+        titleHtml = '<span class="ref-dot"></span>单帧配准版 (Aligned Ref)';
+        metaText = '1:1 亚像素对齐 · 等度 MTF · 专用于卷帘/闪烁微观比对';
+      }
+
+      if (dom.refTitleText) dom.refTitleText.innerHTML = titleHtml;
+      if (dom.refMetaText) dom.refMetaText.textContent = metaText;
+
+      const masterSrc = state.activeTarget.file;
+
+      dom.imgLeft.src = refSrc;
+      dom.imgRight.src = masterSrc;
+      dom.imgSplitRef.src = refSrc;
+      dom.imgSplitMaster.src = masterSrc;
+      dom.imgBlink.src = state.blinkIsRef ? refSrc : masterSrc;
+
+      // Track loaded dimensions from master
+      const testImg = new Image();
+      testImg.onload = () => {
+        state.imgWidth = testImg.naturalWidth;
+        state.imgHeight = testImg.naturalHeight;
+        dom.footerDim.textContent = `${state.imgWidth} × ${state.imgHeight} px · ${state.activeTarget.name}`;
+        zoomFit();
+      };
+      testImg.src = masterSrc;
+    }
+
+    // Transform application
+    function applyTransform() {
+      const transform = `translate3d(${state.panX}px, ${state.panY}px, 0) scale(${state.zoom})`;
+
+      dom.layerLeft.style.transform = transform;
+      dom.layerRight.style.transform = transform;
+      dom.layerSplitRef.style.transform = transform;
+      dom.layerSplitMaster.style.transform = transform;
+      dom.layerBlink.style.transform = transform;
+
+      dom.zoomDisplay.textContent = `${Math.round(state.zoom * 100)}%`;
+      updateSplitClip();
+    }
+
+    function updateSplitClip() {
+      if (state.mode !== 'split') return;
+      const pct = state.splitPercent;
+      dom.splitDivider.style.left = `${pct}%`;
+      dom.splitClipContainer.style.clipPath = `polygon(${pct}% 0, 100% 0, 100% 100%, ${pct}% 100%)`;
+    }
+
+    // Zoom Helpers
+    function setZoom(newZoom, centerX, centerY) {
+      newZoom = Math.max(0.05, Math.min(newZoom, 12.0));
+      if (!centerX || !centerY) {
+        const vp = getCurrentViewport();
+        const rect = vp.getBoundingClientRect();
+        centerX = rect.width / 2;
+        centerY = rect.height / 2;
+      }
+      state.panX = centerX - (centerX - state.panX) * (newZoom / state.zoom);
+      state.panY = centerY - (centerY - state.panY) * (newZoom / state.zoom);
+      state.zoom = newZoom;
+      applyTransform();
+    }
+
+    function zoomFit() {
+      const vp = getCurrentViewport();
+      const rect = vp.getBoundingClientRect();
+      if (!rect.width || !rect.height || !state.imgWidth) return;
+
+      const scaleX = rect.width / state.imgWidth;
+      const scaleY = rect.height / state.imgHeight;
+      const fitZoom = Math.min(scaleX, scaleY) * 0.94;
+
+      state.zoom = fitZoom;
+      state.panX = (rect.width - state.imgWidth * fitZoom) / 2;
+      state.panY = (rect.height - state.imgHeight * fitZoom) / 2;
+      applyTransform();
+    }
+
+    function centerMoon() {
+      const vp = getCurrentViewport();
+      const rect = vp.getBoundingClientRect();
+      state.panX = (rect.width - state.imgWidth * state.zoom) / 2;
+      state.panY = (rect.height - state.imgHeight * state.zoom) / 2;
+      applyTransform();
+    }
+
+    function getCurrentViewport() {
+      if (state.mode === 'side-by-side') return document.getElementById('viewport-left');
+      if (state.mode === 'split') return document.getElementById('viewport-split');
+      return document.getElementById('viewport-blink');
+    }
+
+    // View Mode Switching
+    function setMode(newMode) {
+      state.mode = newMode;
+
+      dom.sideLayout.style.display = newMode === 'side-by-side' ? 'flex' : 'none';
+      dom.splitLayout.style.display = newMode === 'split' ? 'block' : 'none';
+      dom.blinkLayout.style.display = newMode === 'blink' ? 'block' : 'none';
+
+      document.getElementById('btn-mode-side').classList.toggle('active', newMode === 'side-by-side');
+      document.getElementById('btn-mode-split').classList.toggle('active', newMode === 'split');
+      document.getElementById('btn-mode-blink').classList.toggle('active', newMode === 'blink');
+
+      zoomFit();
+    }
+
+    // Blink Toggle Logic
+    function toggleBlink() {
+      if (state.mode !== 'blink') {
+        setMode('blink');
+        return;
+      }
+      state.blinkIsRef = !state.blinkIsRef;
+      const isSquare = state.activeTarget && state.activeTarget.square;
+      let refSrc = '';
+      if (state.refSource === 'raw' && IMAGES.rawOriginal) {
+        refSrc = IMAGES.rawOriginal;
+      } else if (isSquare && IMAGES.referenceSquare) {
+        refSrc = IMAGES.referenceSquare;
+      } else {
+        refSrc = IMAGES.reference || (state.activeTarget ? state.activeTarget.file : '');
+      }
+      const masterSrc = state.activeTarget ? state.activeTarget.file : '';
+
+      dom.imgBlink.src = state.blinkIsRef ? refSrc : masterSrc;
+      dom.blinkStatusText.textContent = state.blinkIsRef
+        ? (state.refSource === 'raw' ? '相机原生 RAW (未加工底片)' : '单帧配准版 (1:1对齐)')
+        : '堆叠增强成片 (Master)';
+      dom.blinkStatusText.style.color = state.blinkIsRef ? 'var(--accent-amber)' : 'var(--accent-cyan)';
+    }
+
+    // Event Listeners: Pan & Zoom
+    function bindViewportEvents(vp) {
+      vp.addEventListener('mousedown', (e) => {
+        if (state.isSplitting) return;
+        state.isDragging = true;
+        state.dragStartX = e.clientX - state.panX;
+        state.dragStartY = e.clientY - state.panY;
+      });
+
+      vp.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = vp.getBoundingClientRect();
+        const cursorX = e.clientX - rect.left;
+        const cursorY = e.clientY - rect.top;
+        const factor = e.deltaY < 0 ? 1.15 : (1 / 1.15);
+        setZoom(state.zoom * factor, cursorX, cursorY);
+      }, { passive: false });
+
+      vp.addEventListener('dblclick', () => {
+        if (Math.abs(state.zoom - 1.0) < 0.1) zoomFit();
+        else setZoom(1.0);
+      });
+    }
+
+    window.addEventListener('mousemove', (e) => {
+      if (state.isDragging) {
+        state.panX = e.clientX - state.dragStartX;
+        state.panY = e.clientY - state.dragStartY;
+        applyTransform();
+      }
+
+      if (state.isSplitting) {
+        const vp = dom.splitLayout.getBoundingClientRect();
+        const offsetX = e.clientX - vp.left;
+        state.splitPercent = Math.max(0, Math.min(100, (offsetX / vp.width) * 100));
+        updateSplitClip();
+      }
+
+      // Update Synchronized Crosshair in Side-by-Side
+      if (state.mode === 'side-by-side') {
+        const vpL = document.getElementById('viewport-left').getBoundingClientRect();
+        const vpR = document.getElementById('viewport-right').getBoundingClientRect();
+
+        let relX = -1, relY = -1;
+        if (e.clientX >= vpL.left && e.clientX <= vpL.right && e.clientY >= vpL.top && e.clientY <= vpL.bottom) {
+          relX = e.clientX - vpL.left;
+          relY = e.clientY - vpL.top;
+        } else if (e.clientX >= vpR.left && e.clientX <= vpR.right && e.clientY >= vpR.top && e.clientY <= vpR.bottom) {
+          relX = e.clientX - vpR.left;
+          relY = e.clientY - vpR.top;
+        }
+
+        if (relX >= 0) {
+          dom.chLeftH.style.display = 'block';
+          dom.chLeftV.style.display = 'block';
+          dom.chRightH.style.display = 'block';
+          dom.chRightV.style.display = 'block';
+
+          dom.chLeftH.style.top = `${relY}px`;
+          dom.chLeftV.style.left = `${relX}px`;
+          dom.chRightH.style.top = `${relY}px`;
+          dom.chRightV.style.left = `${relX}px`;
+        } else {
+          dom.chLeftH.style.display = 'none';
+          dom.chLeftV.style.display = 'none';
+          dom.chRightH.style.display = 'none';
+          dom.chRightV.style.display = 'none';
+        }
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      state.isDragging = false;
+      state.isSplitting = false;
+    });
+
+    // Split Divider Dragging
+    dom.splitDivider.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      state.isSplitting = true;
+    });
+
+    // UI Buttons Binding
+    document.getElementById('btn-mode-side').addEventListener('click', () => setMode('side-by-side'));
+    document.getElementById('btn-mode-split').addEventListener('click', () => setMode('split'));
+    document.getElementById('btn-mode-blink').addEventListener('click', () => setMode('blink'));
+
+    if (dom.btnRefAligned) {
+      dom.btnRefAligned.addEventListener('click', () => {
+        state.refSource = 'aligned';
+        dom.btnRefAligned.classList.add('active');
+        if (dom.btnRefRaw) dom.btnRefRaw.classList.remove('active');
+        updateImageSources();
+      });
+    }
+    if (dom.btnRefRaw) {
+      dom.btnRefRaw.addEventListener('click', () => {
+        state.refSource = 'raw';
+        dom.btnRefRaw.classList.add('active');
+        if (dom.btnRefAligned) dom.btnRefAligned.classList.remove('active');
+        updateImageSources();
+      });
+    }
+
+    document.getElementById('btn-zoom-fit').addEventListener('click', zoomFit);
+    document.getElementById('btn-zoom-100').addEventListener('click', () => setZoom(1.0));
+    document.getElementById('btn-zoom-200').addEventListener('click', () => setZoom(2.0));
+    document.getElementById('btn-center').addEventListener('click', centerMoon);
+
+    dom.targetDropdown.addEventListener('change', (e) => {
+      const match = IMAGES.targets.find(t => t.file === e.target.value);
+      if (match) {
+        state.activeTarget = match;
+        updateImageSources();
+      }
+    });
+
+    document.getElementById('btn-hud-toggle').addEventListener('click', () => {
+      const btn = document.getElementById('btn-hud-toggle');
+      dom.hudPanel.classList.toggle('hidden');
+      btn.classList.toggle('active', !dom.hudPanel.classList.contains('hidden'));
+    });
+
+    // Keyboard Shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        toggleBlink();
+      } else if (e.key.toLowerCase() === 'r') {
+        state.refSource = (state.refSource === 'aligned') ? 'raw' : 'aligned';
+        if (dom.btnRefAligned) dom.btnRefAligned.classList.toggle('active', state.refSource === 'aligned');
+        if (dom.btnRefRaw) dom.btnRefRaw.classList.toggle('active', state.refSource === 'raw');
+        updateImageSources();
+      } else if (e.key === '1') {
+        setZoom(1.0);
+      } else if (e.key === '2') {
+        setZoom(2.0);
+      } else if (e.key === '0' || e.key.toLowerCase() === 'f') {
+        zoomFit();
+      } else if (e.key.toLowerCase() === 'c') {
+        centerMoon();
+      } else if (e.key.toLowerCase() === 'h') {
+        document.getElementById('btn-hud-toggle').click();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        if (state.mode === 'side-by-side') setMode('split');
+        else if (state.mode === 'split') setMode('blink');
+        else setMode('side-by-side');
+      } else if (e.key.toLowerCase() === 'm') {
+        // Cycle Target master
+        const idx = IMAGES.targets.findIndex(t => t.file === state.activeTarget.file);
+        const nextIdx = (idx + 1) % IMAGES.targets.length;
+        state.activeTarget = IMAGES.targets[nextIdx];
+        dom.targetDropdown.value = state.activeTarget.file;
+        updateImageSources();
+      }
+    });
+
+    // Populate HUD Metrics
+    function populateHUD() {
+      if (!METRICS) return;
+
+      const dev = METRICS.device || {};
+      document.getElementById('hud-device').textContent = dev.name || '未知设备';
+      if (dev.name) document.getElementById('hud-badge-device').textContent = dev.name;
+
+      const opt = METRICS.optics || {};
+      const fl = opt.focal_length ? `${opt.focal_length.toFixed(1)}mm` : '未提供';
+      const dia = opt.aperture ? `D=${opt.aperture.toFixed(0)}mm` : '';
+      document.getElementById('hud-optics-fl').textContent = `${fl} ${dia}`.trim() || '几何反推';
+
+      const fr = opt.f_ratio ? `F/${opt.f_ratio}` : '';
+      const airy = opt.airy_r ? `艾里斑 r=${opt.airy_r}px` : '';
+      document.getElementById('hud-optics-airy').textContent = `${fr} ${airy}`.trim() || '衍射极限';
+
+      const stk = METRICS.stacking || {};
+      const methodZh = (stk.method === 'sum') ? '直接累加' : '剔除均值 (Rej Mean)';
+      document.getElementById('hud-stack-frames').textContent = stk.stacked_frames ? `${stk.stacked_frames} 帧 (${methodZh})` : '自动堆叠';
+      document.getElementById('hud-stack-ratio').textContent = stk.ratio ? `${stk.ratio} (共 ${stk.total_frames || stk.registered_frames} 帧)` : 'Otsu 聚类';
+
+      const drz = METRICS.drizzle || {};
+      document.getElementById('hud-drizzle').textContent = drz.enabled ? `${drz.scale}× (${drz.kernel || 'square'} 核)` : '原生采样 (关闭)';
+
+      const q = METRICS.quality || {};
+      const guard = q.sharp_guard || {};
+      const guardLabels = {accepted: '通过', reduced: '已降档', fallback: '已回退基准', off: '已关闭', unknown: '未知'};
+      document.getElementById('hud-sharp-guard').textContent = `${guardLabels[guard.status] || '未知'}${guard.alpha == null ? '' : ' / ' + Math.round(guard.alpha * 100) + '%'}`;
+      const adaptation = q.wavelet_adaptation || {};
+      const adaptationLabels = {applied: '已分配', unavailable: '证据不足', bypassed: '已旁路', off: '已关闭', unknown: '未知'};
+      document.getElementById('hud-wavelet-adapt').textContent = `${adaptationLabels[adaptation.status] || '未知'}${adaptation.support_coverage == null ? '' : ' / ' + (adaptation.support_coverage * 100).toFixed(1) + '%'}`;
+      if (q.dhr !== undefined && q.dhr !== null) {
+        let dhrZh = '受控';
+        let dhrClass = 'status-good';
+        if (q.dhr < 0.02) { dhrZh = '极佳 (无暗环)'; dhrClass = 'status-excellent'; }
+        else if (q.dhr >= 0.035) { dhrZh = '警告 (边缘暗环)'; dhrClass = 'status-warning'; }
+        document.getElementById('hud-dhr').innerHTML = `${Number(q.dhr).toFixed(4)} <span class="status-badge ${dhrClass}">${dhrZh}</span>`;
+      }
+      if (q.csi !== undefined && q.csi !== null) {
+        let csiZh = '极佳 (高光动态保留)';
+        let csiClass = 'status-excellent';
+        if (q.csi >= 0.025) { csiZh = '警告 (高光白垩化)'; csiClass = 'status-warning'; }
+        else if (q.csi >= 0.015) { csiZh = '良好'; csiClass = 'status-good'; }
+        document.getElementById('hud-csi').innerHTML = `${Number(q.csi).toFixed(4)} <span class="status-badge ${csiClass}">${csiZh}</span>`;
+      }
+      if (q.gkm !== undefined && q.gkm !== null) {
+        let gkmZh = '温润纯镜感 (Organic)';
+        let gkmClass = 'status-good';
+        if (q.gkm >= 14.0) { gkmZh = '警告 (毛刺脆裂)'; gkmClass = 'status-warning'; }
+        else if (q.gkm >= 6.0) { gkmZh = '清晰微反差 (Crisp)'; gkmClass = 'status-good'; }
+        document.getElementById('hud-gkm').innerHTML = `${Number(q.gkm).toFixed(2)} <span class="status-badge ${gkmClass}">${gkmZh}</span>`;
+      }
+      if (q.bg_noise_std !== undefined && q.bg_noise_std !== null) {
+        const noiseStatusZh = (q.bg_noise_status === 'measured') ? '实测' : (q.bg_noise_status || '实测');
+        document.getElementById('hud-noise').textContent = `${Number(q.bg_noise_std).toFixed(5)} (${noiseStatusZh})`;
+      }
+
+      const col = METRICS.color || {};
+      const kr = col.wb_kr ? Number(col.wb_kr).toFixed(3) : '1.00';
+      const kb = col.wb_kb ? Number(col.wb_kb).toFixed(3) : '1.00';
+      document.getElementById('hud-wb').textContent = `kr=${kr}, kb=${kb}`;
+      document.getElementById('hud-mtf').textContent = col.midtone ? Number(col.midtone).toFixed(2) : '0.13';
+
+      const ti = col.ti_boost ? `钛(Ti) ×${Number(col.ti_boost).toFixed(1)}` : '';
+      const fe = col.fe_boost ? `铁(Fe) ×${Number(col.fe_boost).toFixed(1)}` : '';
+      document.getElementById('hud-mineral-boost').textContent = `${ti} ${fe}`.trim() || '标准 LRGB';
+    }
+
+    // Init
+    window.addEventListener('load', () => {
+      bindViewportEvents(document.getElementById('viewport-left'));
+      bindViewportEvents(document.getElementById('viewport-right'));
+      bindViewportEvents(document.getElementById('viewport-split'));
+      bindViewportEvents(document.getElementById('viewport-blink'));
+
+      initTargets();
+      populateHUD();
+    });
+
+    window.addEventListener('resize', zoomFit);
+  </script>
+</body>
+</html>
+"""
+
+    out_html.write_text(html_template, encoding="utf-8")
+    log(f"comparison viewer generated: {out_html.name}")
+    return out_html
+
+
 def cmd_verify(args) -> None:
     from astropy.io import fits
     import cv2
@@ -5626,6 +7726,7 @@ def cmd_verify(args) -> None:
 
     mosaic_mode = getattr(args, "mosaic_mode", None)
     tile_json = work / "mosaic_tile_info.json"
+    t_data = {}
     if tile_json.exists():
         try:
             t_data = load_json(tile_json)
@@ -5679,52 +7780,52 @@ def cmd_verify(args) -> None:
         report["kept_frames"] = report["stacked_frames"]
         report["dropped_frames"] = stack_info.get("dropped_frames")
 
-    # Measure Edge Undershoot Dark Halo Ratio (DHR)
-    lum_base_path = work / "moon_lum_base.fit"
-    lum_sharp_path = work / "moon_lum_sharp.fit"
-    if not lum_base_path.exists():
-        lum_base_path = work / "moon_base.fit"
-        lum_sharp_path = work / "moon_sharp.fit"
+    post_receipt_path = work / "postprocess_receipt.json"
+    post_receipt = load_json(post_receipt_path) if post_receipt_path.exists() else {}
+    guard = post_receipt.get("sharp_guard", {})
+    report["wavelet_adaptation"] = post_receipt.get("wavelet_adaptation", {"status": "unknown"})
+    delivery = _verify_sharp_guard(work, guard, t_data if tile_json.exists() else {}, px_scale)
+    report["sharp_guard"] = dict(guard, delivery=delivery)
+    if delivery["status"] == "unknown":
+        report["sharp_guard"].update(status="unknown", alpha=None)
 
-    if lum_base_path.exists() and lum_sharp_path.exists():
+    full_baseline = work / "moon_unsharpened.fit"
+    if full_baseline.exists() and guard.get("detail_file") in ("moon_lum_sharp.fit", "moon_sharp.fit"):
+        base_path = full_baseline
+        sharp_path = work / guard["detail_file"]
+    else:
+        base_path = work / "moon_lum_base.fit"
+        sharp_path = work / "moon_lum_sharp.fit"
+        if not base_path.exists():
+            base_path, sharp_path = work / "moon_base.fit", work / "moon_sharp.fit"
+    if base_path.exists() and sharp_path.exists():
         try:
-            with fits.open(lum_base_path, memmap=False) as h_b:
-                b_dat = h_b[0].data
-            with fits.open(lum_sharp_path, memmap=False) as h_s:
-                s_dat = h_s[0].data
-            d_mask = _compute_edge_ringing_damping_mask(b_dat, px_scale=px_scale)
-            dhr_val = _measure_dark_halo_ratio(b_dat, s_dat, d_mask)
+            b_dat = fits.getdata(base_path, memmap=False)
+            s_dat = fits.getdata(sharp_path, memmap=False)
+            if base_path == full_baseline:
+                metrics = _sharp_guard_metrics(_sharp_guard_context(b_dat, px_scale, _load_wavelet_support(work, guard)), s_dat)
+                dhr_val, csi_val, gkm_val = (metrics.get(key) for key in ("dhr", "csi", "gkm"))
+                report["positive_overshoot_ratio"] = metrics.get("positive_overshoot_ratio")
+                report["sharp_guard"]["verified_selected"] = metrics
+            else:
+                b_dat, s_dat = _guard_luminance(b_dat), _guard_luminance(s_dat)
+                mask = _compute_edge_ringing_damping_mask(b_dat, px_scale=px_scale)
+                dhr_val = _measure_dark_halo_ratio(b_dat, s_dat, mask)
+                csi_val = _measure_chalky_saturation_index(s_dat)
+                gkm_val = _measure_gradient_kurtosis(s_dat)
             report["dark_halo_ratio"] = dhr_val
-            if dhr_val < 0.015:
-                status = "EXCELLENT (artifact-free)"
-            elif dhr_val < 0.035:
-                status = "GOOD (controlled)"
-            else:
-                status = "WARNING (edge ringing detected)"
-            report["dark_halo_status"] = status
-
-            # Measure Chalky Saturation Index (CSI)
-            csi_val = _measure_chalky_saturation_index(s_dat)
+            report["dark_halo_status"] = ("NOT_APPLICABLE (no measurable step edges)" if dhr_val is None else
+                "EXCELLENT (artifact-free)" if dhr_val < 0.015 else
+                "GOOD (controlled)" if dhr_val < 0.035 else "WARNING (edge ringing detected)")
             report["chalky_saturation_index"] = csi_val
-            if csi_val < 0.010:
-                csi_status = "EXCELLENT (highlight dynamic retained)"
-            elif csi_val < 0.025:
-                csi_status = "GOOD (controlled highlights)"
-            else:
-                csi_status = "WARNING (highlight chalkiness / over-saturation)"
-            report["chalky_status"] = csi_status
-
-            # Measure Gradient Kurtosis Metric (GKM)
-            gkm_val = _measure_gradient_kurtosis(s_dat)
+            report["chalky_status"] = ("UNAVAILABLE" if csi_val is None else
+                "EXCELLENT (highlight dynamic retained)" if csi_val < 0.010 else
+                "GOOD (controlled highlights)" if csi_val < 0.025 else "WARNING (highlight chalkiness / over-saturation)")
             report["gradient_kurtosis"] = gkm_val
-            if gkm_val < 6.0:
-                gkm_status = "ORGANIC (natural smooth texture)"
-            elif gkm_val < 14.0:
-                gkm_status = "CRISP (high detail)"
-            else:
-                gkm_status = "WARNING (brittle / crunchy texture detected)"
-            report["brittleness_status"] = gkm_status
-        except Exception as exc:
+            report["brittleness_status"] = ("UNAVAILABLE" if gkm_val is None else
+                "ORGANIC (natural smooth texture)" if gkm_val < 6.0 else
+                "CRISP (high detail)" if gkm_val < 14.0 else "WARNING (brittle / crunchy texture detected)")
+        except (OSError, ValueError, TypeError) as exc:
             report["quality_metric_error"] = str(exc)
 
     dump_json(work / "verify_report.json", report)
@@ -5762,16 +7863,34 @@ def cmd_verify(args) -> None:
     if "extinction_compensation" in report:
         ec = report["extinction_compensation"]
         log(f"  Atmospheric Extinction: COMPENSATED (zenith={ec.get('zenith_angle_deg')}°, B-grad={ec.get('amp_b', 0)*100:.1f}%, conf={ec.get('confidence')})")
-    if "dark_halo_ratio" in report:
+    if report.get("dark_halo_ratio") is not None:
         log(f"  Dark Halo Ratio (DHR): {report['dark_halo_ratio']:.4f} -> [{report.get('dark_halo_status', 'N/A')}]")
-    if "chalky_saturation_index" in report:
+    if report.get("chalky_saturation_index") is not None:
         log(f"  Chalky Saturation (CSI): {report['chalky_saturation_index']:.4f} -> [{report.get('chalky_status', 'N/A')}]")
-    if "gradient_kurtosis" in report:
+    if report.get("gradient_kurtosis") is not None:
         log(f"  Gradient Kurtosis (GKM): {report['gradient_kurtosis']:.2f} -> [{report.get('brittleness_status', 'N/A')}]")
     if (work / "moon_natural.jpg").exists():
         log(f"  [OK] moon_natural.jpg ({round((work / 'moon_natural.jpg').stat().st_size / 1024)} KB)")
     if (work / "moon_mineral.jpg").exists():
         log(f"  [OK] moon_mineral.jpg ({round((work / 'moon_mineral.jpg').stat().st_size / 1024)} KB)")
+
+    # Update interactive HTML dual-window comparison viewer with full verification metrics
+    if getattr(args, "html_report", True):
+        if not (work / "moon_reference.jpg").exists():
+            _render_reference_frame(
+                work=work,
+                seq_name=getattr(args, "seq", "moon_"),
+            )
+        html_file = _generate_comparison_html(
+            work=work,
+            report=report,
+        )
+        log(f"  - Comparison viewer:   {html_file}")
+
+    if delivery["status"] == "failed":
+        die(f"delivered TIFF failed sharp guard verification; see {work / 'verify_report.json'}")
+
+
 
 
 # ---------------------------------------------------------------------- 6. all
@@ -5938,11 +8057,12 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--deconv", default="auto", choices=["auto", "sb", "wiener", "rl", "none"], help="Deconvolution method (sb=Split Bregman, wiener, rl, none)")
     a.add_argument("--no-adc", action="store_true", help="Disable Atmospheric Dispersion Correction (RGB channel alignment)")
     a.add_argument("--midtone", type=float, default=None, help="MTF midtone stretch value for natural lunar albedo dynamics (default: None for auto albedo-adaptive estimation)")
-    a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
+    a.add_argument("--wavelet-l1", type=float, default=None, help="Finest native-scale gain; working-grid layer 1 with --wavelet-adapt off")
     a.add_argument("--clahe-clip", type=float, default=None, help="CLAHE clip limit (default: auto dynamic, set <=0 to bypass CLAHE)")
     a.add_argument("--sharp-mode", default="auto", choices=["auto", "mellow", "mild", "crisp", "none"],
                    help="Sharpening mode: 'auto' (balanced natural organic baseline, default), 'mellow' (ultra-soft optical view, no CLAHE), 'mild' (subtle natural), 'crisp' (classic), 'none' (bypass)")
     a.add_argument("--unsharp", type=float, default=None, help="USM unsharp mask amount (default: auto bypassed when wavelets/deconv active)")
+    a.add_argument("--sharp-guard", default="auto", choices=["auto", "off"], help="Validate the full sharpening chain and reduce unsafe enhancement (default: auto)")
     a.add_argument("--anti-ringing", default="auto", choices=["auto", "off", "mild", "aggressive"],
                    help="Edge undershoot dark ringing suppression mode: 'auto' (adaptive damping, default), 'mild' (subtle), 'aggressive' (strong), 'off' (bypass)")
     a.add_argument("--damping-factor", type=float, default=None,
@@ -6046,11 +8166,12 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--deconv", default="auto", choices=["auto", "sb", "wiener", "rl", "none"])
     a.add_argument("--no-adc", action="store_true")
     a.add_argument("--midtone", type=float, default=None, help="MTF midtone stretch value (default: None for auto albedo-adaptive estimation)")
-    a.add_argument("--wavelet-l1", type=float, default=None, help="Layer 1 wavelet gain (default: auto adaptive)")
+    a.add_argument("--wavelet-l1", type=float, default=None, help="Finest native-scale gain; working-grid layer 1 with --wavelet-adapt off")
     a.add_argument("--clahe-clip", type=float, default=None, help="CLAHE clip limit (default: auto dynamic, set <=0 to bypass CLAHE)")
     a.add_argument("--sharp-mode", default="auto", choices=["auto", "mellow", "mild", "crisp", "none"],
                    help="Sharpening mode: 'auto' (balanced natural organic baseline, default), 'mellow' (ultra-soft optical view, no CLAHE), 'mild' (subtle natural), 'crisp' (classic), 'none' (bypass)")
     a.add_argument("--unsharp", type=float, default=None, help="USM unsharp mask amount (default: auto bypassed when wavelets/deconv active)")
+    a.add_argument("--sharp-guard", default="auto", choices=["auto", "off"], help="Validate the full sharpening chain and reduce unsafe enhancement (default: auto)")
     a.add_argument("--anti-ringing", default="auto", choices=["auto", "off", "mild", "aggressive"],
                    help="Edge undershoot dark ringing suppression mode: 'auto' (adaptive damping, default), 'mild' (subtle), 'aggressive' (strong), 'off' (bypass)")
     a.add_argument("--damping-factor", type=float, default=None,
@@ -6084,14 +8205,38 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--video-roi", default="auto", choices=["auto","off"], help="Fixed tracked lunar crop; off preserves full source dimensions")
         command.add_argument("--roi-margin", type=int, default=64, help="Lunar crop margin in native pixels")
         command.add_argument("--min-signal-ratio",type=float,default=0.2,help="Minimum lunar signal versus the clip's 90th percentile (default: 0.2); rejects photon-starved compression texture")
-    for name in ("import","stack","all"):
+    for name in ("import","stack","postprocess","all"):
         sub.choices[name].add_argument("--disk-budget-gb", type=float, default=None, help="Maximum work allocation in GiB; filesystem safety reserve still applies")
     for name in ("register","all"):
         sub.choices[name].add_argument("--register-selection", default="auto", choices=["auto","reselect"], help="Reuse primary video selection or explicitly filter again")
     sub.choices["all"].add_argument("--candidate-mode", default="single", choices=["single","feedback"], help="Single selection or measured doubling of video candidates")
     for name in ("postprocess","all"):
+        sub.choices[name].add_argument("--wavelet-adapt", default="auto", choices=["auto", "off"], help="Limit wavelet gains to supported native scales and regions (default: auto)")
         sub.choices[name].add_argument("--luminance-channel", default="weighted", choices=["weighted","green"], help="Weighted RGB luminance or green detail plane")
+    for name in ("postprocess", "verify", "all"):
+        sub.choices[name].add_argument(
+            "--html-report",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Generate interactive HTML dual-window comparison viewer (default: True)",
+        )
+    for name in ("import", "postprocess", "verify", "all"):
+        sub.choices[name].add_argument(
+            "--sky-margin",
+            type=float,
+            default=0.25,
+            help="Adaptive sky margin ratio relative to lunar radius (default: 0.25 for 25%% margin)",
+        )
+
+        sub.choices[name].add_argument(
+            "--auto-margin",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Automatically center lunar disc and ensure balanced sky margins (default: True)",
+        )
     return p
+
+
 
 
 if __name__ == "__main__":

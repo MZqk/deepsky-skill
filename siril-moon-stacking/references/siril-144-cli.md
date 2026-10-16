@@ -125,9 +125,23 @@ stack r_moon_ rej w 3 3 -norm=addscale -weight=noise -filter-included -out=moon_
 wavelet nbr_layers type
 wrecons c1 c2 c3 ...
 ```
-* `wavelet 5 2`：使用 B-Spline（`type=2`）算法进行 5 层 'à trous' 小波分解；
-* `wrecons 1.5 1.4 1.3 1.1 1.0 1.0`：根据尺度赋予各层权重，大幅提升第 1~3 层（微小月坑、环形山边缘锐度），并适度保护底层平滑；
-* 可结合 `unsharp 1.5 0.5` 进一步增强微对比度。
+* `wavelet 5 2`：使用 B-Spline（`type=2`）算法分解为四个细节层和一个低频残差；
+* `wrecons 1.5 1.4 1.3 1.1 1.0`：四个细节层的请求增益及单位残差，共五个有效系数；第六个系数被 Siril 1.4.4 忽略，不应生成；
+* `extract 5`：输出 `layer00.fit` 至 `layer04.fit`，细节包含负值，最后一层为残差；实测逐层相加重建输入，误差 ≤ `1e-6`。技能默认对基准与反卷积后图像分别提取；关闭反卷积时复用同次提取。层数按图像尺寸限制，临时目录隔离并自动清理。
+* 可结合 `unsharp 1.5 0.5` 进一步增强微对比度；这些命令示例不构成安全参数推荐，技能默认仍旁路 USM，并对手动参数执行完整链路护栏。
+
+技能在反卷积前以相同 MTF 生成 `moon_unsharpened.fit`，原有反卷积后基准继续用于阶段诊断。默认 `--wavelet-adapt auto` 在 Python 中按基准统计分配带符号细节增量，按 Drizzle 的对数尺度映射四个原生增益；残差不增强，CLAHE/USM 如有请求则在重构后单独运行。`--wavelet-adapt off` 恢复上述全局重构路径。反卷积只执行一次，Python 护栏选择通过检查的最高增量比例（`1 / 0.75 / 0.5 / 0.25`，否则 `0`），并用持久收益区域检查实际 TIFF。
+
+```bash
+# Full-chain protection also applies to explicit sharpening settings.
+python scripts/moon_stack.py postprocess --work /path/to/work --sharp-mode crisp --sharp-guard auto
+
+# Disable local ringing damping while retaining full-chain protection.
+python scripts/moon_stack.py postprocess --work /path/to/work --anti-ringing off
+
+# Explicitly bypass the full-chain guard; existing local damping settings still apply.
+python scripts/moon_stack.py postprocess --work /path/to/work --sharp-guard off
+```
 
 ### 色彩增强与矿物月 (`satu` / `rmgreen` / `rgbcomp`)
 ```bash
@@ -142,6 +156,8 @@ rgbcomp -lum=moon_lum_sharp moon_color_sat -out=moon_mineral_master
 * `rmgreen 0`：使用平均中性保护（type=0，默认保留明度）抑制由于 Bayer 阵列传感器感光特性产生的绿色偏色；
 * `satu amount background_factor`：针对月海地质成分（富钛玄武岩的蓝灰区与贫钛富铁高地的橙黄区）进行饱和度渐进式提升，背景噪点自动阈值保护；
 * `rgbcomp -lum=lum_img color_img -out=result`：将纯净高频明度层与平滑色度层合成，输出零色噪的高清成片。
+
+上述为 Siril 原生命令示例。技能实际在护栏选定明度后统一生成成片：自然色沿用亮度比合成、soft-knee 与月缘处理；自然风格矿物月使用 Siril `rgbcomp`，深影调矿物月使用既有浮点渲染公式。对应 FITS 与显示文件共用同一获选结果，显示几何单独记录在 `mosaic_tile_info.json`。
 
 ### 成果导出 (`savejpg` / `savetif`)
 ```bash
