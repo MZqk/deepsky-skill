@@ -145,13 +145,18 @@ def analyze_corner_uniformity(image, corner_size=None, manifest_data=None):
     }
 
 
-def calculate_metrics(image, manifest_data=None):
+def calculate_metrics(image, manifest_data=None, processing_stage=None):
     source = np.asarray(image, dtype=np.float32)
     gray = grayscale(source)
-    processing_stage = (
-        manifest_data.get("processing_stage", "final")
-        if manifest_data else "final"
-    )
+    manifest_data = manifest_data or {}
+    if processing_stage is None:
+        processing_stage = manifest_data.get('processing_stage')
+        output_linear = manifest_data.get('effective_config', {}).get('output_is_linear')
+        if processing_stage is None and isinstance(output_linear, bool):
+            processing_stage = 'linear' if output_linear else 'final'
+        processing_stage = processing_stage or manifest_data.get('metrics', {}).get('processing_stage', 'final')
+    if processing_stage not in ('linear', 'final', 'stellar_layer'):
+        raise ValueError('Invalid processing stage')
     corner_size = max(3, min(gray.shape[:2]) // 8)
     corner_info = analyze_corner_uniformity(
         gray, corner_size=corner_size, manifest_data=manifest_data
@@ -207,7 +212,17 @@ def calculate_metrics(image, manifest_data=None):
         "star_area_ratio": round(star_area, 6),
     }
 
+    if processing_stage != 'linear':
+        if manifest_data is not None and 'channel_clipping_gates' in manifest_data:
+            res['channel_clipping_gates'] = manifest_data['channel_clipping_gates']
+        else:
+            from artifact_gates import check_channel_clipping
+            res['channel_clipping_gates'] = [check_channel_clipping(source)]
     if source.ndim == 3 and source.shape[2] >= 3:
+        res['channel_clip_ratios'] = {
+            label: round(float(np.mean(source[..., i] >= 0.995)), 8)
+            for i, label in enumerate(('r', 'g', 'b'))
+        }
         channel_p99 = np.percentile(
             source[..., :3].reshape(-1, 3),
             99.0,
@@ -279,6 +294,11 @@ def calculate_metrics(image, manifest_data=None):
     inpaint_footprint = (manifest_data or {}).get('inpaint_footprint')
     if inpaint_footprint is not None:
         res['inpaint_footprint'] = inpaint_footprint
+    # 保真度门禁记录（噪声增益 / 色度保真）：透传给 evaluate_quality_gates。
+    # fidelity_gates 是 list（门禁记录数组），空列表时门禁体系不参与判定。
+    fidelity_gates = (manifest_data or {}).get('fidelity_gates')
+    if fidelity_gates:
+        res['fidelity_gates'] = list(fidelity_gates)
     if star_metric_warning:
         res['warnings'] = [star_metric_warning]
 
@@ -291,6 +311,7 @@ def main():
     parser.add_argument("input")
     parser.add_argument("--output")
     parser.add_argument("--manifest", default=None, help="manifest.json 路径")
+    parser.add_argument("--stage", choices=("linear", "final", "stellar_layer"))
     args = parser.parse_args()
 
     # 尝试加载 manifest
@@ -317,8 +338,23 @@ def main():
         except Exception as e:
             print(f"[质量量化 WARN] 无法解析 {manifest_path}: {e}")
 
-    image, _meta = read_image(args.input)
-    payload = calculate_metrics(image, manifest_data)
+    image, meta = read_image(args.input)
+    if manifest_data:
+        associated = manifest_data.get('output') or manifest_data.get('outputs', {}).get('image')
+        if not associated or Path(associated).resolve() != Path(args.input).resolve():
+            print('[Quality] Ignoring manifest for a different or unspecified output')
+            manifest_data = None
+    stage = args.stage
+    if stage is None and meta.get('stage_source') == 'sidecar':
+        stage = 'linear' if meta['is_linear'] else 'final'
+    if stage is None and manifest_data:
+        stage = manifest_data.get('processing_stage')
+        linear = manifest_data.get('effective_config', {}).get('output_is_linear')
+        if stage is None and isinstance(linear, bool):
+            stage = 'linear' if linear else 'final'
+        stage = stage or manifest_data.get('metrics', {}).get('processing_stage')
+    stage = stage or ('linear' if meta['is_linear'] else 'final')
+    payload = calculate_metrics(image, manifest_data, processing_stage=stage)
     text = json.dumps(payload, ensure_ascii=False, indent=2)
     if args.output:
         Path(args.output).write_text(text + "\n", encoding="utf-8")

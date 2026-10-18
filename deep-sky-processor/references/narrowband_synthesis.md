@@ -129,9 +129,9 @@ R' = (1-w) * R + w * Ha
 ## 合成后进入管线
 
 ```bash
-python scripts/analyze.py combined.tif --output combined.analysis.json
+python3 scripts/analyze.py combined.tif --output combined.analysis.json
 
-python scripts/pipeline.py combined.tif final.jpg \
+python3 scripts/pipeline.py combined.tif final.jpg \
   --strength adaptive \
   --analysis-report combined.analysis.json \
   --target-type emission_nebula \

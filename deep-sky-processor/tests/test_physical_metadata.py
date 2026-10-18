@@ -19,14 +19,65 @@ from fits_io import (
     read_image,
 )
 from pipeline import run_pipeline
+from analyze import _detect_channels
 
 
 class PhysicalMetadataTests(unittest.TestCase):
+    def test_channels_use_the_same_filter_profile_and_keep_geometry(self):
+        cases = [
+            ('alpha.fit', {}, (12, 12), 'mono', 'unknown'),
+            ('master.fit', {'FILTERID': 'OIII'}, (12, 12), 'oiii', 'narrowband'),
+            ('master.fit', {'FILTNAME': 'green'}, (12, 12), 'g', 'broadband_channel'),
+            ('master.fit', {'FILTER': 'Ha + OIII'}, (12, 12), 'mono', 'dual_band'),
+            ('master.fit', {'FILTER': 'Ha + OIII'}, (12, 12, 3), 'rgb', 'dual_band'),
+            ('master.fit', {'FILTER': 'LP', 'TELESCOP': 'Seestar S30 Pro'}, (12, 12, 3), 'rgb', 'dual_band'),
+            ('master.fit', {'FILTER': 'Ha'}, (12, 12, 4), 'rgba', 'narrowband'),
+        ]
+        for filename, header, shape, channel_type, filter_class in cases:
+            with self.subTest(header=header, shape=shape):
+                capture = extract_capture_metadata(header)
+                result = _detect_channels(filename, np.zeros(shape), {'header': header, 'capture_metadata': capture})
+                self.assertEqual(result['channel_type'], channel_type)
+                self.assertEqual(result['channel_count'], 1 if len(shape) == 2 else shape[2])
+                self.assertEqual(result['filter_profile'], capture['filter_profile'])
+                self.assertEqual(result['filter_profile']['class'], filter_class)
+
+    def test_dual_band_priors_do_not_invent_ha_oiii(self):
+        for name in ('Duo-Band', 'dual SII+OIII'):
+            with self.subTest(name=name):
+                metadata = extract_capture_metadata({'FILTER': name})
+                self.assertNotIn('preserve_ha_oiii_ratio', build_physical_priors(metadata)['recommendations'])
+
+    def test_dwarf_selected_filters_drive_existing_priors_without_channel_roles(self):
+        cases = [
+            ('DWARF mini', 'Duo-Band', 'dual_band', True),
+            ('DWARF 3', 'Duo Band', 'dual_band', True),
+            ('DWARF II', 'Duo-Band', 'dual_band', False),
+            ('DWARF mini', 'Astro Filter', 'broadband', False),
+            ('DWARF II', 'VIS', 'broadband', False),
+            ('DWARF III', 'Astro', 'broadband', False),
+            ('DWARF mini', None, 'unknown', False),
+        ]
+        for model, name, kind, main_lines in cases:
+            for shape, channel_type in [((12, 12), 'mono'), ((12, 12, 3), 'rgb')]:
+                with self.subTest(model=model, filter=name, shape=shape):
+                    header = {'INSTRUME': model, 'FILTER': name, 'CAMERA': 'TELE'}
+                    capture = extract_capture_metadata(header)
+                    profile = capture['filter_profile']
+                    self.assertEqual(profile['class'], kind)
+                    self.assertEqual(profile['lines'], ['H-alpha', 'OIII'] if main_lines else [])
+                    priors = build_physical_priors(capture)
+                    self.assertEqual('preserve_ha_oiii_ratio' in priors['recommendations'], main_lines)
+                    self.assertEqual('use_emission_color_mode' in priors['recommendations'], kind == 'dual_band')
+                    result = _detect_channels('master.fit', np.zeros(shape), {'header': header, 'capture_metadata': capture})
+                    self.assertEqual(result['channel_type'], channel_type)
+                    self.assertEqual(result['filter_profile'], profile)
+
     def test_header_is_normalized(self):
         metadata = extract_capture_metadata({
             "EXPTIME": "300",
             "GAIN": 400,
-            "CCD-TEMP": 15,
+            "DET-TEMP": 15,
             "FILTER": "Optolong L-eXtreme Dual-Band",
             "TELESCOP": "80mm APO",
             "INSTRUME": "ASI2600MC",

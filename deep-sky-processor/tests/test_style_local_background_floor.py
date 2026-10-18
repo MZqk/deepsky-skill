@@ -29,6 +29,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from style_tools import (  # noqa: E402
     STYLE_PROFILES,
+    _FLOOR_GUARD_FRACTION,
     _block_medians,
     _tone_curve,
     apply_professional_style,
@@ -67,11 +68,17 @@ def _uniform_scene(height=192, width=192, background=0.05, peak=0.6):
     return lum
 
 
-def _old_tone_curve(luminance, profile):
-    """修复前的实现，仅用于不回归对照。"""
+def _old_tone_curve(luminance, profile, guard=_FLOOR_GUARD_FRACTION):
+    """单块（局部退化）路径的实现，仅用于不回归对照。
+
+    ``guard`` 必须是**当前**的守卫比例：v0.1.40 把该比例从 0.5 收窄到
+    0.25 后，本用例若仍写死 0.5 就变成「断言旧行为」，而它真正要验的是
+    **局部退化时 floor_map == global_floor** 这条不变量。
+    """
     low = float(np.percentile(luminance, 5))
     background = float(np.percentile(luminance, 25))
-    floor = min(max(low, 0.0) + profile["black_floor"], background * 0.5, 0.25)
+    floor = min(max(low, 0.0) + profile["black_floor"],
+                background * guard, 0.25)
     toned = np.clip((luminance - floor) / max(1.0 - floor, 1e-6), 0, 1)
     toned = np.power(toned, profile["gamma"])
     contrast = profile["contrast"]
@@ -112,7 +119,11 @@ class LocalBackgroundFloorTests(unittest.TestCase):
         self.assertEqual(float((graded.mean(axis=2) <= 0.0).mean()), 0.0)
 
     def test_uniform_background_matches_old_formula(self):
-        """均匀背景（含单块退化）必须与旧公式逐像素一致。"""
+        """均匀背景（含单块退化）必须与单块路径逐像素一致。
+
+        验的是「局部退化 ⇒ floor_map 逐像素等于 global_floor」这条不变量，
+        不是某个具体守卫比例（该比例由 v0.1.40 单独标定并有独立测试）。
+        """
         profile = dict(STYLE_PROFILES[STYLE])
         luminance = _uniform_scene()
 

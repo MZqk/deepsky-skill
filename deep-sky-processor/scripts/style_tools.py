@@ -46,6 +46,14 @@ STYLE_PROFILES = {
         "background_desat": 0.55,
         "micro_contrast": 0.18,
         "color_separation": 0.12,
+        # v0.1.42：OIII 腔的局部提分离度。仅 emission 模式生效。
+        # 标定：修好 highlight 钳位后青腔相对红壳偏弱，实测腔内 B-R
+        # 0.0196 -> 0.0269(0.18) / 0.0308(0.40) / 0.0384(0.80)（均亮度不变）。
+        # 0.50 取「青腔明显但仍由红壳主导」：腔内色度约为无增益版的 1.3 倍，
+        # 仍远低于旧版那种**建立在 R 假值上**的青色（那不是真实对比度）。
+        # ⚠ 再往上（>=0.8）会开始压过红壳主导的形态观感，属「调色掩盖形态」，
+        #   本仓库真实性红线不接受，故默认封顶在此。
+        "oiii_color_separation": 0.50,
         "warmth": 0.02,
     },
     "soft_dust": {
@@ -539,6 +547,27 @@ def _repair_local_clip(luminance, floor_map, block, margin=1e-4):
     return floor_map, report
 
 
+#: 背景守卫比例：黑位最多吃掉背景亮度的这一比例。
+#:
+#: **v0.1.40 由 0.5 收窄到 0.25。** 依据（6 份真实母版 + M31-DW3）：
+#:
+#: - 守卫在**每一类**数据上都咬合：实测 (p5+black_floor)/p25 全部 > 0.94，
+#:   即 p25*0.5 恒小于 p5+bf ⇒ floor 恒等于 p25*0.5。它不是条件性保护，
+#:   而是**恒定砍掉一半背景**的亮度策略。
+#: - 它的两项职责被混在一起：(a) 防裁切 —— 去掉守卫实测 21~26% 像素归零，
+#:   必然触发 BACKGROUND_CRUSHED / CORNER_NONUNIFORM，这部分**必须保留**；
+#:   (b) 定亮度上限 —— 这部分在窄动态范围数据上伤害过大。
+#: - 0.25 保留了 (a)：实测归零像素 0.346% → 0.007%（反而更少），
+#:   且 floor_map 仍恒 <= local_bg（角落不可能被压成纯黑）。
+#: - 同时去掉 (b) 的一半：M31-DW3 实测 p50 变化 −34.7% → −15.4%。
+#:
+#: ⚠ 试过「按 span 自适应」（v0.1.40 提案 B）并**实测否决**：该判据在
+#: Lab L/100 空间（_tone_curve 的真实输入）下无区分度 —— 全部 6 份样本的
+#: span/p25 在 8.5~12.8，而自适应分支的触发门槛是 < 6.25，差 1.4~2.1 倍，
+#: **在任何现有数据上都不触发**。详见 CHANGELOG v0.1.40。
+_FLOOR_GUARD_FRACTION = 0.25
+
+
 def _tone_curve(luminance, profile, return_diagnostics=False, block=96):
     luminance = np.asarray(luminance, dtype=np.float32)
     black_floor = profile["black_floor"]
@@ -547,8 +576,11 @@ def _tone_curve(luminance, profile, return_diagnostics=False, block=96):
     # black_floor 是 L/100 单位的绝对量，但黑位不得越过背景亮度本身。
     # 曝光充分的图上背景 L/100 只有 ~0.03，直接加 0.018 会把整片背景裁成
     # 纯 0（实测 p1 掉到 2e-06，重新触发 BACKGROUND_CRUSHED）。
-    # 限制黑位最多吃掉背景亮度的一半，保证背景仍留有层次。
-    global_floor = min(max(low_global, 0.0) + black_floor, bg_global * 0.5, 0.25)
+    # 限制黑位最多吃掉背景亮度的 _FLOOR_GUARD_FRACTION（常量注释记录了
+    # 0.5 → 0.25 的实测依据：守卫恒定咬合、恒等于 p25*0.5，实质是亮度
+    # 上限而非条件性保护；0.25 保留其防裁切职责，去掉一半亮度职责）。
+    global_floor = min(max(low_global, 0.0) + black_floor,
+                      bg_global * _FLOOR_GUARD_FRACTION, 0.25)
 
     # 上面的全局黑位在**空间非均匀**背景上会超过最暗区域的局部背景，把整片
     # 裁成纯黑：实测某图 BR 角背景 0.0413 < 全局 floor 0.043 → 该角归零，
@@ -565,9 +597,12 @@ def _tone_curve(luminance, profile, return_diagnostics=False, block=96):
         luminance, block=block, percentiles=(5.0, 25.0)
     )
     low_map, bg_map = local_maps[5.0], local_maps[25.0]
+    # 局部守卫必须用**同一个** _FLOOR_GUARD_FRACTION：全局与局部分用
+    # 不同比例会让 floor_map 在块边界不连续，且与 global_floor 的封顶语义脱节。
     floor_map = np.minimum(
         global_floor,
-        np.minimum(np.maximum(low_map, 0.0) + black_floor, bg_map * 0.5),
+        np.minimum(np.maximum(low_map, 0.0) + black_floor,
+                   bg_map * _FLOOR_GUARD_FRACTION),
     ).astype(np.float32)
 
     # 后置保证：平滑上采样可能把暗块的局部背景从邻块抬高，公式本身并不保证
@@ -593,6 +628,7 @@ def _tone_curve(luminance, profile, return_diagnostics=False, block=96):
         return toned
 
     diagnostics = {
+        "floor_guard_fraction": round(_FLOOR_GUARD_FRACTION, 4),
         "floor_global": round(global_floor, 6),
         "floor_min": round(float(floor_map.min()), 6),
         "floor_max": round(float(floor_map.max()), 6),
@@ -617,6 +653,7 @@ def apply_professional_style(
     user_prefs=None,
     star_mask=None,
     return_diagnostics=False,
+    highlight_ceiling=1.0,
 ):
     """
     Apply a selected non-generative style grade.
@@ -628,6 +665,10 @@ def apply_professional_style(
         diagnostic_report: analyze.py 的诊断报告，用于数据驱动风格微调
         user_prefs: 用户偏好 dict
         return_diagnostics: True 时额外返回黑位/区块裁切诊断 dict（第 4 个返回值）
+        highlight_ceiling: 高光上限（默认 1.0 = 不封顶，保持历史行为）。
+            给 <1 的值（如 0.98）可阻止 tone curve 把亮通道推过 clip 点 ——
+            实测 dramatic_nebula 的 gain p99=1.32 会让 R 从 0.86 撞 1.0，
+            单步贡献 R 饱和率 +0.183%。1.0 时本参数完全不改变输出。
 
     默认返回三元组 (graded, selected, reasoning)，与既有调用方兼容。
     """
@@ -675,13 +716,86 @@ def apply_professional_style(
     # 背景发蓝，触发 BACKGROUND_COLOR_CAST），同时暗部被整体压暗约 7 倍。
     blended_luminance = luminance * (1.0 - strength) + toned * strength
     gain = blended_luminance / np.maximum(luminance, 1e-6)
-    graded = np.clip(source * gain[..., None], 0, 1)
+    # 高光增益封顶：tone curve 在亮区给出 gain>1（实测 dramatic_nebula 的
+    # gain p99=1.32、max=1.36），而星云核心的 R 通道本就接近 0.86 ——
+    # 全通道同乘后直接撞 1.0，`np.clip` 把 R 削平。实测这一步单独贡献
+    # R 饱和率 +0.183%（0.036%→0.220%），是 style 段饱和的主要来源。
+    #
+    # 只压**超过 ceiling 的部分**（gain<=1 的暗部压暗不受影响）。
+    #
+    # v0.1.41 修复：**逐通道**钳位会破坏色相。旧实现对每个通道各算
+    #     applied_gain_c = min(gain, (ceiling - src_c)/src_c)
+    # 于是「已接近上限的那一通道」被压得比其余通道狠得多。
+    # 实测 M31 核球（src R=0.8085 G=0.5289 B=0.4454，gain=1.1184，ceiling=0.98）：
+    #   room_R=0.2121 < room_G=0.8529 < room_B=1.2003
+    #   => R 只乘 0.2121、G 乘 0.8529，核心 R/G 由 1.529 塌到 0.383，
+    #   一个黄白色星系核被渲染成**青绿色**（B/G 在核球最高、外盘最低，
+    #   与老星主导星系的物理预期完全相反）。
+    #   而该坍塌**发生在 src*gain 根本没超 ceiling 的像素上**（实测 0.9042 < 0.98）：
+    #   钳位是按「src 单独能放多大」算的，却拿它去限制一个**乘性增益**，
+    #   于是 gain 只要 >1 就被无谓地削平。
+    #
+    # 正确做法：先算乘完的结果，再**整体等比**缩小到 ceiling。
+    #   比例不变 => 色相守恒；峰值 == ceiling => 抗饱和保证不变。
+    #   未超 ceiling 时 scale==1.0，输出与旧实现逐位相同。
+    ceiling = float(highlight_ceiling)
+    # 显式升维：numpy 2.x 不再允许 (H,W,3) × (H,W) 的隐式广播（原代码
+    # `source * gain[..., None]` 依赖旧行为）。统一成 (H,W,1)。
+    applied_gain = np.asarray(gain, dtype=np.float32)[..., None]
+    scaled = source * applied_gain
+    if ceiling < 1.0:
+        # 逐像素：等比缩放到 ceiling 以下；峰值只在真正越界处起作用。
+        peak = np.max(scaled, axis=-1, keepdims=True)
+        squeeze = np.where(peak > ceiling, ceiling / np.maximum(peak, 1e-6), 1.0)
+        scaled = scaled * squeeze
+    graded = np.clip(scaled, 0, 1)
+
+    # ── OIII 掩膜必须先于 color_separation 算 ──
+    # 旧顺序（sep 先、oiii_mask 后）无法做「只对 OIII 区加分离度」。
+    #
+    # 语义：oiii_mask 是 (G+B)/(2R) 的**区域标记**，与「这像素有多青」无关。
+    # 把它挪到 sep 之前算，掩膜**定义**不变（都是同一张 graded 上取阈值），
+    # 只是提前一次计算；后面的 background_desat 仍用自己的 mask，不受影响。
+    oiii_mask = None
+    if color_mode == 'emission' or target_type == 'emission_nebula':
+        # 掩膜判据 v0.1.42 修正：旧式 (G+B)/(2R) >= 0.42 **不是青色检测器**，
+        # 而是「R 够低」检测器 —— 红色像素 [0.2,0.3,0.4] 也能得 1.75。
+        # 实测 NGC2237：旧式覆盖 **88.7%** 整幅（亮核内 72.7%），
+        # 真正的青腔只占 11.2%（亮核内 5.5%）。用它做局部提分离度 =
+        # 「把整幅图的饱和度再拉一遍」，青腔没变、红壳先炸。
+        # 改用**真正的青色条件**（B 与 G 都高于 R），覆盖降到 5.5%（亮核内），
+        # 与「青腔被红壳包围」的形态一致。
+        #
+        # ⚠ 该掩膜**只用于本处的新增增益**。下方 background_desat 用的
+        # oiii_protect 仍沿用旧判据（见那里的注释），避免改变既有防守行为。
+        oiii_mask = (graded[..., 2] > graded[..., 0]) & (graded[..., 1] > graded[..., 0])
+        if not np.any(oiii_mask):
+            oiii_mask = None
 
     # color_separation：以亮度为轴的保比例饱和度提升（不改变通道比例关系）
     sep = profile["color_separation"] * strength
     if abs(sep) > 1e-6:
         neutral = graded.mean(axis=2, keepdims=True)
         graded = np.clip(neutral + (graded - neutral) * (1.0 + sep), 0, 1)
+
+    # ── OIII 局部提分离度（v0.1.42）──
+    #
+    # 背景：v0.1.41 修好 highlight 钳位后，emission 模式的青色腔显著变弱。
+    # 实测 NGC2237：新版 (G+B)/2R 中位 0.736（旧 0.796），核心区 R p99 由
+    # 0.607 抬到 0.980 —— 旧的 R≈0.607 其实是**被钳位压出来的假值**，让
+    # (G+B)/2R 这个**比值**虚高，于是「到处都是青的」。修掉假值后，真实
+    # 青腔相对红壳偏弱，观感退化成「一团红」。
+    #
+    # 现有 oiii_protect 只做**防守**（阻止 background_desat 压 OIII），
+    # 没有任何**进攻**手段。这里补上：对 OIII 区额外施加一次同公式的
+    # 亮度轴色度放大。均值仍作支点 => 亮度不变、只增色度。
+    oiii_sep_boost = float(profile.get("oiii_color_separation", 0.0)) * strength
+    if oiii_sep_boost > 1e-6 and oiii_mask is not None:
+        boost = gaussian_filter(oiii_mask.astype(np.float32), sigma=3.0)
+        boost = np.clip(boost, 0.0, 1.0)[..., None]
+        neutral = graded.mean(axis=2, keepdims=True)
+        graded = np.clip(
+            neutral + (graded - neutral) * (1.0 + oiii_sep_boost * boost), 0, 1)
 
     hsv = rgb2hsv(graded)
     value = hsv[..., 2]
@@ -696,9 +810,17 @@ def apply_professional_style(
     background_threshold = min(max(float(np.percentile(value, 35)), edge_median * 1.15), 0.25)
     background_mask = gaussian_filter((value < background_threshold).astype(np.float32), sigma=4)
     if color_mode == 'emission' or target_type == 'emission_nebula':
-        oiii_mask = ((graded[..., 1] + graded[..., 2]) / (2.0 * np.maximum(graded[..., 0], 1e-6))) >= 0.42
-        if np.any(oiii_mask):
-            oiii_protect = gaussian_filter(oiii_mask.astype(np.float32), sigma=3.0)
+        # 这里是 background_desat 的**防守**掩膜，沿用**旧判据**
+        # (G+B)/(2R) >= 0.42 —— 它历史上就是「R 够低」的保护，不是青色检测。
+        # 必须**独立于**上面那个新增增益掩膜重算：
+        #   1. 语义不同（防守 vs 进攻），判据不应混用；
+        #   2. 本函数前段的 oiii_mask 是在 color_separation **之前**算的，
+        #      而这里按原注释必须在「sep 改写后的 graded」上算 —— 在旧图上算
+        #      会让 (G+B)/2R 偏高、保护区过大，等于放弃防守。
+        oiii_protect_mask = ((graded[..., 1] + graded[..., 2])
+                            / (2.0 * np.maximum(graded[..., 0], 1e-6))) >= 0.42
+        if np.any(oiii_protect_mask):
+            oiii_protect = gaussian_filter(oiii_protect_mask.astype(np.float32), sigma=3.0)
             background_mask = background_mask * (1.0 - np.clip(oiii_protect, 0.0, 1.0))
     if star_mask is not None:
         sm = np.asarray(star_mask, dtype=np.float32)
@@ -753,6 +875,19 @@ def apply_professional_style(
 
     if alpha is not None:
         graded = np.dstack([graded, alpha])
+    # ceiling 的**最终**执行点。必须在这里再收一次：
+    # 上面的 color_separation / saturation / background_desat / warmth 都在
+    # 钳位**之后**运行，会把像素重新推出 ceiling。旧实现靠逐通道 min 把
+    # 每个通道都压在 ceiling 内，末端 clip(0,1) 只是兜底；改成等比缩放后
+    # 色相守恒了，但同样必须在此处复现「不超 ceiling」这个保证。
+    # 逐像素等比收，不破坏色相。
+    if ceiling < 1.0:
+        rgb_only = graded[..., :3]
+        peak = np.max(rgb_only, axis=-1, keepdims=True)
+        squeeze = np.where(peak > ceiling, ceiling / np.maximum(peak, 1e-6), 1.0)
+        rgb_only = rgb_only * squeeze
+        graded = (np.dstack([rgb_only, graded[..., 3:]])
+                  if graded.shape[-1] == 4 else rgb_only)
     graded = np.clip(graded, 0, 1).astype(np.float32)
 
     if not return_diagnostics:

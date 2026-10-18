@@ -15,6 +15,7 @@ from skimage.transform import resize
 from fits_io import read_image, write_image
 from quality_metrics import calculate_metrics
 from artifact_gates import evaluate_star_artifact_gates
+from gate_authority import seal_gate
 
 
 SCHEMA_VERSION = "1.0"
@@ -45,6 +46,57 @@ def write_json_atomic(payload, output_path):
     os.replace(temp_name, output)
 
 
+# action 里允许出现的**流程控制**字段 —— 它们由 agent_workflow 自己消费，
+# 不转发给 run_pipeline。其余未知字段一律报错（见 validate_action）。
+# 清单来自实际消费点：`accept` 用 artifact / resolutions / verdict，
+# `create_variants` 会把 variant 的 `id` 等字段 merge 进 action 再校验。
+_ACTION_CONTROL_FIELDS = frozenset({
+    "operation", "step", "intent", "params", "region", "object_name",
+    "object_radius", "variants", "mask", "adjustment", "verdict",
+    "issues", "actions", "notes", "comment",
+    # accept / create_variants / resolve_review 消费的字段
+    "artifact", "artifact_sha256", "id", "review", "resolutions",
+    "issue_id", "outcome", "reason", "evidence",
+})
+
+# action 里允许出现、且**确实会被转发**给 run_pipeline 的字段。
+# 显式列举而非「不报错就放行」，是为了让「拼错字段名」和「字段名对但没接线」
+# 两种错误都在提交前暴露，而不是静默走默认值。
+_ACTION_PIPELINE_FIELDS = frozenset({
+    # 目标与强度策略
+    "preset", "color_mode", "style", "style_strength",
+    "stretch_method", "input_is_linear",
+    # 星点链路
+    "subject_mask", "external_starless", "external_starless_domain",
+    "external_starless_midtones", "external_denoised", "external_detail_strength",
+    "use_starnet", "starnet_path", "starnet_stride", "starnet_domain",
+    "starnet_timeout", "starnet_recommendation",
+    "export_starnet_payload", "export_starnet_payload_domain",
+    "star_blend_mode", "halo_guard",
+    # 局部与掩膜
+    "local_center", "local_radius", "local_strength",
+    # 裁切与内存
+    "auto_low_memory", "low_memory", "low_memory_threshold_mpix",
+    "auto_crop_edges", "auto_crop_target", "auto_crop_padding",
+    "crop", "stacking_crop", "tile_size", "cleanup", "save_intermediates",
+    "keep_all", "quality_policy", "background_neutralize_lock",
+    "override_params",
+    # 识别与天区解析
+    "recognize", "recognize_output", "recognize_input", "recognition_workflow_dir",
+    "plate_solve", "solve_field_path", "plate_solve_timeout", "catalog",
+    # 参考图匹配
+    "reference_image", "reference_auto_search", "reference_color_match",
+    "reference_color_only", "reference_strength", "reference_match_orientation",
+    # 线性修复与去卷积
+    "stellar_repair", "stellar_repair_mode", "stellar_repair_strength",
+    "linear_deconv", "deconv_iterations", "palette",
+    # 降噪
+    "deepsnr", "deepsnr_path", "deepsnr_timeout", "deepsnr_strength",
+    # 输出
+    "result_json",
+})
+
+
 def validate_action(action):
     if not isinstance(action, dict):
         raise ValueError("agent action must be a JSON object")
@@ -53,6 +105,16 @@ def validate_action(action):
         raise ValueError(
             f"unsupported operation: {operation}; "
             f"allowed={sorted(ALLOWED_OPERATIONS)}"
+        )
+    # 未知字段必须在提交前报错。此前 `external_starless` 放进 `params` 会被静默
+    # 忽略（它走 run_pipeline 的独立形参，不读 cfg），表现为 star_remove 悄悄
+    # 走内存跳过分支、artifacts 只有 manifest、**无任何报错** —— 排查成本极高。
+    unknown = (set(action) - _ACTION_CONTROL_FIELDS - _ACTION_PIPELINE_FIELDS)
+    if unknown:
+        raise ValueError(
+            "action 含未声明字段（会被静默忽略）: "
+            f"{sorted(unknown)}；允许的流程字段={sorted(_ACTION_CONTROL_FIELDS)}，"
+            f"可转发的管线字段见 agent_protocol._ACTION_PIPELINE_FIELDS"
         )
     if operation == "run_step" and not action.get("step"):
         raise ValueError("run_step requires step")
@@ -106,8 +168,10 @@ def intent_to_overrides(intent):
     visibility = intent.get("subject_visibility")
     if visibility == "increase_slightly":
         overrides["stretch_factor"] = 52.0
+        overrides["stretch_subject_midtones"] = 0.27
     elif visibility == "increase":
         overrides["stretch_factor"] = 65.0
+        overrides["stretch_subject_midtones"] = 0.30
 
     core = intent.get("core_protection")
     if core == "strong":
@@ -145,6 +209,8 @@ def evaluate_quality_gates(metrics, target_type=None, steps=None):
     """Convert quantitative anchors into explicit review gates."""
     steps = set(steps or [])
     gates = []
+    gates.extend(gate for gate in metrics.get('channel_clipping_gates', [])
+                 if gate.get('status') in ('warning', 'failed'))
 
     def add(code, status, value, threshold, message, escalate=True):
         """Record a gate.
@@ -152,19 +218,49 @@ def evaluate_quality_gates(metrics, target_type=None, steps=None):
         escalate=False 表示"只记录不升级"：该门会出现在 gates / warnings 里供审查，
         但不参与 status 判定。用于诊断性指标，避免历史正常文件突然全部变成
         review_required。
+
+        门禁在此**创建并封印**（gate_authority.seal_gate）：授权字段
+        （code/status/escalate/value/threshold）自此不可改写，后续任何改动
+        都会被 quality_state 复验检出。诊断字段（message/evidence）可自由
+        改写，不影响授权 —— 见 gate_authority 模块文档。
         """
         gates.append(
-            {
-                "code": code,
-                "status": status,
-                "value": value,
-                "threshold": threshold,
-                "message": message,
-                "escalate": escalate,
-            }
+            seal_gate(
+                {
+                    "code": code,
+                    "status": status,
+                    "value": value,
+                    "threshold": threshold,
+                    "message": message,
+                    "escalate": escalate,
+                }
+            )
         )
 
+    # 保真度门禁（噪声增益 / 色度保真）：与上面的标量门并存。
+    # 由 pipeline 评估后通过 manifest_data['fidelity_gates'] 传入。
+    #
+    # 纪律：**只在触发时 append**（fidelity_gates 内部已过滤健康项），且必须
+    # 带status 过滤 —— 保真度体系有 degraded / unavailable / uncalibrated /
+    # skipped 四个既有门禁体系没有的状态，它们只应记录、不参与 status 判定。
+    # 任何 escalate=True 的门会让本函数末尾的 escalating 判定把 status 打成
+    # review_required，所以 escalate 必须原样透传、不得改写。
+    for _gate in metrics.get('fidelity_gates', []) or []:
+        if _gate.get('status') not in ('warning', 'failed', 'degraded',
+                                       'unavailable', 'uncalibrated'):
+            continue
+        gates.append({
+            "code": _gate.get("code", "FIDELITY_GATE"),
+            "status": _gate["status"],
+            "value": _gate.get("value"),
+            "threshold": _gate.get("threshold"),
+            "message": _gate.get("message", ""),
+            "escalate": bool(_gate.get("escalate", False)),
+        })
+
     stage = metrics.get("processing_stage", "final")
+    if stage == 'stellar_layer':
+        return ('review_required' if any(g.get('escalate', True) for g in gates) else 'success'), gates
     median = float(metrics.get("median", 0.0))
     p1 = float(metrics.get("p1", median))
     negative_ratio = float(metrics.get("negative_pixel_ratio", 0.0))
@@ -289,14 +385,23 @@ def evaluate_quality_gates(metrics, target_type=None, steps=None):
         )
 
     uniform_ratio = float(metrics.get("uniform_5x5_dark_patch_ratio", 0.0))
-    if uniform_ratio > 0.35:
+    if stage != "linear" and uniform_ratio > 0.35:
         add("DENOISE_PLASTICITY", "warning", uniform_ratio, "<=0.35",
             "暗部均匀斑块比例偏高，需要检查降噪塑料感")
 
     star_ratio = float(metrics.get("star_area_ratio", 0.0))
     if target_type not in ("globular_cluster", "open_cluster") and star_ratio > 0.18:
+        # 只记录，不升级 status。`star_area_ratio` 由 detect_stars 的**膨胀后**
+        # 蒙版面积算出（star_tools 的 `binary_dilation(kept, disk(dilation_radius))`），
+        # 实测 NGC6888 上：膨胀前 0.1475、膨胀后 0.2550 —— 膨胀只贡献 1.73×，
+        # 即使完全不膨胀也仍是阈值 0.18 的 82%。即该指标在密集星场**天然偏高**
+        # （召回 86~100% 的门等于没有门），作 escalate 门会稳定误报。
+        # 用 `n_components_kept/total` 替代也无效：实测该比值 0.9998，零判别力。
+        # 门禁条目与数值仍完整进 gates/warnings，供人工审查时参考。
+        # **该阈值仅在 NGC6888 一例上标定过，需随样本积累复核。**
         add("STAR_DOMINANCE", "warning", star_ratio, "<=0.18",
-            "星点占比偏高，可能压制主体")
+            "星点占比偏高，可能压制主体（膨胀后蒙版面积；密集星场天然偏高，仅供参考）",
+            escalate=False)
 
     # 背景色偏：只记录，不升级 status（escalate=False）。
     # 这是诊断性指标 —— 现有 7 道门里没有任何一道看每通道背景色偏，
@@ -348,10 +453,16 @@ def create_review_bundle(before_path, after_path, output_dir, context=None):
     """Create compact visual evidence for an LLM or human critic."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    before, _ = read_image(str(before_path))
-    after, _ = read_image(str(after_path))
+    before, before_meta = read_image(str(before_path))
+    after, after_meta = read_image(str(after_path))
     before = _rgb(before)
     after = _rgb(after)
+    context = context or {}
+    reference_comparable = (
+        before.shape == after.shape
+        and context.get("input_is_linear", before_meta["is_linear"])
+        == context.get("output_is_linear", after_meta["is_linear"])
+    )
     if before.shape != after.shape:
         before = resize(
             before, after.shape, preserve_range=True, anti_aliasing=True
@@ -377,8 +488,17 @@ def create_review_bundle(before_path, after_path, output_dir, context=None):
     write_image(_preview(diff_preview), paths["absolute_difference"])
     write_image(_preview(signed), paths["signed_luminance_difference"])
 
-    metrics_before = calculate_metrics(before)
-    metrics_after = calculate_metrics(after)
+    metrics_before = calculate_metrics(before, {
+        "processing_stage": "linear" if context.get("input_is_linear", before_meta["is_linear"]) else "final",
+    })
+    metrics_after = calculate_metrics(after, {
+        "processing_stage": ('stellar_layer' if context.get('image_role') == 'stars'
+                             else "linear" if context.get("output_is_linear", after_meta["is_linear"]) else "final"),
+    })
+    if not context.get('output_is_linear', after_meta['is_linear']):
+        from artifact_gates import check_channel_clipping
+        metrics_after['channel_clipping_gates'] = [check_channel_clipping(
+            after, before if reference_comparable else None)]
     status, gates = evaluate_quality_gates(
         metrics_after,
         target_type=(context or {}).get("target_type"),
@@ -388,12 +508,42 @@ def create_review_bundle(before_path, after_path, output_dir, context=None):
     # 具名星点伪影门禁（STAR_RINGING / STAR_BLOAT / STAR_LAYER_LOSS /
     # STAR_HOLES / CORE_BURNING）：与标量门禁并存，输出可审计的定位证据。
     # 数值门禁是审查触发器而非视觉质量的证明；门禁自身异常时降级为
-    # error 记录，绝不阻断 review bundle 生成。
+    # error 记录并要求复核，继续生成 review bundle。
     try:
-        star_artifact_gates = evaluate_star_artifact_gates(
-            before, after, steps=(context or {}).get("steps"),
-        )
+        if context.get('image_role') == 'stars':
+            star_artifact_gates = {'schema': 'artifact_gates/1.0', 'status': 'skipped', 'gates': [],
+                                   'summary': 'Isolated stellar layer: inspect layer previews; field gates run after composition'}
+        else:
+            gate_before = before
+            comparable = reference_comparable
+            diagnostics = context.get('stretch_diagnostics') or {}
+            display = diagnostics.get('display_reference') or {}
+            if display.get('path') and 'stretch' in context.get('steps', []):
+                import hashlib
+                digest = hashlib.sha256(np.ascontiguousarray(before).tobytes()).hexdigest()
+                if digest != display.get('source_sha256'):
+                    raise ValueError('Display reference source does not match the review input')
+                gate_before, _ = read_image(display['path'])
+                if gate_before.shape != after.shape:
+                    raise ValueError('Display reference geometry does not match')
+                comparable = True
+                paths['display_reference'] = str(output_dir / 'display_reference.jpg')
+                paths['display_difference'] = str(output_dir / 'display_difference.jpg')
+                write_image(_preview(gate_before), paths['display_reference'])
+                difference = np.abs(after - gate_before)
+                write_image(_preview(difference / max(float(np.percentile(difference, 99.5)), 1e-6)), paths['display_difference'])
+            star_artifact_gates = evaluate_star_artifact_gates(
+                gate_before, after, steps=context.get("steps"),
+                reference_comparable=comparable, display_reference=bool(display.get('path')),
+            )
+            star_artifact_gates['context'].update(
+                measurement_domain='display' if display.get('path') else 'same_domain' if comparable else 'cross_domain',
+                reference_type='fixed_mtf' if display.get('path') else 'stage_input',
+                input_reference_comparable=reference_comparable)
+            if diagnostics.get('core_plateau', {}).get('escalate'):
+                status = 'review_required'
     except Exception as exc:
+        status = "review_required"
         star_artifact_gates = {
             "schema": "artifact_gates/1.0",
             "status": "error",
@@ -403,6 +553,18 @@ def create_review_bundle(before_path, after_path, output_dir, context=None):
     if star_artifact_gates.get("status") == "review_required":
         status = "review_required"
 
+    linear_measurement = None
+    if context.get('input_is_linear', before_meta['is_linear']) and 'stretch' in context.get('steps', []):
+        from star_tools import estimate_fwhm
+        linear_source = context.get('linear_star_source') or str(before_path)
+        linear_image = read_image(linear_source)[0] if context.get('linear_star_source') else before
+        width, deviation, n_used, n_candidates = estimate_fwhm(np.mean(linear_image[..., :3], axis=2) if linear_image.ndim == 3 else linear_image)
+        linear_measurement = {'domain': 'linear', 'role': 'physical_width', 'method': 'gaussian_psf_estimate',
+                              'source': str(linear_source),
+                              'estimated_fwhm_px': float(width) if n_used >= 3 else None,
+                              'std_px': float(deviation) if n_used >= 3 else None,
+                              'n_stars': int(n_used), 'n_candidates': int(n_candidates),
+                              'status': 'measured' if n_used >= 3 else 'insufficient_samples'}
     payload = {
         "schema_version": SCHEMA_VERSION,
         "status": status,
@@ -410,6 +572,7 @@ def create_review_bundle(before_path, after_path, output_dir, context=None):
         "source": {"before": str(before_path), "after": str(after_path)},
         "previews": paths,
         "metrics_before": metrics_before,
+        "linear_star_measurement": linear_measurement,
         "metrics_after": metrics_after,
         "metric_delta": {
             key: round(float(metrics_after[key]) - float(metrics_before[key]), 6)
@@ -423,6 +586,9 @@ def create_review_bundle(before_path, after_path, output_dir, context=None):
         "critic_checklist": build_critic_checklist(
             (context or {}).get("target_type")
         ),
+        "runtime": context.get("runtime"),
+        "execution": context.get("execution"),
+        "stretch_diagnostics": context.get("stretch_diagnostics"),
         "context": context or {},
     }
     report_path = output_dir / "review.json"

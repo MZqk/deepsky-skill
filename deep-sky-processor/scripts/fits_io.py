@@ -29,14 +29,48 @@ XISF 处理:
 
 import os
 import sys
+import json
 import numpy as np
+from filter_metadata import FILTER_KEYS, classify_filter, filter_from_header
+
+
+# 成片 JPEG 编码参数。`skimage.io.imsave` 走 PIL 默认 quality=75，实测成片
+# qtable 为 [8,6,5,8,12,20,26,31]；quality=95 为 [2,1,1,2,2,4,5,6]。
+#
+# `subsampling=0`（4:4:4）是硬要求，不是画质偏好：4:2:0 会把 3px 彩色星点的
+# 色度误差放大到 maxerr=76（实测），4:4:4 为 18，体积只多 24%。天文成片里
+# 星点是最重要的内容，不能接受色度降采样。
+_JPEG_QUALITY = 95
+_JPEG_SUBSAMPLING = 0
+_SRGB_ICC = None
+
+
+def _srgb_icc_bytes():
+    """返回模块级缓存的 sRGB ICC profile 字节；不可用时返回 None 触发降级。
+
+    Pillow 未在 `requirements.txt` 里直接声明（只是 `requirements.lock:16`
+    的条目），但它是 scikit-image 的硬依赖（`Requires-Dist: pillow>=10.1`），
+    而 `skimage.io.imsave` 自身也经由 PIL 写 JPEG —— 所以正常安装下必有。
+    保留降级是为了不把「编码参数」变成新的硬失败点。
+    """
+    global _SRGB_ICC
+    if _SRGB_ICC is None:
+        try:
+            from PIL import ImageCms
+            _SRGB_ICC = ImageCms.ImageCmsProfile(
+                ImageCms.createProfile('sRGB')).tobytes()
+        except Exception:
+            # b'' 是「已尝试但拿不到」的哨兵，与「尚未尝试」区分开，
+            # 避免每次调用都重试 ImageCms。
+            _SRGB_ICC = b''
+    return _SRGB_ICC or None
 
 
 HEADER_ALIASES = {
     "exposure_seconds": ("EXPTIME", "EXPOSURE", "EXPOSURETIME"),
     "gain": ("GAIN", "EGAIN", "CAMGAIN"),
-    "sensor_temperature_c": ("CCD-TEMP", "CCD_TEMP", "SENSOR_TEMP", "SET-TEMP"),
-    "filter": ("FILTER", "FILTERID", "FILTNAME"),
+    "sensor_temperature_c": ("CCD-TEMP", "CCD_TEMP", "DET-TEMP", "SENSOR_TEMP", "SET-TEMP"),
+    "filter": FILTER_KEYS,
     "telescope": ("TELESCOP", "TELESCOPE"),
     "camera": ("INSTRUME", "CAMERA"),
     "object": ("OBJECT", "TARGNAME"),
@@ -74,36 +108,6 @@ def _as_float(value):
         return None
 
 
-def classify_filter(filter_name):
-    """Normalize common broad/narrow/dual-band filter names."""
-    text = str(filter_name or "").strip().lower().replace("_", "-")
-    if not text:
-        return {"class": "unknown", "normalized": None, "lines": []}
-    dual_tokens = (
-        "dual", "duo", "l-extreme", "l-enhance", "l-ultimate",
-        "nbz", "alp-t", "ha+oiii", "ha/oiii", "hα+oiii",
-    )
-    if any(token in text for token in dual_tokens):
-        return {
-            "class": "dual_band",
-            "normalized": str(filter_name),
-            "lines": ["H-alpha", "OIII"],
-        }
-    if any(token in text for token in ("h-alpha", "halpha", "ha ", "ha-")) or text == "ha":
-        return {"class": "narrowband", "normalized": "H-alpha", "lines": ["H-alpha"]}
-    if "oiii" in text or text in ("o3", "oxygen"):
-        return {"class": "narrowband", "normalized": "OIII", "lines": ["OIII"]}
-    if "sii" in text or text in ("s2", "sulfur"):
-        return {"class": "narrowband", "normalized": "SII", "lines": ["SII"]}
-    if text in ("l", "lum", "luminance"):
-        return {"class": "luminance", "normalized": "L", "lines": []}
-    if text in ("r", "g", "b", "red", "green", "blue"):
-        return {"class": "broadband_channel", "normalized": text.upper(), "lines": []}
-    if any(token in text for token in ("uv/ir", "uv-ir", "cls", "broadband", "clear")):
-        return {"class": "broadband", "normalized": str(filter_name), "lines": []}
-    return {"class": "unknown", "normalized": str(filter_name), "lines": []}
-
-
 def extract_capture_metadata(header):
     """Return a stable, JSON-safe physical capture metadata structure."""
     raw = {
@@ -118,13 +122,20 @@ def extract_capture_metadata(header):
         key: (_as_float(value) if key in numeric_fields else value)
         for key, value in raw.items()
     }
-    normalized["filter_profile"] = classify_filter(normalized.get("filter"))
+    normalized["filter_profile"] = filter_from_header(header)
+    normalized["filter"] = normalized["filter_profile"]["raw_filter"]
     present = sum(value is not None for key, value in normalized.items()
                   if key != "filter_profile")
     normalized["metadata_completeness"] = round(
         present / max(len(raw), 1), 3
     )
     normalized["source"] = "header" if header else "unavailable"
+    normalized["exposure_kind"] = (
+        'integration' if header and (
+            (_as_float(header.get('NCOMBINE')) or 0) > 1
+            or ('RESTACK' in header and 'DWARF' in str(header.get('ORIGIN', '')).upper()))
+        else 'unknown')
+    normalized["subexposure_seconds"] = None
     return normalized
 
 
@@ -136,7 +147,9 @@ def build_physical_priors(capture_metadata):
     warnings = []
     evidence = []
 
-    exposure = metadata.get("exposure_seconds")
+    exposure = metadata.get("subexposure_seconds")
+    if exposure is None and metadata.get("exposure_kind") == "subexposure":
+        exposure = metadata.get("exposure_seconds")
     gain = metadata.get("gain")
     temperature = metadata.get("sensor_temperature_c")
     filter_profile = metadata.get("filter_profile") or {}
@@ -168,7 +181,7 @@ def build_physical_priors(capture_metadata):
             recommendations.append("high_gain_protect_highlights")
 
     if exposure is not None:
-        evidence.append(f"exposure_seconds={exposure:g}")
+        evidence.append(f"subexposure_seconds={exposure:g}")
         if exposure < 30:
             recommendations.append("short_subexposure_expect_read_noise")
         elif exposure >= 300:
@@ -189,13 +202,16 @@ def build_physical_priors(capture_metadata):
         recommendations.extend([
             "use_emission_color_mode",
             "apply_moderate_scnr",
-            "preserve_ha_oiii_ratio",
         ])
+        recommendations.append(
+            "preserve_ha_oiii_ratio" if filter_profile.get("lines") == ["H-alpha", "OIII"]
+            else "preserve_emission_line_physics"
+        )
         warnings.append(
-            "Dual-band OSC data may be separated only with a documented "
+            "Dual-band data may be separated only with a documented "
             "channel model; do not claim true HOO/SHO synthesis from metadata alone."
         )
-    elif filter_class == "narrowband":
+    elif filter_class in {"narrowband", "multi_band"}:
         recommendations.append("preserve_emission_line_physics")
 
     if metadata.get("metadata_completeness", 0) < 0.2:
@@ -216,6 +232,10 @@ def read_capture_metadata(filepath):
     """Read only header-level capture metadata when the format supports it."""
     ext = os.path.splitext(filepath)[1].lower()
     header = None
+    sidecar = str(filepath) + '.meta.json'
+    if os.path.exists(sidecar):
+        with open(sidecar, encoding='utf-8') as handle:
+            return json.load(handle).get('capture_metadata', {}), None
     if ext in (".fit", ".fits", ".fts"):
         from astropy.io import fits
         with fits.open(filepath, memmap=False) as hdul:
@@ -260,12 +280,23 @@ def read_image(filepath, force_linear=False):
     """
     ext = os.path.splitext(filepath)[1].lower()
     meta = {'filepath': filepath, 'format': 'unknown', 'is_linear': False,
-            'header': None, 'shape_original': None}
+            'header': None, 'shape_original': None, 'stage_source': 'format'}
+    saved_meta = {}
+    sidecar = str(filepath) + '.meta.json'
+    if os.path.exists(sidecar):
+        with open(sidecar, encoding='utf-8') as handle:
+            saved_meta = json.load(handle)
+        if 'is_linear' in saved_meta:
+            if not isinstance(saved_meta['is_linear'], bool):
+                raise ValueError('Sidecar is_linear must be a boolean')
+            meta['is_linear'] = saved_meta['is_linear']
+            meta['stage_source'] = 'sidecar'
+        meta['capture_metadata'] = saved_meta.get('capture_metadata', {})
 
     if ext in ('.fit', '.fits', '.fts'):
         img, header, scale_info = _read_fits(filepath, force_linear)
         meta['format'] = 'fits'
-        meta['is_linear'] = True
+        meta['is_linear'] = saved_meta.get('is_linear', True)
         meta['header'] = header
         meta['shape_original'] = img.shape
         meta['data_scale'] = scale_info['norm_scale']
@@ -279,7 +310,7 @@ def read_image(filepath, force_linear=False):
     elif ext == '.xisf':
         img, xisf_meta = _read_xisf(filepath)
         meta['format'] = 'xisf'
-        meta['is_linear'] = True  # XISF 通常为线性数据
+        meta['is_linear'] = saved_meta.get('is_linear', True)
         meta['header'] = xisf_meta.get('fits_keywords', {})
         meta['xisf_metadata'] = xisf_meta
         meta['shape_original'] = img.shape
@@ -290,7 +321,7 @@ def read_image(filepath, force_linear=False):
         img = imread(filepath)
         meta['format'] = ext[1:]  # 'png', 'jpg', 'tiff'
         meta['shape_original'] = img.shape
-        meta['capture_metadata'] = extract_capture_metadata(None)
+        meta.setdefault('capture_metadata', extract_capture_metadata(None))
 
         # 归一化到 [0,1]
         if img.dtype == np.uint8:
@@ -299,7 +330,7 @@ def read_image(filepath, force_linear=False):
             img = img.astype(np.float32) / 65535.0
         else:
             img = img.astype(np.float32)
-            if img.max() > 1.0:
+            if img.max() > 1.0 and not force_linear:
                 img = img / img.max()
 
         return img, meta
@@ -348,6 +379,29 @@ def write_image(img, filepath, as_fits=False, fits_header=None, auto_stretch=Fal
         except ImportError:
             from skimage.io import imsave
             imsave(filepath, img)  # skimage 对 float 会尝试保存
+    elif ext in ('.jpg', '.jpeg'):
+        # `.astype(np.uint8)` 而非 np.round：与既有 skimage 路径逐位一致
+        # （img*255 后截断），换成 round 会让所有 JPG 输入的像素值变化 1 LSB。
+        array8 = np.clip(img * 255, 0, 255).astype(np.uint8)
+        try:
+            from PIL import Image
+        except ImportError:
+            from skimage.io import imsave
+            imsave(filepath, array8)
+            return
+        # 2D 掩膜（agent_workflow 的 mask_preview）是单通道；RGBA 与 (H,W,1)
+        # 交回 skimage —— PIL 与 skimage 都会抛同一个 OSError，行为不变。
+        mode = {2: 'L', 3: 'RGB'}.get(array8.ndim if array8.ndim == 2
+                                    else array8.shape[2])
+        if mode is None:
+            from skimage.io import imsave
+            imsave(filepath, array8)
+            return
+        icc = _srgb_icc_bytes()
+        Image.fromarray(array8, mode).save(
+            filepath, format='JPEG', quality=_JPEG_QUALITY,
+            subsampling=_JPEG_SUBSAMPLING,
+            **({'icc_profile': icc} if icc else {}))
     else:
         from skimage.io import imsave
         imsave(filepath, (img * 255).astype(np.uint8))

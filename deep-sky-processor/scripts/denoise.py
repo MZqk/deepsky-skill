@@ -19,6 +19,11 @@ Deep-Sky Noise Reduction (多尺度降噪)
 
 import argparse
 import sys
+import json
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 import numpy as np
 from scipy.ndimage import gaussian_filter
 from skimage import img_as_float32, img_as_ubyte
@@ -321,71 +326,254 @@ def denoise_luminance_chroma(image, lum_strength=0.04, chroma_strength=0.10,
     return np.clip(result, 0, 1)
 
 
+def denoise_noise_stats(image):
+    """Estimate background noise from high-pass MAD, independent of image scale."""
+    arr = np.asarray(image, dtype=np.float32)
+    gray = np.mean(arr, axis=-1) if arr.ndim == 3 else arr
+    smooth = gaussian_filter(gray, 2.0)
+    background = smooth <= np.percentile(smooth, 40)
+    highpass = gray - gaussian_filter(gray, 1.0)
+    samples = highpass[background]
+    sigma = float(np.median(np.abs(samples - np.median(samples)))) / 0.6745
+    level = float(np.mean(smooth[background]))
+    return gray, smooth, background, sigma, level
+
+
 def validate_external_denoise(original, denoised, threshold=0.05):
-    """
-    验证外部 AI 降噪结果的质量，检测色彩偏移和过度涂抹。
+    """Reject drift, noise growth and loss of resolved structure; HF loss alone is OK.
 
-    原理：AI 降噪（如 NoiseXTerminator）在统计意义上估计真实信号，
-    但可能引入色彩偏移或过度平滑。本函数通过以下方式检测：
-    1. 背景区域 RGB 均值偏移：检测色彩偏移
-    2. 暗区高频能量比：检测过度涂抹（高频能量骤降 = 细节丢失）
-
-    original: 原始图像 (float32, [0,1])
-    denoised: AI 降噪后图像 (float32, [0,1])
-    threshold: 背景区域允许的最大通道偏移 (默认 5%)
-
-    返回: dict 验证报告
+    ponytail: deterministic heuristics cannot prove authenticity; inspect the
+    residual visually, use registered split-stack evidence if stronger proof is needed.
     """
     original = np.asarray(original, dtype=np.float32)
     denoised = np.asarray(denoised, dtype=np.float32)
+    report = {'passed': True, 'warnings': [], 'color_shift_threshold': threshold}
 
-    report = {'passed': True, 'warnings': []}
+    def reject(message):
+        report['passed'] = False
+        report['warnings'].append(message)
 
-    # 1. 背景区域色彩偏移检测
-    if original.ndim == 3 and denoised.ndim == 3:
-        gray = 0.299 * original[..., 0] + 0.587 * original[..., 1] + 0.114 * original[..., 2]
-        bg_thresh = np.percentile(gray, 20)
-        bg_mask = gray < bg_thresh
+    if (original.shape != denoised.shape or original.ndim not in (2, 3)
+            or (original.ndim == 3 and original.shape[-1] != 3)):
+        reject('Image shape or channel count mismatch')
+        return report
+    if not np.all(np.isfinite(original)) or not np.all(np.isfinite(denoised)):
+        reject('Non-finite samples')
+        return report
+    if float(denoised.min()) < -1e-6 or float(denoised.max()) > 1.0 + 1e-6:
+        reject('Output exceeds normalized sample range')
+        return report
 
-        if np.sum(bg_mask) > 100:
-            for ch, name in enumerate(['R', 'G', 'B']):
-                orig_mean = float(np.mean(original[..., ch][bg_mask]))
-                den_mean = float(np.mean(denoised[..., ch][bg_mask]))
-                if orig_mean > 1e-6:
-                    shift = abs(den_mean - orig_mean) / orig_mean
-                    if shift > threshold:
-                        report['passed'] = False
-                        report['warnings'].append(
-                            f'{name} 通道背景偏移 {shift:.1%} (>{threshold:.0%})'
-                        )
+    gray, smooth, bg, sigma, _ = denoise_noise_stats(original)
+    den_gray, den_smooth, _, _, _ = denoise_noise_stats(denoised)
+    before = original[..., None] if original.ndim == 2 else original
+    after = denoised[..., None] if denoised.ndim == 2 else denoised
+    drift = 0.0
+    for mask in (bg, np.ones(gray.shape, dtype=bool)):
+        means = np.mean(before[mask], axis=0)
+        changes = np.abs(np.mean(after[mask], axis=0) - means)
+        drift = max(drift, float(np.max(changes / np.maximum(np.abs(means), 1e-8))))
+    report['max_channel_mean_drift'] = drift
+    if drift > threshold:
+        reject('Channel mean drift exceeds tolerance')
 
-    # 2. 高频能量比（检测过度涂抹）
-    from scipy.ndimage import gaussian_filter as gf
-    if original.ndim == 3:
-        orig_gray = 0.299 * original[..., 0] + 0.587 * original[..., 1] + 0.114 * original[..., 2]
-        den_gray = 0.299 * denoised[..., 0] + 0.587 * denoised[..., 1] + 0.114 * denoised[..., 2]
-    else:
-        orig_gray = original
-        den_gray = denoised
+    lum_drift = abs(float(den_gray.mean() - gray.mean())) / max(abs(float(gray.mean())), 1e-8)
+    report['luminance_drift'] = lum_drift
+    if lum_drift > threshold:
+        reject('Luminance drift exceeds tolerance')
 
-    orig_hf = orig_gray - gf(orig_gray, sigma=3)
-    den_hf = den_gray - gf(den_gray, sigma=3)
-    orig_energy = float(np.mean(orig_hf ** 2))
-    den_energy = float(np.mean(den_hf ** 2))
+    hp_before = gray - gaussian_filter(gray, 1.0)
+    hp_after = den_gray - gaussian_filter(den_gray, 1.0)
+    samples = hp_after[bg]
+    sigma_after = float(np.median(np.abs(samples - np.median(samples)))) / 0.6745
+    report['noise_ratio'] = sigma_after / sigma if sigma > 1e-10 else None
+    if sigma_after > sigma * 1.05 + 1e-10:
+        reject('Background noise increased')
+    energy = float(np.mean(hp_before ** 2))
+    report['high_frequency_energy_ratio'] = float(np.mean(hp_after ** 2)) / energy if energy > 1e-20 else None
 
-    if orig_energy > 1e-10:
-        energy_ratio = den_energy / orig_energy
-        report['high_frequency_energy_ratio'] = round(energy_ratio, 3)
-        if energy_ratio < 0.5:
-            report['passed'] = False
-            report['warnings'].append(
-                f'高频能量比 {energy_ratio:.2f} < 0.5 — AI 可能过度涂抹，细节丢失'
-            )
-    else:
-        report['high_frequency_energy_ratio'] = None
-
-    report['color_shift_threshold'] = threshold
+    detail = smooth - gaussian_filter(smooth, 3.0)
+    den_detail = den_smooth - gaussian_filter(den_smooth, 3.0)
+    structure = np.abs(detail) > max(3.0 * sigma, 1e-8)
+    retention = None
+    edge_retention = None
+    if np.any(structure):
+        retention = float(np.sum(detail[structure] * den_detail[structure])
+                          / max(float(np.sum(detail[structure] ** 2)), 1e-20))
+        edges = np.hypot(*np.gradient(smooth))
+        den_edges = np.hypot(*np.gradient(den_smooth))
+        edge_retention = float(np.sum(den_edges[structure]) / max(float(np.sum(edges[structure])), 1e-20))
+        if retention < 0.65 or retention > 1.25:
+            reject('Resolved detail lost or amplified')
+        if edge_retention < 0.65 or edge_retention > 1.25:
+            reject('Resolved edges lost or amplified')
+    report['detail_retention'] = retention
+    report['edge_retention'] = edge_retention
     return report
+
+
+def _read_deepsnr_fits(path, shape):
+    """Read raw CLI samples before any normalization, clipping or channel changes."""
+    from astropy.io import fits
+    expected = (3, *shape[:2]) if len(shape) == 3 else shape
+    with fits.open(path, memmap=False) as hdul:
+        hdu = hdul[0]
+        if (hdu.header.get('BITPIX') != -32 or hdu.data is None
+                or hdu.data.shape != expected
+                or hdu.header.get('BSCALE', 1) != 1 or hdu.header.get('BZERO', 0) != 0):
+            raise ValueError('Invalid DeepSNR float32 image HDU or channel layout')
+        candidate = np.asarray(hdu.data, dtype=np.float32).copy()
+    if len(shape) == 3:
+        candidate = np.moveaxis(candidate, 0, -1)
+    if (not np.all(np.isfinite(candidate)) or candidate.min() < -1e-6
+            or candidate.max() > 1 + 1e-6):
+        raise ValueError('Invalid DeepSNR output samples')
+    return candidate
+
+
+def validate_applied_denoise(original, candidate):
+    """Validate the applied result and retry excessive suppression once."""
+    report = validate_external_denoise(original, candidate)
+    strength = 1.0
+    ratio = report.get('noise_ratio')
+    if ratio is not None and ratio < 0.5:
+        strength = 0.5
+        candidate = (np.asarray(original) + candidate) * 0.5
+        report = validate_external_denoise(original, candidate)
+        ratio = report.get('noise_ratio')
+    if ratio is not None and ratio < 0.5:
+        report['passed'] = False
+        report['warnings'].append('Applied background noise ratio below 0.5')
+    report['blend_multiplier'] = strength
+    return (candidate.astype(np.float32) if report['passed'] else None), report
+
+
+def find_deepsnr_executable(user_path=None):
+    """定位 DeepSNR CLI 可执行文件（委托给通用探测器）。
+
+    四级优先：显式 → ``DEEPSNR_PATH`` → ``shutil.which`` → 默认安装目录。
+    完整语义与跨平台路径表见 :mod:`external_tools`。
+
+    历史教训（本函数曾只依赖 ``shutil.which``）：GUI / IDE / 宿主应用启动的
+    进程常不继承 ``/usr/local/bin``，此时 ``which`` 对 DeepSNR 与 StarNet
+    **都**返回 None —— StarNet 侧有默认路径兜底所以能发现，DeepSNR 侧没有 ⇒
+    二进制明明装着却被报「executable not found」并**静默降级到 atrous**。
+    """
+    from external_tools import find_executable
+    return find_executable("deepsnr", user_path=user_path)
+
+
+def run_deepsnr(image, work_dir, executable=None, timeout=900, strength=0.35,
+                save_prediction=False):
+    """Return a validated linear blend or None on any CLI/quality failure.
+
+    Keep zero-shadow MTF even on 1.3.2: native --linear clips shadows without
+    restoring source samples. Float FITS avoids integer quantization; only
+    legacy CLI versions need an RGB/BGR transport calibration.
+    """
+    from astropy.io import fits
+    from fits_io import write_image
+    from stretch import derive_mtf_midtones, mtf_stretch, inverse_mtf_stretch
+
+    report = {'status': 'fallback', 'backend': 'deepsnr', 'strength': strength,
+              'review_required': True}
+    try:
+        if not np.isfinite(strength) or not 0 < strength <= 1:
+            raise ValueError('DeepSNR strength must be in (0, 1]')
+        if not np.isfinite(timeout) or timeout <= 0:
+            raise ValueError('DeepSNR timeout must be positive')
+        arr = np.asarray(image, dtype=np.float32)
+        if (arr.ndim not in (2, 3) or (arr.ndim == 3 and arr.shape[-1] != 3)
+                or min(arr.shape[:2]) < 512):
+            raise ValueError('DeepSNR requires grayscale/RGB images at least 512 x 512')
+        if not np.all(np.isfinite(arr)) or arr.min() < 0 or arr.max() > 1:
+            raise ValueError('DeepSNR input must contain finite normalized [0, 1] samples')
+        path = find_deepsnr_executable(executable)
+        if not path:
+            raise FileNotFoundError(
+                'DeepSNR executable not found (searched PATH, DEEPSNR_PATH, '
+                'and the default install locations; set --deepsnr-path or '
+                'DEEPSNR_PATH to override)')
+        info_run = subprocess.run([path, '--machine-info'], capture_output=True,
+                                  text=True, timeout=min(timeout, 10), check=True)
+        info = json.loads(info_run.stdout)
+        if not isinstance(info, dict):
+            raise ValueError('Invalid DeepSNR machine information')
+        version = tuple(int(x) for x in info['version'].split('.'))
+        if info.get('product') != 'deepsnr' or version < (1, 2, 3):
+            raise ValueError('DeepSNR CLI 1.2.3 or newer is required')
+        formats = info.get('io', {}).get('images', {})
+        color = 'rgb' if arr.ndim == 3 else 'grayscale'
+        for direction in ('inputs', 'outputs'):
+            if not any('fits' in entry.get('formats', [])
+                       and 'float32' in entry.get('sample_types', [])
+                       and color in entry.get('color_spaces', [])
+                       for entry in formats.get(direction, [])):
+                raise ValueError('DeepSNR must declare float32 FITS input and output support')
+        report['version'] = info['version']
+        report['runtime'] = info.get('backend')
+        report['native_linear_used'] = False
+        midtones = derive_mtf_midtones(arr, min_midtones=0.001)
+        report['payload_domain'] = 'mtf'
+        report['midtones'] = midtones
+        report['shadows'] = 0.0
+        Path(work_dir).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='deepsnr_', dir=work_dir) as tmp:
+            def invoke(source, output):
+                command = [path, '--input', str(source), '--output', str(output), '--model', '2', '--quiet']
+                proc = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+                report['returncode'] = proc.returncode
+                report['stderr'] = proc.stderr[-4000:]
+                if proc.returncode:
+                    raise RuntimeError(f'DeepSNR exited with code {proc.returncode}: {proc.stderr[-1000:]}')
+
+            reverse_channels = False
+            if arr.ndim == 3 and version >= (1, 3, 2):
+                report['fits_channel_order'] = 'rgb'
+                report['fits_channel_order_source'] = 'cli_rgb_contract'
+            elif arr.ndim == 3:
+                # Legacy builds can write BGR FITS. Calibrate on known colors,
+                # never on the astronomical target. 1.3.2 preserves RGB order.
+                report['fits_channel_order_source'] = 'legacy_probe'
+                probe = np.empty((512, 512, 3), dtype=np.float32)
+                probe[:] = (0.2, 0.4, 0.6)
+                probe_in, probe_out = Path(tmp) / 'probe.fits', Path(tmp) / 'probe_out.fits'
+                fits.PrimaryHDU(np.moveaxis(probe, -1, 0)).writeto(probe_in)
+                invoke(probe_in, probe_out)
+                probe_result = _read_deepsnr_fits(probe_out, probe.shape)
+                means = np.mean(probe_result, axis=(0, 1))
+                if np.allclose(means, (0.2, 0.4, 0.6), atol=0.01, rtol=0):
+                    report['fits_channel_order'] = 'rgb'
+                elif np.allclose(means, (0.6, 0.4, 0.2), atol=0.01, rtol=0):
+                    report['fits_channel_order'] = 'bgr'
+                    reverse_channels = True
+                else:
+                    raise ValueError('DeepSNR FITS channel transport calibration failed')
+            source, output = Path(tmp) / 'input.fits', Path(tmp) / 'output.fits'
+            write_image(mtf_stretch(arr, midtones=midtones, shadows=0.0), str(source))
+            invoke(source, output)
+            candidate = _read_deepsnr_fits(output, arr.shape)
+            if reverse_channels:
+                candidate = candidate[..., ::-1].copy()
+            candidate = inverse_mtf_stretch(candidate, midtones=midtones, shadows=0.0)
+        if save_prediction:
+            prediction_path = Path(work_dir) / '03_pre_denoise_prediction.tif'
+            write_image(candidate, prediction_path)
+            report['prediction_path'] = str(prediction_path)
+        report['validation'] = validate_external_denoise(arr, candidate)
+        if not report['validation']['passed']:
+            raise ValueError('; '.join(report['validation']['warnings']))
+        result = arr * (1.0 - strength) + candidate * strength
+        result, applied = validate_applied_denoise(arr, result)
+        report['applied_validation'] = applied
+        report['applied_strength'] = strength * applied['blend_multiplier']
+        if result is None:
+            raise ValueError('; '.join(applied['warnings']))
+        report.update(status='accepted', review_required=False, visual_review_required=True)
+        return result.astype(np.float32), report
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as exc:
+        report['reason'] = str(exc)
+        return None, report
 
 
 def main():

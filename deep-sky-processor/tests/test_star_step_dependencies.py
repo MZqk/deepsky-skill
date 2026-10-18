@@ -223,6 +223,7 @@ class StarStepDependencyTests(unittest.TestCase):
 
     def test_emission_fallback_switches_to_masked_ghs(self):
         image = np.full((48, 64, 3), 0.03, dtype=np.float32)
+        image[12:36, 20:44] = .5
         fallback_report = {
             "fallback_applied": True,
             "fallback_reason": "star_removal_quality_below_threshold",
@@ -259,7 +260,7 @@ class StarStepDependencyTests(unittest.TestCase):
 
         self.assertEqual(
             result["effective_config"]["stretch_method"],
-            "masked_ghs",
+            "masked_ghs_standard",
         )
 
     def test_override_can_explicitly_skip_dbe(self):

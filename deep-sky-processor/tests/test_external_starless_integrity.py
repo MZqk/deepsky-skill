@@ -188,5 +188,140 @@ class VerifyExternalStarlessTests(unittest.TestCase):
         self.assertNotIn("channel_integrity", r)
 
 
+class DegradedChannelTests(unittest.TestCase):
+    """「退化」是「塌缩」与「健康」之间的第三态。
+
+    背景（实测 NGC6888 + StarNet2）：MTF 域通道保留率 R 0.856 / G 0.703 /
+    B 0.739 —— 网络对弱色通道剥离得更狠，使无星层**从构造上就偏红**。
+    G 的 `level_drop` 实测 1.51，低于按「G 被剪零 93%」标定的 2.0 阈值，
+    旧判据按设计检不出 → 静默通过。
+
+    这类偏差可以靠逐通道增益救回（G 需 ×1.5~3.0），所以处置是**补偿**而非
+    拒绝；把它并入 `collapsed` 只会把管线推向 `review_required` 而不产出图。
+    """
+
+    def test_moderate_channel_loss_is_degraded_not_collapsed(self):
+        """掉三成左右：判 degraded，不判 collapsed（仍 valid=True）。"""
+        orig = make_nebula_with_channels()
+        starless = orig.copy()
+        starless[..., 1] *= 0.66                    # G 掉约 34%
+        result = validate_starless_channel_integrity(orig, starless)
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["collapsed_channels"], [])
+        self.assertIn("g", result["degraded_channels"])
+        self.assertNotIn("b", result["degraded_channels"])
+
+    def test_healthy_channel_is_not_degraded(self):
+        orig = make_nebula_with_channels()
+        result = validate_starless_channel_integrity(orig, _strip_stars(orig))
+        self.assertEqual(result["degraded_channels"], [])
+
+    def test_absent_channel_is_neither_degraded_nor_collapsed(self):
+        """天然缺通道的窄带图不应被标退化 —— 原图里本来就没有。"""
+        orig = make_nebula_with_channels(rgb_amp=(0.030, 0.0003, 0.0002))
+        starless = orig.copy()
+        starless[..., 1] *= 0.66
+        result = validate_starless_channel_integrity(orig, starless)
+        self.assertEqual(result["degraded_channels"], [])
+
+    def test_severe_loss_stays_collapsed_not_degraded(self):
+        """真塌缩（×0.1）必须仍是 collapsed —— 增益救不回来。"""
+        orig = make_nebula_with_channels()
+        starless = orig.copy()
+        starless[..., 1] *= 0.10
+        result = validate_starless_channel_integrity(orig, starless)
+        self.assertFalse(result["valid"])
+        self.assertIn("g", result["collapsed_channels"])
+        self.assertNotIn("g", result["degraded_channels"])
+
+
+class ChannelRebalanceTests(unittest.TestCase):
+    """逐通道保真回补：把无星层色比拉回原图。"""
+
+    def _ratios(self, image):
+        from pipeline import _nebula_signal_mask_for_rebalance
+        from pipeline import _display_domain_channel_ratios
+        mask = _nebula_signal_mask_for_rebalance(image)
+        r = _display_domain_channel_ratios(image, mask)
+        return float(r[0] / r[1]), float(r[2] / r[1])
+
+    def test_solves_gains_that_restore_original_colour_ratio(self):
+        from pipeline import _rebalance_starless_channels
+        orig = make_nebula_with_channels()
+        starless = orig.copy()
+        starless[..., 1] *= 0.66                    # 模拟 G 被过度剥离
+        starless[..., 2] *= 0.74
+        before = self._ratios(starless)
+        warnings = []
+        out = _rebalance_starless_channels(
+            orig, starless, {'target_bg': .045}, warnings)
+        self.assertTrue(out["applied"], out.get("reason"))
+        self.assertGreater(out["gains"][1], 1.2)   # G 被拉回
+        self.assertAlmostEqual(out["gains"][0], 1.0, places=6)  # 归一到 R=1
+        after = self._ratios(out["_corrected"])
+        self.assertAlmostEqual(after[0], self._ratios(orig)[0], delta=.05)
+        self.assertAlmostEqual(after[1], self._ratios(orig)[1], delta=.05)
+        self.assertNotEqual(round(before[0], 3), round(after[0], 3))
+
+    def test_records_a_warning_so_the_repair_is_auditable(self):
+        from pipeline import _rebalance_starless_channels
+        orig = make_nebula_with_channels()
+        starless = orig.copy()
+        starless[..., 1] *= 0.66
+        warnings = []
+        _rebalance_starless_channels(orig, starless, {'target_bg': .045}, warnings)
+        self.assertEqual([w["code"] for w in warnings],
+                         ["STARLESS_CHANNEL_REBALANCE_APPLIED"])
+
+    def test_refuses_when_gain_would_exceed_the_limit(self):
+        """增益上限是安全阀：弱通道差太多时宁可不修，也不能把噪声拉上天。"""
+        from pipeline import _rebalance_starless_channels
+        orig = make_nebula_with_channels()
+        starless = orig.copy()
+        starless[..., 1] = 1e-5
+        out = _rebalance_starless_channels(
+            orig, starless, {'starless_rebalance_max_gain': 1.2}, [])
+        self.assertFalse(out["applied"])
+        self.assertEqual(out["reason"], "gain_limit_exceeded")
+
+    def test_healthy_input_is_not_flagged_for_repair(self):
+        """健康输入不应被标退化 —— 回补只由 degraded_channels 触发。"""
+        orig = make_nebula_with_channels()
+        starless = _strip_stars(orig)
+        integrity = validate_starless_channel_integrity(orig, starless)
+        self.assertEqual(integrity["degraded_channels"], [])
+        self.assertTrue(integrity["valid"])
+
+
+    def test_final_residual_and_new_clipping_reject_unsafe_gains(self):
+        from neural_star_bridge import solve_channel_rebalance_gains
+        from pipeline import _solve_gains_with_probe
+        orig = make_nebula_with_channels(rgb_amp=(.03, .03, .03), bg=0)
+        starless = orig.copy(); starless[..., 1:] *= .25
+        def nonlinear_probe(image):
+            ratios = np.sqrt(image.mean(axis=(0, 1)))
+            return ratios / ratios.max()
+        result = _solve_gains_with_probe(orig, starless, nonlinear_probe,
+                                         {'starless_rebalance_iterations': 1})
+        self.assertFalse(result['applied'])
+        self.assertEqual(result['reason'], 'not_converged')
+        self.assertGreater(result['residual'], .01)
+        result = solve_channel_rebalance_gains(orig, starless)
+        self.assertTrue(result['applied'])
+        self.assertLessEqual(result['residual'], .01)
+        starless[0, 0, 1] = .8
+        result = solve_channel_rebalance_gains(orig, starless)
+        self.assertFalse(result['applied'])
+        self.assertEqual(result['reason'], 'new_clipping')
+
+    def test_integrity_reports_raw_zero_separately_and_rejects_nonfinite(self):
+        orig = make_nebula_with_channels()
+        result = validate_starless_channel_integrity(orig, orig.copy())
+        self.assertEqual(result['channels']['g']['raw_zero_starless'], 0)
+        self.assertIn('p10', result['zero_measurement'])
+        starless = orig.copy(); starless[0, 0, 1] = np.nan
+        self.assertFalse(validate_starless_channel_integrity(orig, starless)['valid'])
+
+
 if __name__ == "__main__":
     unittest.main()

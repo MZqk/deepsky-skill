@@ -33,6 +33,12 @@ from skimage import img_as_float32, img_as_ubyte
 from skimage.io import imread, imsave
 from skimage.morphology import disk, white_tophat, erosion, dilation
 
+# 去星门禁阈值档（按 target_type 分档）。导入放在 OpenCV 探测之后以保持
+# 原有 import 顺序；模块本身只依赖 dataclasses/target_rules，无重依赖。
+from star_removal_profiles import DEFAULTS as _REMOVAL_DEFAULTS
+from star_removal_profiles import get_profile as _removal_profile
+from star_removal_profiles import profile_report as _removal_profile_report
+
 # OpenCV 用于 Telea/Navier-Stokes 修复
 try:
     import cv2
@@ -48,6 +54,10 @@ except ImportError:
 # 暗星会被整体滤掉。详见 detect_stars_multiscale 内的注释。
 _DETECT_TOPHAT_SIGMA_MULTIPLIER = 7.0  # × 背景 tophat 正值部分的稳健噪声水平
 _DETECT_PEAK_SIGMAS = 5.0              # 峰值下限 = background + 5σ
+
+# 星系核保护的兜底半径（占画幅短边）。显式传入 galaxy_core_radius 优先。
+# 固定 15px 只挡得住核球最中心，内盘恒星仍被剥离；按画幅比例取值才能覆盖真正的核区。
+GALAXY_CORE_PROTECTION_MIN_RADIUS_FRACTION = 0.02
 
 
 # ══════════════════════════════════════════════════════════════
@@ -417,7 +427,8 @@ def _gradient_mask(image_gray, fwhm):
     return grad_norm.astype(np.float32)
 
 
-def _analyze_connected_components(labeled, image_gray, fwhm, star_threshold, galaxy_center=None):
+def _analyze_connected_components(labeled, image_gray, fwhm, star_threshold, galaxy_center=None,
+                                   galaxy_core_radius=None):
     """
     对每个连通域计算特征并分类过滤。
 
@@ -503,7 +514,10 @@ def _analyze_connected_components(labeled, image_gray, fwhm, star_threshold, gal
             cy_comp = (by0 + by1) / 2.0
             cx_comp = (bx0 + bx1) / 2.0
             dist_to_center = np.sqrt((cy_comp - g_cy)**2 + (cx_comp - g_cx)**2)
-            if dist_to_center <= 15.0 and area >= min(50, 2 * min_area):
+            core_radius = float(galaxy_core_radius) if galaxy_core_radius else max(
+                15.0, GALAXY_CORE_PROTECTION_MIN_RADIUS_FRACTION * min(h, w)
+            )
+            if dist_to_center <= core_radius and area >= min(50, 2 * min_area):
                 reject_reason = "galaxy_nuclear_core"
 
         if reject_reason is None:
@@ -642,7 +656,8 @@ def _compute_detection_confidence(components, fwhm, image_shape):
 
 def detect_stars_multiscale(image, fwhm=None, star_threshold=0.85,
                             gradient_aware=True, n_scales=4,
-                            return_details=False, galaxy_center=None):
+                            return_details=False, galaxy_center=None,
+                            galaxy_core_radius=None):
     """
     多尺度星点检测引擎（v2）。
 
@@ -748,7 +763,8 @@ def detect_stars_multiscale(image, fwhm=None, star_threshold=0.85,
 
     # 5. 连通域特征过滤
     kept_mask, components = _analyze_connected_components(
-        labeled, img_gray, fwhm, star_threshold, galaxy_center=galaxy_center
+        labeled, img_gray, fwhm, star_threshold, galaxy_center=galaxy_center,
+        galaxy_core_radius=galaxy_core_radius
     )
 
     # 6. 膨胀以覆盖星点 PSF 边缘与扩散翼（防止去星后残留亮环或在拉伸中激化为白斑）
@@ -942,7 +958,29 @@ def remove_stars_median(image, star_mask, filter_size=15):
 
 # 去星会把星点自身的光通量从平滑图中移除，导致延展结构亮度出现约 8% 的
 # 系统性下降。这是去星的预期结果而非误伤，衡量误伤时需扣除该基线。
-_STAR_REMOVAL_BASELINE_CHANGE = 0.10
+#
+# 以下常量全部**从分档默认值派生**，不再独立写死：v0.1.33 把阈值散落成
+# 模块级常量，新增分档时容易只改一处而漏掉另一处。现在唯一事实源是
+# star_removal_profiles.DEFAULTS，这里的名字保留是为了不破坏既有引用
+# （CLI / 测试 / 文档都直接读它们）。
+_STAR_REMOVAL_BASELINE_CHANGE = _REMOVAL_DEFAULTS.baseline_change
+
+# ── 星云误伤（nebula_damage_ratio）的可测性边界 ──
+# 主体掩膜由 ``orig_smooth >= p75`` 圈定，是**相对**分位。实测该定义下
+# 掩膜占比**恒为 0.25**（4 份母版全部 ``0.250000``）⇒ 「掩膜占比过高」
+# 这个失败形态在数学上不可能发生，``_NEBULA_MASK_MAX_COVERAGE``
+# 因此已从判定链移除（v0.1.34，标 deprecated，见
+# star_removal_profiles.DEPRECATED_FIELDS）。常量保留仅为 schema
+# 兼容与人工观测，**不得据它分档或判定**。
+_NEBULA_MASK_MAX_COVERAGE = _REMOVAL_DEFAULTS.mask_max_coverage
+# 主体（p75）与安静区（p25）的最小**相对**亮度比 —— 现在是误伤可测性的
+# **唯一**判据。必须用比值而非绝对落差：quality 评估跑在**拉伸前的
+# 线性域**，绝对亮度极小（NGC6888 实测 p75-p25 仅 0.00019），任何绝对
+# 阈值都会误判。比值在纯暗场 + 小星点时为 1.0（p25=p75=背景）⇒ 判为
+# 「无主体、不可测」，这正是我们要的：那类数据里「主体是否被损伤」
+# 无从谈起。
+_NEBULA_MIN_SUBJECT_SEPARATION = _REMOVAL_DEFAULTS.min_subject_separation
+
 
 
 def _robust_noise_scale(gray):
@@ -961,11 +999,12 @@ def _robust_noise_scale(gray):
     return float(np.median(np.abs(lower - median))) * 1.4826
 
 
-def estimate_star_removal_quality(original, starless):
+def estimate_star_removal_quality(original, starless, target_type=None,
+                                  profile=None, stars=None):
     """
     评估星点分离质量。
 
-    三个子指标都必须是有**绝对锚点**的测量值，否则会退化成常数或恒等于满分/零分：
+    四个子指标都必须是有**绝对锚点**的测量值，否则会退化成常数或恒等于满分/零分：
 
       - residual_star_fraction：残留星点应当是"亮且紧凑"的点状结构。
         旧版用 `max(阈值, 0.1)` 这个绝对亮度下限，任何亮于 0.1 的像素都算残留星，
@@ -978,9 +1017,31 @@ def estimate_star_removal_quality(original, starless):
         对任何图像都必然命中约 10~20% 的像素，等于恒定扣满该项惩罚。
         新版改为"去星后梯度显著超过原图同一位置"，并用绝对噪声尺度锚定：
         原图在星点处本就有大梯度，好的修复只会让它变小。
+
+    target_type / profile：门禁阈值按目标类型分档，见
+    :mod:`star_removal_profiles`。两者都缺省时用默认档，行为与分档前逐位一致。
+
+    stars：星点层（可选）。**星层归一化读数必须显式传入**，不能由
+    orig - starless 派生 —— 见下方「为什么不能派生」。
+
+    v0.1.39 新增**星层归一化**读数（nebula_damage_ratio_star_flux）
+    并与原读数**并存**。原读数把「被移走的星光」计入误伤，实测
+    corr(星层占主体比, nebula_damage_ratio) = +0.9417，健康组读数因此
+    跨 10 倍（0.0135~0.3529）⇒ 双向夹逼必然为空、阈值无法标定。
+    **原字段语义与取值完全不变**；新读数缺省不启用，避免一次性改两处
+    导致读数无法归因。
+
+    为什么星层不能由 orig - starless 派生
+    -----------------------------------------
+    实测（M8 注入 beta 递减的合成损伤）：若星层按 orig - starless
+    派生，注入的损伤会**同时**被算进「星层」，分母被补偿掉，读数变成
+    **非单调**（beta 0→0.30：0.0942→0.0948→0.0917→0.0773，越损伤越小）。
+    派生量与被测量共用同一个减法 ⇒ 修正项与信号项自相消。
+    星层必须是**独立观测量**（去星时的产物），才不含待测的损伤。
     """
     original = np.asarray(original, dtype=np.float32)
     starless = np.asarray(starless, dtype=np.float32)
+    prof = _removal_profile(target_type, profile)
 
     if original.ndim == 3:
         orig_gray = 0.299 * original[..., 0] + 0.587 * original[..., 1] + 0.114 * original[..., 2]
@@ -1005,23 +1066,113 @@ def estimate_star_removal_quality(original, starless):
     # 关键：星点本身就是画面最亮的部分，若直接按原始亮度取"主体"掩膜，
     # 掩膜会包含星点，于是"把星去掉"这件事本身就被算成误伤（实测报 0.17）。
     # 用重平滑（sigma=8）压掉点状结构后再取掩膜与比较，剩下的才是星系/星云本体。
+    #
+    # **可测性前置判据**（借鉴 aiseestart 把「真实低覆盖」与「测量不可用」
+    # 分成两个码的做法）：主体掩膜靠 ``orig_smooth >= p75`` 圈定，p75 是
+    # **相对**分位。NGC6888 实测 damage=0.516 无法区分是**真实误伤**还是
+    # **口径偏严**，因此在算比值之前先判可测性，不满足就报 unavailable ——
+    # 而不是给一个偏高但看似确定的 damage。
     orig_smooth = gaussian_filter(orig_gray, sigma=8.0)
     sl_smooth = gaussian_filter(sl_gray, sigma=8.0)
     signal_level = float(np.percentile(orig_smooth, 75))
-    if signal_level > 1e-6:
+    # 主体与安静区的分离度。**注意它衡量的是「延展结构对比度」**，
+    # 不是「有没有主体」：纯暗场 + 小星点时 p25 与 p75 都落在背景上，
+    # separation≈1.0，但那类数据根本没有星云主体可言，damage 无从谈起。
+    quiet_level = float(np.percentile(orig_smooth, 25))
+    subject_separation = (signal_level / max(quiet_level, 1e-8)
+                         if quiet_level > 1e-8 else 0.0)
+    nebula_pixels = int(np.count_nonzero(orig_smooth >= signal_level)) \
+        if signal_level > 1e-6 else 0
+    nebula_coverage = nebula_pixels / float(orig_smooth.size) \
+        if orig_smooth.size else 0.0
+    # 可测性 = 画面里确实有**可比的延展主体**。
+    # 判据只有一条：主体/背景亮度比超过下限。掩膜内原图与无星图一样亮时，
+    # 差值落在噪声内，比值是放大噪声（纯暗场 + 小星点，没有星云主体）。
+    #
+    # v0.1.34 移除了原先的 ``nebula_coverage <= mask_max_coverage`` 一条：
+    # 掩膜由**相对**分位 p75 圈定，占比数学上恒等于 0.25，判据从不触发
+    # （4 份母版实测全部 0.250000）。保留一个死判据会让后续维护者误以为
+    # 「掩膜退化为全图」场景已受控。coverage 仍作为**观测量**输出。
+    damage_measurable = (
+        signal_level > 1e-6
+        and nebula_pixels > 100
+        and subject_separation >= prof.min_subject_separation
+    )
+    if damage_measurable:
         nebula_mask = orig_smooth >= signal_level
-        if int(np.count_nonzero(nebula_mask)) > 100:
-            orig_ref = float(np.median(orig_smooth[nebula_mask]))
-            sl_ref = float(np.median(sl_smooth[nebula_mask]))
-            raw_change = abs(orig_ref - sl_ref) / max(orig_ref, 1e-8)
-        else:
-            raw_change = 0.0
+        orig_ref = float(np.median(orig_smooth[nebula_mask]))
+        sl_ref = float(np.median(sl_smooth[nebula_mask]))
+        raw_change = abs(orig_ref - sl_ref) / max(orig_ref, 1e-8)
     else:
         raw_change = 0.0
 
+    # ── 星层归一化判据（v0.1.39，与上面的 raw_change 并存）──
+    #
+    # 上面那个比值把「被移走的星光」算成了「误伤」：分母是**原图**主体
+    # 亮度，而分母里含星点通量；分子只剩无星层。StarNet 取走星点后分子
+    # 掉、分母不动，读数虚高多少**取决于画面里有多少星** —— 与目标类型
+    # 和主体形态无关。
+    #
+    # 实测（7 份真实 StarNet2 产物，跨机型/跨分辨率）：
+    #   corr(星层占主体比, raw_change) = +0.9417
+    #   健康组 raw_change 极差 0.3393（跨 10 倍 ⇒ 夹逼必然为空）
+    # 星层通量在掩膜内占主体 0.024~0.447（跨 18 倍），正是漂移来源。
+    #
+    # 处置：把**同一掩膜内**的星层通量从分母里减掉，让分母只含延展结构。
+    # 依据是加法恒等式 ``orig - starless - stars`` 残差 ≤ 0.0008（7 份
+    # 全部），即「原图 − 无星图 = 星光 + 结构损伤」在数据上成立。
+    star_free_ref = 0.0
+    star_flux_fraction = 0.0
+    star_flux_damage_ratio = 0.0
+    star_flux_measurable = False
+    star_free_snr = 0.0
+    star_free_snr_available = False
+    # 归一化只在**星层可用且显式开启**时计算。两者缺一不可：
+    #   - 没有 stars 入参 ⇒ 只能退回 orig-starless 派生，而派生量会
+    #     把待测损伤一并算成星光（见 docstring），使判据非单调；
+    #   - star_flux_normalize=False ⇒ 只出旧读数，不出归一化读数。
+    if (prof.star_flux_normalize and damage_measurable and stars is not None):
+        stars_arr = np.asarray(stars, dtype=np.float32)
+        if stars_arr.ndim == 3:
+            stars_gray = (0.299 * stars_arr[..., 0] + 0.587 * stars_arr[..., 1]
+                          + 0.114 * stars_arr[..., 2])
+        else:
+            stars_gray = stars_arr
+        if stars_gray.shape == orig_gray.shape:
+            stars_smooth = gaussian_filter(stars_gray, sigma=8.0)
+            stars_ref = float(np.median(stars_smooth[nebula_mask]))
+            star_free_ref = orig_ref - stars_ref
+            star_flux_fraction = stars_ref / max(orig_ref, 1e-8)
+            # 扣除后主体可能趋近 0（高星密度 + 小目标），比值失去意义。
+            star_flux_measurable = (
+                star_free_ref > prof.min_star_free_subject_level)
+            if star_flux_measurable:
+                raw_star_free = (abs(star_free_ref - sl_ref)
+                                 / max(star_free_ref, 1e-8))
+                star_flux_damage_ratio = max(
+                    0.0, raw_star_free - prof.star_flux_baseline_change)
+            # ── 观测量：star_free_snr（**不参与任何判定**）──
+            # v0.1.39 实测**否决**了「用 SNR 当置信下界」的想法：
+            #   corr(star_free_snr, 归一化 damage) = -0.4464（方向相反），
+            #   且 7 份健康样本的 SNR 跨 1.6~385.4。
+            # M31 的读数为 0 是因为 starfrac 仅 0.0026（星光不在主体
+            # 掩膜内），**不是**噪声淹没 —— 它的 SNR 恰恰是全组最高的。
+            # 深层原因：掩膜 = 平滑图 p75 = 最亮 25%，装的是真实结构
+            # 而非噪声。实测超额峰度 105~504、偏度 -9~-21 ⇒ MAD 在
+            # 这种重尾分布上没有统计意义（截尾均值与中位数差 24%~779%）。
+            # 保留它只为报告可查；**任何判定都不得引用它**。
+            _diff = sl_smooth[nebula_mask] - orig_smooth[nebula_mask]
+            _mad = (1.4826 * float(np.median(np.abs(_diff
+                                                 - np.median(_diff)))))
+            # orig/sl 各自含独立噪声 ⇒ 差值的噪声是单侧的 √2 倍
+            _sigma_diff = _mad / float(np.sqrt(2.0))
+            if _sigma_diff > 0.0:
+                star_free_snr = star_free_ref / _sigma_diff
+                star_free_snr_available = True
+
     # 去星必然会把星点自身的光通量从平滑图里拿掉（实测占延展结构亮度的 ~8%），
     # 这部分是去星的**预期结果**，不是误伤。只统计超出该基线的结构性改变。
-    damage_ratio = max(0.0, raw_change - _STAR_REMOVAL_BASELINE_CHANGE)
+    damage_ratio = max(0.0, raw_change - prof.baseline_change)
 
     # ── 修复伪影：去星新引入的硬边 ──
     grad_orig = np.sqrt(sobel(orig_gray, axis=0) ** 2 + sobel(orig_gray, axis=1) ** 2)
@@ -1032,14 +1183,18 @@ def estimate_star_removal_quality(original, starless):
     # 综合评分
     # residual 阈值取 2%：星点掩膜通常只占画面 1~5%，若去星完全没生效，
     # 残留率就是掩膜本身的占比，因此 5% 的老阈值过宽，恒等操作都能蒙混过关。
-    needs_starnet = residual_fraction > 0.02 or damage_ratio > 0.15
+    needs_starnet = (residual_fraction > prof.needs_starnet_residual
+                     or damage_ratio > prof.needs_starnet_damage)
 
     # 修复质量评分（0-1，1 最好）。
     # 权重按"可接受上限"标定：残留 2.5%、误伤 22%、新硬边 6.7% 分别扣满该项。
     repair_score = 1.0
-    repair_score -= min(residual_fraction * 20.0, 0.5)
-    repair_score -= min(damage_ratio * 2.0, 0.45)
-    repair_score -= min(high_grad_ratio * 3.0, 0.2)
+    repair_score -= min(residual_fraction * prof.repair_weight_residual,
+                        prof.repair_cap_residual)
+    repair_score -= min(damage_ratio * prof.repair_weight_damage,
+                        prof.repair_cap_damage)
+    repair_score -= min(high_grad_ratio * prof.repair_weight_gradient,
+                        prof.repair_cap_gradient)
     repair_score = max(0.0, min(1.0, repair_score))
 
     report = {
@@ -1048,13 +1203,70 @@ def estimate_star_removal_quality(original, starless):
         'high_gradient_ratio': round(high_grad_ratio, 4),
         'repair_quality_score': round(repair_score, 3),
         'needs_starnet_plus': needs_starnet,
-        'quality': 'good' if repair_score > 0.7 else ('marginal' if repair_score > 0.4 else 'poor'),
+        # 误伤指标是否可测。False 时 nebula_damage_ratio 不可作为拒绝依据
+        # （主体对比度不足），门禁应走 unavailable。
+        'nebula_damage_measurable': bool(damage_measurable),
+        # coverage 保留为**观测量**，不再参与判定：p75 相对分位下它恒为
+        # 0.25（star_removal_profiles.DEPRECATED_FIELDS 记录了否决理由）。
+        'nebula_mask_coverage': round(nebula_coverage, 4),
+        'subject_separation': round(subject_separation, 3),
+        # ── 星层归一化族（v0.1.39）：与 nebula_damage_ratio 并存的观测量 ──
+        # 旧字段一律不动：一次改两处会让「哪个改动带来了读数变化」无法
+        # 归因。三个新字段的 0/False 语义是**「没算」**，不是「算出来是 0」
+        # —— 所以下面显式带一个 available 标志。
+        'nebula_damage_ratio_star_flux': round(star_flux_damage_ratio, 4),
+        'nebula_damage_star_flux_measurable': bool(star_flux_measurable),
+        'star_flux_metric_available': bool(
+            prof.star_flux_normalize and damage_measurable
+            and stars is not None),
+        # 掩膜内星层通量占原图主体的比值。**这是旧判据漂移的根因量**：
+        # 实测 corr(该值, nebula_damage_ratio) = +0.9417。
+        'star_flux_fraction': round(star_flux_fraction, 4),
+        # 扣除星通量后的主体基准，供人工核对是否趋近 0（趋近即不可测）。
+        'star_free_subject_level': float(f'{star_free_ref:.6g}'),
+        # ── 相对判据基线（v0.1.44）──
+        # 本值**就是**基线：它本身就是「该图健康态下的 |1-q_sf|」。
+        # 写进 result.json 后，后续同图运行读回作对照，即可度量
+        # 「这次比上次多损坏了多少」——绝对判据做不到这一点。
+        'star_flux_baseline': (
+            round(abs(1.0 - (sl_ref / max(star_free_ref, 1e-8))), 4)
+            if star_flux_measurable else None),
+        # ⚠ **纯观测量，任何判定都不得引用**（v0.1.39 实测否决了
+        # 「SNR 当置信下界」：corr(SNR, damage) = -0.4464，方向相反）。
+        'star_free_snr': (round(star_free_snr, 2)
+                         if star_free_snr_available else None),
+        'star_free_snr_available': bool(star_free_snr_available),
+        'quality': ('good' if repair_score > prof.quality_band_good
+                    else ('marginal' if repair_score > prof.quality_band_marginal
+                          else 'poor')),
     }
 
-    if needs_starnet:
+    if not damage_measurable:
+        report['quality'] = 'unmeasurable'
+        report['suggestion'] = (
+            '星云误伤指标在当前数据上不可测：'
+            f'主体/背景亮度比 {subject_separation:.2f}'
+            f'（下限 {prof.min_subject_separation:.2f}）—— '
+            '无星云主体的纯暗场，掩膜内原图与无星图一样亮，'
+            '差值落在噪声内。此时残留星与硬边指标仍有效，'
+            '但不能用 damage 判定去星是否伤到星云。'
+        )
+    elif needs_starnet:
         report['suggestion'] = (
             '形态学去星质量不足 — 建议使用 StarNet++ v2 CLI 生成无星图，'
             '然后通过 --external-starless 接入管线'
+        )
+
+    # 归一化判据自身不可测时必须单独说明。它与 nebula_damage_measurable
+    # **不是同一个条件**：前者测的是「主体对比度够不够」，后者测的是
+    # 「扣掉星光后主体还剩不剩」。混用会让「这张图测不了」的原因被吞掉。
+    if damage_measurable and prof.star_flux_normalize and stars is not None \
+            and not star_flux_measurable:
+        report['star_flux_note'] = (
+            f'星层归一化判据不可测：扣除掩膜内星通量后主体基准仅 '
+            f'{star_free_ref:.3g}（下限 {prof.min_star_free_subject_level:g}）—— '
+            '该目标的星光占比过高，扣掉后主体已无法与噪声区分。'
+            '此时以 nebula_damage_ratio 为准，但它含星通量成分。'
         )
 
     return report
@@ -1256,75 +1468,18 @@ def _star_layer_mask(stars):
 # ══════════════════════════════════════════════════════════════
 
 def find_starnet_executable(user_path=None):
+    """定位 StarNet2 / StarNet++ CLI（委托给通用探测器）。
+
+    四级优先：显式 → ``STARNET_PATH`` → ``shutil.which`` → 默认安装目录。
+    完整语义与跨平台路径表见 :mod:`external_tools`。
+
+    本函数历史上是「有默认路径兜底」的一方，而 :func:`denoise.
+    find_deepsnr_executable` 当时只有 ``shutil.which`` —— 于是同一台机器上
+    StarNet 能被发现、DeepSNR 被报「未找到」并静默降级。两者现已统一到
+    :mod:`external_tools`，不会再出现单边缺兜底的不对称失败。
     """
-    寻找 StarNet2 CLI 可执行文件。
-    优先级：user_path -> 环境变量 STARNET_PATH -> 系统 PATH (shutil.which) -> 默认扫描路径。
-    """
-    import os
-    import shutil
-    import sys
-
-    # 1. 显式配置优先
-    if user_path:
-        user_path = os.path.abspath(os.path.expanduser(user_path))
-        if os.path.isfile(user_path):
-            return user_path
-
-    # 2. 环境变量检索
-    env_path = os.environ.get("STARNET_PATH")
-    if env_path:
-        env_path = os.path.abspath(os.path.expanduser(env_path))
-        if os.path.isdir(env_path):
-            for name in ("starnet2", "starnet++", "starnet++.exe"):
-                candidate = os.path.join(env_path, name)
-                if os.path.isfile(candidate):
-                    return candidate
-        if os.path.isfile(env_path):
-            return env_path
-
-    # 3. 系统 PATH 检索
-    which_path = shutil.which("starnet++") or shutil.which("starnet2")
-    if which_path:
-        return which_path
-
-    # 4. 默认解压目录扫描
-    home = os.path.expanduser("~")
-    sys_platform = sys.platform.lower()
-    
-    default_paths = []
-    if "darwin" in sys_platform:
-        default_paths = [
-            "/Applications/StarNet/starnet2",
-            "/Applications/StarNet/starnet++",
-            "/usr/local/bin/starnet2",
-            "/opt/homebrew/bin/starnet2",
-            "/opt/homebrew/bin/starnet++",
-            "/Applications/StarNet2/starnet++",
-            "/Applications/StarNet2/StarNet2.app/Contents/MacOS/starnet2",
-            os.path.join(home, "Applications/StarNet2/starnet++"),
-            os.path.join(home, "Applications/StarNet/starnet2"),
-            os.path.join(os.path.dirname(__file__), "starnet++"),
-            os.path.join(os.path.dirname(__file__), "StarNet2", "starnet++"),
-        ]
-    elif "linux" in sys_platform:
-        default_paths = [
-            "/usr/local/bin/starnet++",
-            os.path.join(home, ".local/bin/starnet++"),
-            os.path.join(os.path.dirname(__file__), "starnet++"),
-            os.path.join(os.path.dirname(__file__), "StarNet2", "starnet++"),
-        ]
-    else:
-        # 其他系统，如 windows
-        default_paths = [
-            os.path.join(os.path.dirname(__file__), "starnet++.exe"),
-            os.path.join(os.path.dirname(__file__), "starnet++"),
-        ]
-
-    for p in default_paths:
-        if os.path.exists(p) and os.path.isfile(p):
-            return p
-
-    return None
+    from external_tools import find_executable
+    return find_executable("starnet", user_path=user_path)
 
 
 def run_starnet_cli(image, exe_path, stride=128, timeout=900,
@@ -1341,20 +1496,66 @@ def run_starnet_cli(image, exe_path, stride=128, timeout=900,
 
     midtones: MTF 中间调参数，None 则按图像背景自动推导。读回时用**同一个值**
       做逆变换，因此这里只推导一次。
+
+    stride：StarNet2 的推理步长（质量/速度旋钮，官方范围 2~512 且必须为偶数）。
+      代价按推理块数 ≈ (W/s)*(H/s) 增长 —— 实测 3839x2159 全幅：
+      stride 64 → 2040 块，128 → 510 块，而 **stride 2 → 2073600 块**，
+      实测 2400 s 仍未跑完。非法值会在这里**提前拒绝**，不启动子进程：
+      StarNet2 自身也要等推理开始后才报错，代价是整帧白跑。
     """
     import os
     import tempfile
     import subprocess
     import sys
 
+    # ── stride 前置校验（v0.1.43）──
+    # 官方 CLI: "Stride value. Must be even and between 2 and 512."
+    # 实测 StarNet2 2.6.2 的行为：
+    #   -s 3    → rc=255 "Stride should be even!"
+    #   -s 0    → rc=255 "positive stride no larger than the window"
+    #   -s 513  → rc=255 同上
+    #   -s 100  → rc=0  （偶数即可；官方**未**要求 2 的幂，故此处不擅自加）
+    # 校验放在入口是因为上面的失败都发生在整帧推理**之后**。
+    try:
+        stride_value = int(stride)
+    except (TypeError, ValueError):
+        stride_value = None
+    if stride_value is None:
+        raise ValueError("StarNet2 stride must be an integer, got %r" % (stride,))
+    if stride_value % 2 != 0:
+        raise ValueError(
+            "StarNet2 stride must be even, got %d "
+            "（官方 CLI: 'Stride should be even!'）" % stride_value)
+    if not (2 <= stride_value <= 512):
+        raise ValueError(
+            "StarNet2 stride must be between 2 and 512, got %d "
+            "（官方 CLI: 'positive stride no larger than the window'）"
+            % stride_value)
+
     parent_dir = os.path.dirname(os.path.abspath(exe_path))
     execution_report = {
         "executable": os.path.abspath(exe_path),
-        "stride": int(stride),
+        "stride": int(stride_value),
         "timeout_seconds": int(timeout),
         "domain": str(domain),
         "attempts": [],
     }
+
+    # 成本提示：合法但昂贵时提前告知，而不是让用户在超时后才发现。
+    # 经验阈值：块数 > 8000 时按实测速率（stride 128 / 全幅 8MP ≈ 数分钟）已接近
+    # 默认 timeout=900s。这里只**打印**，不阻断 —— 阻断合法值属于过度干预。
+    try:
+        _h, _w = image.shape[:2]
+        _tiles = -(-int(_w) // stride_value) * (-(-int(_h) // stride_value))
+        execution_report["inference_tiles"] = int(_tiles)
+        if _tiles > 8000:
+            print(
+                "  [WARN] StarNet2 stride=%d 在 %dx%d 上约需 %d 个推理块，"
+                "可能超出 timeout=%ds；如需加速请调高 stride（512 最快、2 最准）。"
+                % (stride_value, _w, _h, _tiles, int(timeout))
+            )
+    except Exception:
+        pass
     
     # 1. 针对 macOS 清除 Gatekeeper 隔离属性
     if sys.platform == 'darwin':
@@ -1425,53 +1626,54 @@ def run_starnet_cli(image, exe_path, stride=128, timeout=900,
             result = (False, None, execution_report)
             return result if return_report else result[:2]
             
-        # 智能检测 StarNet 命令行格式 (StarNet2 CLI 必须使用 -i -o -s 参数)
-        use_new_format = "starnet2" in os.path.basename(exe_path).lower()
-        if not use_new_format:
+        # ── 命令行格式（v0.1.43：删除 legacy 位置参数回退）──
+        # 旧实现在新旧两种语法间来回重试。但实测 StarNet2 2.6.2 的位置参数
+        # 语法**已不存在**：
+        #     StarNet2 <in> <out> 128  →  PARSE ERROR: Couldn't find match
+        # 保留它只会让每次失败**再白跑一遍整帧**，而且 legacy 的第 4 个位置
+        # 参数在新 CLI 里语义完全不同（-n 是 unscreen 输出路径），一旦某个
+        # 旧版二进制真的接受它，就会写出错误的产物。
+        # 现在的契约：只发 -i/-o/-s；非 StarNet2 的同名工具请显式传正确的 exe。
+        cmd = [exe_path, "-i", temp_in, "-o", temp_out, "-s", str(stride_value)]
+        # StarNet2 失败时**可能已写出残缺文件**（实测 -s 513 → rc=255 且
+        # out 存在）。先清掉，保证「读到文件」等价于「这次运行成功」。
+        if os.path.exists(temp_out):
             try:
-                help_res = subprocess.run([exe_path, "--help"], env=env, capture_output=True, text=True, timeout=3)
-                if "-i" in help_res.stdout or "-i" in help_res.stderr:
-                    use_new_format = True
-            except Exception:
+                os.remove(temp_out)
+            except OSError:
                 pass
-
-        new_cmd = [exe_path, "-i", temp_in, "-o", temp_out, "-s", str(stride)]
-        legacy_cmd = [exe_path, temp_in, temp_out, str(stride)]
-        commands = [new_cmd, legacy_cmd] if use_new_format else [legacy_cmd, new_cmd]
         succeeded = False
-        for cmd in commands:
-            try:
-                print(f"  [StarNet2] 正在执行: {' '.join(cmd)}")
-                res = subprocess.run(
-                    cmd,
-                    cwd=parent_dir,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-                attempt = {
-                    "command_format": "flags" if "-i" in cmd else "legacy",
-                    "returncode": int(res.returncode),
-                    "stderr": (res.stderr or "")[-2000:],
-                    "stdout": (res.stdout or "")[-2000:],
-                }
-                execution_report["attempts"].append(attempt)
-                if res.returncode == 0:
-                    succeeded = True
-                    break
-            except subprocess.TimeoutExpired:
-                execution_report["attempts"].append({
-                    "command_format": "flags" if "-i" in cmd else "legacy",
-                    "error": "timeout",
-                })
-            except Exception as exc:
-                execution_report["attempts"].append({
-                    "command_format": "flags" if "-i" in cmd else "legacy",
-                    "error": str(exc),
-                })
+        try:
+            print(f"  [StarNet2] 正在执行: {' '.join(cmd)}")
+            res = subprocess.run(
+                cmd,
+                cwd=parent_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            attempt = {
+                "command_format": "flags",
+                "returncode": int(res.returncode),
+                "stderr": (res.stderr or "")[-2000:],
+                "stdout": (res.stdout or "")[-2000:],
+            }
+            execution_report["attempts"].append(attempt)
+            if res.returncode == 0:
+                succeeded = True
+        except subprocess.TimeoutExpired:
+            execution_report["attempts"].append({
+                "command_format": "flags",
+                "error": "timeout",
+            })
+        except Exception as exc:
+            execution_report["attempts"].append({
+                "command_format": "flags",
+                "error": str(exc),
+            })
         if not succeeded:
-            print("  [ERROR] StarNet2 所有命令格式均执行失败")
+            print("  [ERROR] StarNet2 执行失败")
             result = (False, None, execution_report)
             return result if return_report else result[:2]
             
@@ -1521,13 +1723,200 @@ def run_starnet_cli(image, exe_path, stride=128, timeout=900,
             return result if return_report else result[:2]
 
 
+def protect_subject_layers(image, starless, stars, star_mask, exclude_mask):
+    """Keep protected subject signal out of the stellar processing layer."""
+    if exclude_mask is None:
+        return starless, stars, star_mask
+    mask = np.asarray(exclude_mask, dtype=np.float32)
+    if mask.shape != image.shape[:2] or not np.all(np.isfinite(mask)) or mask.min() < 0 or mask.max() > 1:
+        raise ValueError('Subject mask must match image geometry and contain finite samples in [0, 1]')
+    weight = mask[..., None] if image.ndim == 3 else mask
+    starless = starless * (1.0 - weight) + image * weight
+    stars = stars * (1.0 - weight)
+    star_mask = star_mask * (1.0 - mask) if star_mask is not None else None
+    return starless.astype(np.float32), stars.astype(np.float32), star_mask
+
+
+# ── 去星接受判据的两级门禁与可测性常量 ──
+# 误伤（nebula_damage_ratio）的接纳线。超过它但在 _GATE_ADVISORY_MULTIPLIER
+# 倍以内 ⇒ advisory（带警告接受）；再超过 ⇒ hard_failed（回退）。
+# 同上：数值从分档默认值派生，唯一事实源在 star_removal_profiles。
+_STAR_REMOVAL_DAMAGE_LIMIT = _REMOVAL_DEFAULTS.damage_limit
+_GATE_ADVISORY_MULTIPLIER = _REMOVAL_DEFAULTS.advisory_multiplier
+# 质量分不达标时的容忍上限：0 表示重试/修复不得让质量分变差
+# （借鉴 aiseestart 的 stage7_starless_repair_max_score_growth = 0.00）。
+_STAR_REMOVAL_MAX_SCORE_GROWTH = _REMOVAL_DEFAULTS.max_score_growth
+
+
+def _star_removal_gate(report, min_quality_score, target_type=None,
+                       profile=None):
+    """去星接受判据，返回 ``(accepted, gate_state)``。
+
+    三态而非两态，借鉴 aiseestart 的「advisory ×2 → hard」两级门禁，以及
+    「真实低覆盖拒绝 / 测量不可用保留」的区分：
+
+    ``ok``
+        质量分达标且误伤在接纳线以内。
+    ``advisory``
+        质量分达标，误伤落在 ``(limit, limit × multiplier]``。接受但记录
+        警告 —— 轻微误伤就整图回退形态学，代价（残留星从 1/19 劣化到 1）
+        远大于误伤的轻微增加。
+    ``unavailable``
+        误伤指标**不可测**（主体对比度不足）。不据此拒绝 —— 判定依据不
+        存在，不能拿来否决一个已完成的推理。
+    ``uncalibrated``
+        误伤指标**能测**，但该档的 ``damage_limit`` **尚未标定**。
+        同样只记录不判定 —— 阈值不存在，就无法判定读数好坏。
+        ⚠ 与 ``unavailable`` 是**不同**状态，排查方向不同：
+        前者「阈值没定」（换档/补标定可解），后者「这张图测不了」
+        （数据事实）。混用会让报告里看不出是哪一种。
+    ``hard_failed``
+        质量分不达标，或误伤超过 ``limit × multiplier``。
+
+    改前是一刀切 ``score >= X and damage <= 0.20``：NGC6888 上 StarNet2
+    （damage 0.516 / 残留 0.0003，比形态学干净 19 倍）与形态学
+    （damage 0.450）**双双被拒**，既没区分优劣也没表达「测不准」。
+
+    ``target_type`` / ``profile`` 选阈值档（见 :mod:`star_removal_profiles`）；
+    缺省时用默认档，与分档前逐位一致。
+    """
+    score = float(report.get('repair_quality_score', 0.0))
+    prof = _removal_profile(target_type, profile)
+    # 判据选择（v0.1.39）：damage_limit 绑定到**哪个**读数上必须是显式的，
+    # 不能由「哪个数字先算出来」决定。默认走旧读数 ⇒ 行为逐位不变。
+    if prof.star_flux_normalize:
+        # 归一化读数不可用时**不静默回退**到旧读数：两个读数的绝对刻度
+        # 不可比（corr=+0.94 但分布不同），拿旧阈值判新读数会得出无意义
+        # 的结论。此时按「误伤不可测」处理 ⇒ 门禁走 unavailable。
+        damage = float(report.get('nebula_damage_ratio_star_flux', 0.0))
+        measurable = bool(report.get('nebula_damage_measurable', True)) and bool(
+            report.get('nebula_damage_star_flux_measurable', False))
+    else:
+        damage = float(report.get('nebula_damage_ratio', 0.0))
+        measurable = bool(report.get('nebula_damage_measurable', True))
+
+    # ── 相对判据（v0.1.44）优先于绝对判据 ──
+    # 三级语义，逐级降级，**任何一级都不得静默回退到绝对判据**：
+    #   1) 有本次基线 + 有基线对照 ⇒ 用 delta（相对判据）
+    #   2) 有本次基线 + 无对照     ⇒ 只出基线，判据记 unavailable
+    #   3) 无本次基线              ⇒ 沿用既有绝对判据路径（逐位不变）
+    # 之所以能静默回退，是因为绝对读数是**每次都算**的既有量，语义不变；
+    # 而绝对阈值本身已标定为 None（走 uncalibrated），不会误判。
+    baseline = report.get('star_flux_baseline')
+    reference = report.get('star_flux_baseline_reference')
+    if prof.star_flux_normalize and baseline is not None:
+        if reference is None:
+            accepted = score >= min_quality_score
+            return accepted, 'advisory' if accepted else 'hard_failed'
+        delta = max(0.0, float(baseline) - float(reference))
+        report['star_flux_delta'] = round(delta, 4)
+        if prof.damage_delta_limit is None:
+            accepted = score >= min_quality_score
+            return accepted, ('uncalibrated' if accepted else 'hard_failed')
+        if not measurable:
+            accepted = score >= min_quality_score
+            return accepted, ('advisory' if accepted else 'hard_failed')
+        if score < min_quality_score:
+            return False, 'hard_failed'
+        if delta <= prof.damage_delta_limit:
+            return True, 'ok'
+        return False, 'hard_failed'
+
+    if prof.damage_limit is None:
+        # 阈值未标定 ⇒ 误伤项**只记录不判定**。
+        # 必须放在 measurable 判定**之前**：阈值缺失与读数缺失是两个
+        # 独立问题，而「不能判定」的后果是同一个 —— 不用误伤项决策。
+        # 质量分**仍参与判定**：它有实测依据（残留 2.5% / 误伤 22% /
+        # 硬边 6.7% 三档扣满），应继续拦住「去星完全没生效」这类硬失败。
+        # 误伤判据不存在 ⇒ 只用质量分，误伤项记为不可测。
+        if not measurable:
+            accepted = score >= min_quality_score
+            return accepted, 'advisory' if accepted else 'hard_failed'
+        accepted = score >= min_quality_score
+        return accepted, 'uncalibrated' if accepted else 'hard_failed'
+    if not measurable:
+        # 误伤判据不存在 ⇒ 只用质量分，误伤项记为不可测。
+        accepted = score >= min_quality_score
+        return accepted, 'advisory' if accepted else 'hard_failed'
+    if score < min_quality_score:
+        return False, 'hard_failed'
+    if damage <= prof.damage_limit:
+        return True, 'ok'
+    if damage <= prof.damage_limit * prof.advisory_multiplier:
+        return True, 'advisory'
+    return False, 'hard_failed'
+
+
+def _record_gate_state(report, gate_state, min_quality_score=None,
+                       profile=None):
+    """把门禁状态写进报告（供验收与上游判定）。
+
+    阈值一律取自 ``profile``。此前这里硬编码模块级常量 —— 分档上线后会
+    打印**错误的**阈值数字，而验收者正是靠这些数字判断门禁口径是否正确。
+    """
+    prof = profile or _REMOVAL_DEFAULTS
+    limit = prof.damage_limit
+    report['gate_state'] = gate_state
+    # 记录门禁**实际绑定的读数**。两个读数绝对刻度不同，验收者若不知道
+    # 阈值比的是哪个，会把新读数拿去和旧阈值比 —— 那是无意义的比较。
+    report['gate_metric'] = ('star_flux' if prof.star_flux_normalize
+                             else 'legacy_damage')
+    if limit is None:
+        # 阈值未标定：**只报读数，不报阈值**。
+        # 不能像原来那样写「接纳线 %.2f」—— 那个数字不存在，
+        # 打印出来会被当成「阈值是 0」或「阈值很宽松」。
+        if gate_state == 'uncalibrated':
+            # 文案必须报**门禁实际读的那个数**，不是固定报旧读数。
+            # 否则开启归一化后，验收者会看到「误伤 0.3529 未参与判定」
+            # 而门禁其实比的是 0.0938 —— 数字与结论对不上。
+            _metric_key = ('nebula_damage_ratio_star_flux'
+                           if prof.star_flux_normalize
+                           else 'nebula_damage_ratio')
+            report['gate_note'] = (
+                '误伤 %.4f 已记录但**不参与判定**：该目标类型的 damage '
+                '阈值尚未标定（跨样本口径跨度达 10 倍，夹逼无解）—— 见'
+                'references/star_damage_gate_calibration.md §3.12'
+                % report.get(_metric_key, 0.0))
+        elif gate_state == 'hard_failed':
+            # 阈值缺失**不能吞掉失败原因**：质量分判定仍然生效，
+            # 验收者必须看到「为什么被拒」，否则会以为「未标定 = 放行」。
+            report['gate_note'] = (
+                '未通过：误伤 %.4f（不参与判定，阈值未标定）；'
+                '质量分 %.3f 低于最低 %.2f'
+                % (report.get('nebula_damage_ratio', 0.0),
+                   report.get('repair_quality_score', 0.0),
+                   min_quality_score)
+                if min_quality_score is not None else
+                '未通过：误伤 %.4f（不参与判定，阈值未标定）'
+                % report.get('nebula_damage_ratio', 0.0))
+        return report
+    hard = limit * prof.advisory_multiplier
+    if gate_state == 'advisory':
+        report['gate_note'] = (
+            '误伤 %.4f 落在接纳线 %.2f 与硬线 %.2f 之间，已带警告接受'
+            % (report.get('nebula_damage_ratio', 0.0), limit, hard))
+    elif gate_state == 'hard_failed':
+        # 分数与误伤是**不同量纲**，不可互相代入 —— 文案里必须分别给出各自的
+        # 判据，否则验收者会读到自相矛盾的数字。
+        report['gate_note'] = (
+            '未通过：误伤 %.4f（接纳线 %.2f / 硬线 %.2f）'
+            % (report.get('nebula_damage_ratio', 0.0), limit, hard)
+            + ('；质量分 %.3f 低于最低 %.2f'
+               % (report.get('repair_quality_score', 0.0),
+                  min_quality_score)
+               if min_quality_score is not None else ''))
+    return report
+
+
 def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=5,
                    external_starless=None, fwhm=None, use_multiscale=True,
                    min_confidence=0.3, min_quality_score=0.45,
                    auto_fallback=True, return_report=False,
                    starnet_path=None, starnet_stride=128,
+                   star_flux_baseline_reference=None, profile=None,
                    starnet_timeout=900, exclude_mask=None,
-                   galaxy_center=None, starnet_domain='mtf'):
+                   galaxy_center=None, starnet_domain='mtf', target_type=None,
+                   galaxy_core_radius=None):
     """
     分离星点和星云（v2 增强版）。
 
@@ -1546,10 +1935,19 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
         starnet_path: StarNet2 可执行文件的绝对路径
         starnet_stride: StarNet2 步长
         starnet_timeout: StarNet2 最长执行秒数
+        target_type: 目标类型，仅用于**选门禁阈值档**（见
+            :mod:`star_removal_profiles`）。None 时用默认档，行为与分档前一致。
 
     返回: (星云图像, 星点图像, 星点掩膜[, 报告])
     """
     image = np.asarray(image, dtype=np.float32)
+    # 一次查表、全链复用：4 处 estimate_star_removal_quality 与 3 处
+    # _star_removal_gate 共用同一个档位对象，避免两处口径漂移。
+    # 显式传入的 profile 优先（v0.1.44：让 pipeline 能用 cfg 覆盖门禁档，
+    # 逐字段走 apply_profile 因而仍受单向棘轮约束）。
+    prof = profile if profile is not None else _removal_profile(target_type)
+    if not prof.reachable:
+        print(f"  [INFO] 目标类型 {prof.name} 不可到达去星门禁（星点即主体），使用默认档阈值")
     if external_starless is not None:
         starless = np.asarray(external_starless, dtype=np.float32)
         if starless.shape != image.shape:
@@ -1558,18 +1956,30 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
             )
         stars = np.clip(image - starless, 0, 1)
         star_mask = _star_layer_mask(stars)
-        report = estimate_star_removal_quality(image, starless)
+        report = estimate_star_removal_quality(
+            image, starless, prof.name, prof, stars=stars)
+        # 相对判据基线对照（v0.1.44）：在门禁读取之前写入，
+        # 否则 _star_removal_gate 看不到它。
+        if star_flux_baseline_reference is not None:
+            report['star_flux_baseline_reference'] = float(
+                star_flux_baseline_reference)
         report.update({
             'accepted': True,
             'fallback_applied': False,
             'source': 'external_starless',
+            # 外部无星层不进本模块的质量门禁（用户自带产物，阈值口径
+            # 属另一条链路）。不显式标注的话，「无 gate_state」会被读成
+            # 「默认档通过」—— 那是两种完全不同的结论。
+            'gate_evaluated': False,
+            'gate_state': None,
+            'star_removal_profile': _removal_profile_report(prof, target_type),
         })
-        result = (np.clip(starless, 0, 1), stars, star_mask)
+        result = protect_subject_layers(image, np.clip(starless, 0, 1), stars, star_mask, exclude_mask)
         return (*result, report) if return_report else result
 
     starnet_fallback_reason = None
     starnet_failure_report = None
-    
+
     if method == 'starnet':
         exe_path = find_starnet_executable(starnet_path)
         if exe_path is None:
@@ -1590,21 +2000,28 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
                     starless = starnet_starless
                     stars = np.clip(image - starless, 0, 1)
                     star_mask = _star_layer_mask(stars)
-                    
-                    report = estimate_star_removal_quality(image, starless)
-                    starnet_quality_ok = (
-                        report['repair_quality_score'] >= min_quality_score
-                        and report['nebula_damage_ratio'] <= 0.20
-                    )
+
+                    report = estimate_star_removal_quality(
+                        image, starless, prof.name, prof, stars=stars)
+                    # 相对判据基线对照必须在门禁**之前**写入。
+                    if star_flux_baseline_reference is not None:
+                        report['star_flux_baseline_reference'] = float(
+                            star_flux_baseline_reference)
+                    starnet_quality_ok, starnet_gate_state = _star_removal_gate(
+                        report, min_quality_score, prof.name, prof)
+                    _record_gate_state(report, starnet_gate_state,
+                                       min_quality_score, prof)
                     report.update({
                         'accepted': starnet_quality_ok,
                         'fallback_applied': not starnet_quality_ok,
                         'source': 'starnet',
+                        'gate_evaluated': True,
+                        'star_removal_profile': _removal_profile_report(prof, target_type),
                         'starnet_execution': starnet_report,
                     })
                     if starnet_quality_ok:
                         stars = gaussian_filter(stars, sigma=0.8)
-                        result = (starless, stars, star_mask)
+                        result = protect_subject_layers(image, starless, stars, star_mask, exclude_mask)
                         return (*result, report) if return_report else result
                     print(
                         "  [WARN] StarNet2 输出质量未通过安全门禁，"
@@ -1631,7 +2048,8 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
             star_mask_val, confidence, details = detect_stars_multiscale(
                 image, fwhm=fwhm, star_threshold=star_threshold,
                 gradient_aware=True, n_scales=4, return_details=True,
-                galaxy_center=galaxy_center
+                galaxy_center=galaxy_center,
+                galaxy_core_radius=galaxy_core_radius
             )
 
             if confidence < min_confidence:
@@ -1645,6 +2063,7 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
                         n_scales=4,
                         return_details=True,
                         galaxy_center=galaxy_center,
+                        galaxy_core_radius=galaxy_core_radius,
                     )
                 )
                 if retry_confidence > confidence:
@@ -1705,7 +2124,14 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
         starless_val, actual_method = _repair_star_mask(
             image, star_mask_val, method, inpaint_radius
         )
-        quality = estimate_star_removal_quality(image, starless_val)
+        # 形态学路径的星层由**检测掩膜**给出，而不是 orig - starless：
+        # 后者含修复残差（=待测损伤），会让归一化分母自相消（见
+        # estimate_star_removal_quality 的 docstring）。掩膜是去星前的
+        # 独立决策，不含损伤。
+        morph_stars = (np.asarray(star_mask_val, dtype=np.float32)[..., None]
+                       * np.asarray(image, dtype=np.float32))
+        quality = estimate_star_removal_quality(
+            image, starless_val, prof.name, prof, stars=morph_stars)
         quality.update({
             'detection_confidence': confidence,
             'repair_method': actual_method,
@@ -1713,10 +2139,19 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
             'retry_attempted': False,
             'estimated_fwhm': detected_fwhm,
         })
-        quality_ok = (
-            quality['repair_quality_score'] >= min_quality_score
-            and not quality['needs_starnet_plus']
-        )
+        # 主判与 StarNet 走同一个门禁函数，避免两条路径口径不一致
+        # （此前形态学用 `not needs_starnet_plus`（或），StarNet 用 `damage<=0.20`
+        #（与），同模块两处对damage 的容忍度矛盾）。
+        quality_ok, morph_gate_state = _star_removal_gate(
+            quality, min_quality_score, prof.name, prof)
+        # 首次质量分的独立快照：重试的非回归检查要比「首次 vs 重试」，
+        # 而 quality 变量在重试路径上会被 retry_quality 覆盖。
+        first_attempt_score = float(quality['repair_quality_score'])
+        if not quality['needs_starnet_plus'] and quality_ok:
+            # needs_starnet_plus 命中但门禁放行（advisory）：质量分够，
+            # 残留或误伤略高 —— 接受并记录，不做无谓回退。
+            morph_gate_state = 'advisory'
+        _record_gate_state(quality, morph_gate_state, min_quality_score, prof)
 
         if not quality_ok and auto_fallback:
             retry_method = 'telea' if actual_method == 'ns' else 'ns'
@@ -1730,7 +2165,8 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
             retry_starless, retry_actual_method = _repair_star_mask(
                 image, star_mask_val, retry_method, retry_radius
             )
-            retry_quality = estimate_star_removal_quality(image, retry_starless)
+            retry_quality = estimate_star_removal_quality(
+                image, retry_starless, prof.name, prof, stars=morph_stars)
             retry_quality.update({
                 'detection_confidence': confidence,
                 'repair_method': retry_actual_method,
@@ -1739,25 +2175,52 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
                 'initial_quality': quality,
                 'estimated_fwhm': detected_fwhm,
             })
-            retry_ok = (
-                retry_quality['repair_quality_score'] >= min_quality_score
-                and not retry_quality['needs_starnet_plus']
-            )
-            if retry_ok:
+            retry_ok, retry_gate_state = _star_removal_gate(
+                retry_quality, min_quality_score, prof.name, prof)
+            #非回归：重试不得让质量分变差（借鉴 aiseestart 的
+            # stage7_starless_repair_max_score_growth = 0.00零容忍）。
+            # 此前只查「达标没达标」，一个更差的结果也能被接受 ——
+            # NGC6888 实测重试质量分与首次完全相同（telea 半径 3 对强发射
+            # 星云无效），即重试白跑一遍全分辨率检测 + 修复。
+            score_before = first_attempt_score
+            score_after = float(retry_quality['repair_quality_score'])
+            # 质量分**越大越好**，所以「变差」= 分数下降。
+            # _STAR_REMOVAL_MAX_SCORE_GROWTH = 0.00 零容忍：分数可以不变
+            # 或变好，但绝不允许采纳一个更差的重试结果。
+            score_growth = score_after - score_before
+            no_regression = (
+                score_growth >= -prof.max_score_growth - 1e-9)
+            if retry_ok and no_regression:
+                _record_gate_state(retry_quality, retry_gate_state,
+                                   min_quality_score, prof)
                 print(
-                    f"  [质量闭环] 重试通过，质量={retry_quality['repair_quality_score']:.3f}"
+                    f"  [质量闭环] 重试通过，质量={score_after:.3f}"
+                    f"（{retry_gate_state}，Δ={score_growth:+.3f}）"
                 )
                 starless_val = retry_starless
                 quality = retry_quality
                 quality_ok = True
             else:
-                print(
-                    f"  [质量闭环] 重试仍不达标，质量="
-                    f"{retry_quality['repair_quality_score']:.3f}，安全回退原图"
-                )
+                if retry_ok and not no_regression:
+                    # 达标但变差 ⇒ 拒绝采用，保留首次结果
+                    print(
+                        f"  [质量闭环] 重试虽达标但质量变差"
+                        f"（{score_before:.3f} → {score_after:.3f}），"
+                        "按非回归零容忍丢弃重试结果"
+                    )
+                else:
+                    print(
+                        f"  [质量闭环] 重试仍不达标，质量={score_after:.3f}"
+                        f"（{retry_gate_state}），安全回退原图"
+                    )
+                _record_gate_state(retry_quality,
+                                   'hard_failed' if not retry_ok
+                                   else 'regressed',
+                                   min_quality_score, prof)
                 fallback_res = _safe_star_removal_fallback(
                     image,
-                    reason='star_removal_quality_below_threshold',
+                    reason=('star_removal_retry_regressed' if retry_ok
+                            else 'star_removal_quality_below_threshold'),
                     report=retry_quality,
                 )
                 return fallback_res
@@ -1771,11 +2234,20 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
         quality.update({
             'accepted': quality_ok,
             'fallback_applied': False,
+            'gate_evaluated': True,
+            'star_removal_profile': _removal_profile_report(prof, target_type),
         })
         return (starless_val, stars_val, star_mask_val, quality)
 
     morph_res = _run_morphology_pipeline()
     starless, stars, star_mask, report = morph_res
+
+    # 回退路径（低检测置信度 / 重试仍不达标）返回的 report 不带档位信息 ——
+    # 那些分支在 _run_morphology_pipeline 内部提前 return。统一在这里补齐，
+    # 保证**任何**返回路径的 report 都有 star_removal_profile。
+    if 'star_removal_profile' not in report:
+        report['star_removal_profile'] = _removal_profile_report(prof, target_type)
+    report.setdefault('gate_evaluated', True)
 
     if starnet_fallback_reason is not None:
         report = dict(report)
@@ -1784,8 +2256,38 @@ def separate_stars(image, method='inpaint', star_threshold=0.85, inpaint_radius=
             'fallback_reason': starnet_fallback_reason,
             'starnet_failure': starnet_failure_report,
         })
+        # 验收可见性：回退后顶层字段已被形态学结果覆盖，只看顶层会误以为
+        # 形态学是唯一候选（NGC6888 实测顶层 residual 0.0057，而 StarNet2
+        # 是 0.0003 —— 差 19 倍）。把被拒候选的**关键指标**与拒绝原因
+        # 提升到顶层命名空间，验收者不必深挖 starnet_failure。
+        failure = starnet_failure_report
+        if isinstance(failure, dict):
+            for key in ('repair_quality_score', 'residual_star_fraction',
+                         'nebula_damage_ratio', 'nebula_damage_measurable',
+                         'gate_state'):
+                if key in failure:
+                    report['starnet_candidate_' + key] = failure[key]
+        if starnet_fallback_reason == 'starnet_quality_below_threshold':
+            failed = (starnet_failure_report or {})
+            # 阈值未标定时**不报数字** ——「接纳线 None」会被读成
+            # 「阈值是 0」或「阈值不存在」，两者都会误导验收。
+            limit_text = ('接纳线未标定' if prof.damage_limit is None
+                          else '接纳线 %.2f' % prof.damage_limit)
+            report['starnet_reject_note'] = (
+                'StarNet2 推理成功但被质量门拒：质量分 %(q).3f、残留星 %(r).4f、'
+                '误伤 %(d).4f%(m)s；门禁状态 %(g)s（档位 %(p)s，%(l)s）。'
+                '回退形态学后残留星劣化至 %(rr).4f。'
+                % {'q': failed.get('repair_quality_score', float('nan')),
+                   'r': failed.get('residual_star_fraction', float('nan')),
+                   'd': failed.get('nebula_damage_ratio', float('nan')),
+                   'm': '（不可测）' if not failed.get(
+                       'nebula_damage_measurable', True) else '',
+                   'g': failed.get('gate_state', '未记录'),
+                   'p': prof.name,
+                   'l': limit_text,
+                   'rr': report.get('residual_star_fraction', float('nan'))})
 
-    result = (starless, stars, star_mask)
+    result = protect_subject_layers(image, starless, stars, star_mask, exclude_mask)
     return (*result, report) if return_report else result
 
 
@@ -1972,7 +2474,10 @@ def main():
     p_sep.add_argument('--external', default=None,
                        help='外部工具生成的无星图，替代内部修复')
     p_sep.add_argument('--starnet-path', default=None, help='StarNet2 可执行二进制文件的绝对路径')
-    p_sep.add_argument('--starnet-stride', type=int, default=256, help='StarNet2 步长 (默认: 256)')
+    p_sep.add_argument('--starnet-stride', type=int, default=128,
+                       help='StarNet2 推理步长：偶数、2~512。512 最快、2 最准但'
+                            '极慢（8MP 全幅 stride=2 需 207 万推理块，实测 2400s 未跑完）；'
+                            '默认 128 与 pipeline.py --starnet-stride 一致')
 
     # detect (新增)
     p_det = sub.add_parser('detect', help='仅检测星点，输出掩膜')

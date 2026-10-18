@@ -83,6 +83,7 @@ class ExternalStarlessE2ETests(unittest.TestCase):
             result = pipeline.run_pipeline(
                 src, os.path.join(td, "out.jpg"),
                 external_starless=path,
+                input_is_linear=True,
                 preset="light",
                 steps="star_remove,stretch",
                 keep_all=True,

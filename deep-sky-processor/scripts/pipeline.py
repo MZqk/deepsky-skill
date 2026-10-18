@@ -9,7 +9,7 @@ Deep-Sky Post-Processing Pipeline (深空天文后期全流程管线)
   自动裁边 (可选, 非编号阶段)
   Phase 1:  背景提取 (DBE/ABE)
   Phase 2:  颜色校准 (PCC/白平衡)
-  Phase 3:  初步降噪 (GXP Silentium-like)
+  Phase 3:  Preliminary denoise (DeepSNR CLI / Starlet)
   Phase 4:  去星 (StarNet/SyqonStarless, 在线性数据上)  ← 关键差异
   Phase 5:  拉伸 (亮度通道拉伸, 线性→非线性)
 
@@ -41,8 +41,8 @@ Deep-Sky Post-Processing Pipeline (深空天文后期全流程管线)
 
 用法:
   python pipeline.py M42.fit output.jpg          # FITS 输入
-  python pipeline.py input.jpg output.jpg          # PNG/JPG 输入
-  python pipeline.py input.jpg output.jpg --strength strong --save-intermediates
+  python pipeline.py input.jpg output.jpg --steps final_color,style
+  python pipeline.py input.jpg output.jpg --steps final_color,style --strength strong --save-intermediates
   python pipeline.py input.fit output.fit          # FITS 输入→FITS 输出
   python pipeline.py input.fit output.jpg --steps dbe,color,star_remove,stretch
 """
@@ -53,10 +53,11 @@ import os
 import shutil
 import sys
 import tempfile
+import hashlib
 from datetime import datetime
 import numpy as np
 from pathlib import Path
-from scipy.ndimage import gaussian_filter, label
+from scipy.ndimage import gaussian_filter, label, median_filter
 from skimage.transform import resize
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -73,6 +74,8 @@ from target_rules import (
     is_reflection_nebula_target,
     is_m42_target,
     resolve_target_type,
+    recommend_stretch,
+    _KNOWN_TYPES,
 )
 from gradient_removal import (
     remove_gradient,
@@ -80,16 +83,42 @@ from gradient_removal import (
 )
 from stretch import (auto_stretch, arcsinh_stretch, masked_stretch, deep_stretch,
                      apply_luminance_stretch, is_stretch_collapsed,
-                     inverse_mtf_stretch, derive_mtf_midtones)
-from denoise import denoise_luminance_chroma
+                     inverse_mtf_stretch, derive_mtf_midtones, render_protected_stretch,
+                      background_compressed_stretch)
+from denoise import (denoise_luminance_chroma, denoise_noise_stats,
+                     run_deepsnr, validate_external_denoise, validate_applied_denoise)
 from sharpen import multiscale_sharpen, adaptive_signal_sharpen
 from star_tools import (separate_stars, reduce_stars, combine_starless_stars,
                         mild_star_reduce_full, detect_stars, estimate_fwhm,
                         saturate_stars)
+from star_tools import protect_subject_layers
+from star_removal_profiles import (
+    get_profile as _star_removal_profile,
+    apply_profile as _apply_star_removal_profile,
+    TIGHTER_IS_HIGHER as _STAR_RATCHET,
+)
+
+
+def _star_removal_profile_for(cfg, target_type):
+    """把 cfg 中的去星门禁覆盖项应用到目标类型档（棘轮受约束）。
+
+    此前这些字段**只能**改代码里的 profile 表，没有任何 CLI 入口，
+    导致 `star_flux_normalize` 这类机制开关无法在运行时打开。
+    逐字段走 apply_profile ⇒ 仍然是单向棘轮，不会被悄悄放松。
+    """
+    prof = _star_removal_profile(target_type)
+    for key in _STAR_RATCHET:
+        if key not in cfg:
+            continue
+        value = cfg.get(key)
+        prof, _bound = _apply_star_removal_profile(prof, value, key)
+    return prof
+from artifact_gates import check_channel_clipping, check_core_plateau
 from stellar_recompose import is_stars_layer_empty
 from stellar_repair import run_stellar_repair
 from enhance import (hdr_multiscale_compress, protected_hdr_compress, apply_curves,
-                     local_nebula_enhance, positive_starless_detail_enhance)
+                     local_nebula_enhance, positive_starless_detail_enhance,
+                     measure_stage_effect, MIN_EFFECTIVE_HF_AMPLIFICATION)
 from color_tools import (auto_color_calibrate, emission_nebula_calibrate,
                          enhance_saturation, background_neutralize,
                          remove_green_noise, stabilize_emission_channels,
@@ -97,6 +126,8 @@ from color_tools import (auto_color_calibrate, emission_nebula_calibrate,
 from color_conv import safe_rgb2hsv as rgb2hsv, safe_hsv2rgb as hsv2rgb
 from style_tools import STYLE_PROFILES, apply_professional_style
 from quality_metrics import calculate_metrics, analyze_corner_uniformity
+from quality_state import read_quality_state, build_quality_state, collect_quality_gates, persist_quality_state, verify_quality_state
+from runtime_info import ExecutionConfig, runtime_info
 from reference_grade import (match_reference_grade, optimize_reference_grade,
                              match_signal_color)
 from neural_star_bridge import (
@@ -108,6 +139,7 @@ from neural_star_bridge import (
     format_bridge_recommendation_card,
     read_starnet_payload_meta,
     write_starnet_payload_meta,
+    solve_channel_rebalance_gains,
 )
 from agent_protocol import (
     SCHEMA_VERSION as AGENT_SCHEMA_VERSION,
@@ -250,26 +282,48 @@ STRENGTH_PRESETS = {
     },
 }
 
-ALL_STEPS = ['dbe', 'color', 'stellar_repair', 'pre_denoise', 'star_remove', 'stretch',
-             'star_process', 'enhance', 'sharpen', 'final_color',
-             'style', 'star_combine', 'final_denoise', 'local_enhance',
-             'external_detail', 'star_reduce']
-EMISSION_STEPS = [
-    'color', 'stretch', 'final_color', 'style', 'local_enhance', 'star_reduce'
-]
+# 步骤契约的**单一事实源**是 stage_registry（16 主步 + 3 可选步+ 32 产物，
+# import 时自校验顺序/唯一性/产物归属/域一致性/与实际落盘的一致性）。
+# 此处仅派生别名，历史调用点（resolve_step_dependencies / --steps 帮助文本等）
+# 一律引用注册表，不再各自维护一份列表。
+from stage_registry import (  # noqa: E402
+    ALL_STEPS,
+    EMISSION_STEPS,
+    STEP_BY_ARTIFACT,
+    sort_steps,
+    step_order,
+)
+from failure_policy import (  # noqa: E402
+    AUTO_FALLBACK,
+    PRESERVE_REVIEW,
+    STOP,
+    action_status,
+    resolve_failure_actions,
+)
+from config_fingerprint import (  # noqa: E402
+    describe as describe_config,
+    stage_fingerprint,
+)
 
 
-def resolve_step_dependencies(steps):
+def resolve_step_dependencies(steps, star_layers=None):
     """Expand dependent steps and return canonical execution order plus log."""
     requested = list(dict.fromkeys(steps))
     expanded = set(requested)
     log = []
+    if star_layers:
+        if 'star_process' in expanded or 'star_combine' in expanded:
+            if star_layers['domain'] == 'linear':
+                expanded.add('stretch')
+            if 'star_combine' in expanded and not star_layers.get('processed_stars'):
+                expanded.add('star_process')
+        return [step for step in sort_steps(expanded)], log
 
     # star_process is not useful as a standalone operation: it requires a
     # separated stellar layer, a stretched starless base, and recomposition.
     if "star_process" in expanded:
         required = {"star_remove", "stretch", "star_combine"}
-        added = sorted(required - expanded, key=ALL_STEPS.index)
+        added = sorted(required - expanded, key=sort_steps)
         expanded.update(required)
         if added:
             log.append(
@@ -279,14 +333,14 @@ def resolve_step_dependencies(steps):
     # star_combine requires both source layers and a processed stellar layer.
     if "star_combine" in expanded:
         required = {"star_remove", "stretch", "star_process"}
-        added = sorted(required - expanded, key=ALL_STEPS.index)
+        added = sorted(required - expanded, key=sort_steps)
         expanded.update(required)
         if added:
             log.append(
                 "⭐ star_combine 依赖补全: " + ", ".join(added)
             )
 
-    ordered = [step for step in ALL_STEPS if step in expanded]
+    ordered = [step for step in sort_steps(expanded)]
     return ordered, log
 
 
@@ -355,6 +409,74 @@ def downsample_for_gates(image, max_side=GATE_PREVIEW_MAX_SIDE):
     scale = max_side / max(h, w)
     target = (max(1, int(round(h * scale))), max(1, int(round(w * scale))), 3)
     return resize(arr, target, preserve_range=True, anti_aliasing=True).astype(np.float32)
+
+
+def _display_domain_channel_ratios(image, mask, percentiles=(55.0,)):
+    """把线性图按 pi_mtf 拉到显示域，返回信号区逐通道 p99 的归一化比值。
+
+    补偿增益必须在**显示域**求解：MTF 是非线性曲线，线性域的通道增益比
+    不等于显示域的增益比。实测同一份 NGC6888 数据，线性域一次补偿只能把
+    R/G 从 3.663 降到 2.316，显示域一轮即到 1.223（原图 1.220）。
+    """
+    probe_cfg = {'target_bg': 0.045, 'stretch_headroom': 0.05}
+    display, _ = render_protected_stretch(np.clip(image, 0, 1).copy(),
+                                          'pi_mtf', dict(probe_cfg))
+    values = [float(np.percentile(display[..., c][mask], 99.0)) for c in range(3)]
+    scale = max(max(values), 1e-12)
+    return np.array([v / scale for v in values], dtype=np.float32)
+
+
+def _rebalance_starless_channels(current, starless, cfg, warnings):
+    """对「退化但未塌缩」的通道做逐通道保真回补，返回诊断与修正后的图。
+
+    只在门禁报出 `degraded_channels` 时触发（塌缩无法靠增益救回，那是
+    拒绝而非补偿的场景）。增益求解委托给 `solve_channel_rebalance_gains`，
+    由它内部的 probe 度量色比 —— 这里只负责提供「显示域探针」并施加结果。
+    """
+    mask = _nebula_signal_mask_for_rebalance(current)
+    if mask is None:
+        return {'applied': False, 'reason': 'insufficient_signal'}
+
+    def probe(image):
+        return _display_domain_channel_ratios(image, mask)
+
+    solved = _solve_gains_with_probe(current, starless, probe, cfg)
+    if not solved.get('applied'):
+        warnings.append({
+            'code': 'STARLESS_CHANNEL_REBALANCE_SKIPPED',
+            'message': f"外部无星层通道退化但回补未生效（{solved.get('reason')}），"
+                       f"色比仍偏离原图，需人工确认",
+        })
+        return solved
+
+    gain = np.asarray(solved['gains'], dtype=np.float32)
+    corrected = starless * gain
+    print(f"  ✓ 无星层通道保真回补: gains={np.round(gain, 3).tolist()} "
+          f"({solved.get('iterations')} 轮求解, 残差 {solved.get('residual', 0):.2%})")
+    warnings.append({
+        'code': 'STARLESS_CHANNEL_REBALANCE_APPLIED',
+        'message': f"外部无星层 G/B 通道强度偏低，已按原图色比回补 "
+                   f"(增益 {np.round(gain, 3).tolist()})",
+    })
+    return {**solved, '_corrected': corrected}
+
+
+def _nebula_signal_mask_for_rebalance(image):
+    from neural_star_bridge import _nebula_signal_mask
+    rgb = np.asarray(image, dtype=np.float32)
+    if rgb.ndim == 2:
+        rgb = np.stack([rgb] * 3, axis=-1)
+    mask = _nebula_signal_mask(rgb[..., :3])
+    return mask if int(np.count_nonzero(mask)) >= 100 else None
+
+
+def _solve_gains_with_probe(current, starless, probe, cfg):
+    """Reuse the same final convergence and clipping checks for every caller."""
+    return solve_channel_rebalance_gains(
+        current, starless, probe=probe,
+        max_gain=float(cfg.get('starless_rebalance_max_gain', 4.0)),
+        iterations=int(cfg.get('starless_rebalance_iterations', 4)),
+    )
 
 
 def export_starnet_payload_for_domain(current, work_dir, domain='mtf'):
@@ -470,6 +592,260 @@ def detect_black_edge_crop(image, max_invalid_fraction=0.005,
         'output_shape': [crop[3], crop[2]],
     }
 
+
+def _star_suppressed_luminance(luminance):
+    """去掉点源后再估计弥散结构。
+
+    用**中值滤波**而不是高通细节检测：星点是小而尖的孤立体，尺度远小于窗口，
+    在窗口内占比极低，所以会被中值直接抹掉；星系/星云的弥散发射跨越几十到几百
+    像素，在同尺寸窗口内是**主要成分**，因此被保留。这正是原算法失效的原因 ——
+    双高通残差 fine - broad 对尖锐点源的响应远强于弥散盘，密集星场里必然
+    锁到最亮的那颗星（M33 实测锁到 peak/天空=472x 的恒星，而真实星系在帧中心、
+    半径约 118px）。
+    """
+    src = np.asarray(luminance, dtype=np.float32)
+    if src.ndim != 2 or src.size == 0:
+        return None
+    # 窗口需显著大于 PSF：取画幅短边的约 2.5%，并至少 9px。
+    ksize = int(max(9, round(min(src.shape) * 0.025) | 1))
+    if ksize > min(src.shape):
+        ksize = min(src.shape) | 1
+    if ksize < 3:
+        return None
+    return median_filter(src, size=ksize, mode='nearest')
+
+
+def _downscale_luminance(luminance, max_preview):
+    src = np.asarray(luminance, dtype=np.float32)
+    h, w = src.shape
+    scale = min(1.0, max_preview / max(h, w))
+    if scale >= 1.0:
+        return src, scale
+    preview = resize(
+        src,
+        (max(32, round(h * scale)), max(32, round(w * scale))),
+        preserve_range=True,
+        anti_aliasing=True,
+    ).astype(np.float32)
+    return preview, scale
+
+
+def detect_extended_target(image, max_preview=900, star_suppress=True):
+    """定位**弥散**深空主体（星系盘、星云团）：先抑制星点，再检测弥散发射。
+
+    与 detect_target_crop 的双高通细节检测互补：那条路径为「紧凑结构」设计，
+    在密集星场里会把最亮的恒星当成目标。本函数面向弥散目标。
+
+    流程：
+      1. 中值滤波抑制点源，保留弥散发射；
+      2. 减去鲁棒天空底（低分位）得到发射图；
+      3. 轻度平滑取全图峰值（**不**做边缘归零 —— 天文目标可能出画或贴边）；
+      4. 由峰值连通域给出面积等效圆半径，center 取亮度加权质心。
+
+    返回 dict（坐标为 [x, y]，像素，全分辨率），字段与 detect_target_crop 的
+    center / object_bbox 保持同构，便于替换调用方。
+    """
+    source = np.asarray(image, dtype=np.float32)
+    if source.ndim == 3:
+        if source.shape[2] < 3:
+            luminance = source[..., 0]
+        else:
+            luminance = (
+                0.299 * source[..., 0]
+                + 0.587 * source[..., 1]
+                + 0.114 * source[..., 2]
+            )
+    else:
+        luminance = source
+    if luminance.ndim != 2 or luminance.size == 0:
+        raise ValueError("无法从图像中定位弥散主体：输入不是二维亮度图")
+
+    base = _star_suppressed_luminance(luminance) if star_suppress else np.asarray(
+        luminance, dtype=np.float32
+    )
+    if base is None:
+        raise ValueError("星点抑制失败：图像尺寸过小")
+    preview, scale = _downscale_luminance(base, max_preview)
+
+    # 鲁棒天空底：低分位抗单点污染；减去后得到弥散发射图。
+    sky = float(np.percentile(preview, 20.0))
+    if not np.isfinite(sky):
+        raise ValueError("无法从图像中定位弥散主体：天空底非有限值")
+    emission = preview - sky
+    if emission.max() <= 0:
+        raise ValueError("无法从图像中定位弥散主体：无高于天空底的弥散信号")
+
+    # 大尺度平滑抑制残余噪声尖峰，使峰值落在真实团块中心而非单像素。
+    smooth = gaussian_filter(emission, sigma=max(2.0, min(preview.shape) / 120.0))
+    peak = float(smooth.max())
+    if peak <= 0:
+        raise ValueError("无法从图像中定位弥散主体：平滑后无显著峰值")
+
+    # 圈定主体：先用较宽松的阈值（峰值的 35% 或 p65）确定连通域。
+    # 阈值不宜过高 —— 弥散星系的亮度沿旋臂衰减很快，50% 阈值只圈到核球
+    # （M33 实测 45px，而盘面外沿约 130px），会让半径严重偏小。
+    for fraction, floor_pctl in ((0.35, 65.0), (0.25, 55.0), (0.15, 45.0)):
+        thresh = max(peak * fraction, float(np.percentile(smooth, floor_pctl)))
+        mask = smooth >= thresh
+        if mask.any():
+            break
+    if not mask.any():
+        raise ValueError("无法从图像中定位弥散主体：阈值下无像素")
+
+    components, count = label(mask)
+    if count == 0:
+        raise ValueError("无法从图像中定位弥散主体：连通域为空")
+    peak_y, peak_x = np.unravel_index(np.argmax(smooth), smooth.shape)
+    comp_id = components[peak_y, peak_x]
+    ys, xs = np.where(components == comp_id)
+    if xs.size < 4:
+        raise ValueError("目标主体区域过小，无法可靠定位")
+
+    # 亮度加权质心：比 bbox 中心更抗不对称的旋臂/核球外扩。
+    weights = smooth[ys, xs].astype(np.float64)
+    total = float(weights.sum())
+    if total <= 0:
+        center_x = float((xs.min() + xs.max()) / 2)
+        center_y = float((ys.min() + ys.max()) / 2)
+    else:
+        center_x = float((xs * weights).sum() / total)
+        center_y = float((ys * weights).sum() / total)
+
+    # 半径用**流量加权 RMS 半径**，而不是连通域面积等效圆半径：
+    # 后者对阈值极其敏感（同一张 M33，阈值 50%→45px、20%→127px），
+    # 而 RMS 半径在各阈值下都落在同一量级（M33: 31→73→107→136px），
+    # 是描述弥散主体尺度的稳健统计量。
+    if total > 0:
+        offsets_sq = (
+            (xs - center_x) ** 2 + (ys - center_y) ** 2
+        ).astype(np.float64)
+        radius_preview = float(
+            np.sqrt(float((weights * offsets_sq).sum() / total))
+        )
+    else:
+        radius_preview = float(np.sqrt(xs.size / np.pi))
+    x0 = float(xs.min()) / scale
+    x1 = float(xs.max() + 1) / scale
+    y0 = float(ys.min()) / scale
+    y1 = float(ys.max() + 1) / scale
+
+    return {
+        'center': [round(center_x / scale, 2), round(center_y / scale, 2)],
+        'radius': round(radius_preview / scale, 2),
+        'object_bbox': [
+            round(x0, 2), round(y0, 2),
+            round(x1 - x0, 2), round(y1 - y0, 2),
+        ],
+        'peak_score': peak,
+        'sky_level': sky,
+        'star_suppressed': bool(star_suppress),
+        'source_shape': [int(luminance.shape[0]), int(luminance.shape[1])],
+    }
+
+
+# 弥散检测与参考中心（WCS/帧中心）偏差超过此值即提示人工确认。
+# 取值约为短边的 15%：明显超出这个范围，说明自动定位很可能锁错了结构。
+_GALAXY_CENTER_DISAGREEMENT_WARN_PX = 0.15
+
+# 星系核保护半径（占画幅短边的比例）。该半径内的亮像元不参与去星，
+# 因此核球与内盘原样保留，星点只在盘外被分离。
+GALAXY_CORE_PROTECTION_FRACTION = 0.06
+
+
+def _galaxy_wcs_center(plate_solution, target_name):
+    """从板解结果取标称中心的像素坐标 (x, y)，取不到返回 None。
+
+    只认 status == success 且目标名精确匹配的目录项，避免把
+    用户没指定的目标当成星系中心。仅作**交叉验证**，不覆盖视觉检测。
+    """
+    if not isinstance(plate_solution, dict):
+        return None
+    if plate_solution.get("status") != "success":
+        return None
+    wanted = str(target_name or "").strip().lower()
+    if not wanted:
+        return None
+    for item in plate_solution.get("objects") or []:
+        if str(item.get("name", "")).strip().lower() != wanted:
+            continue
+        pixel = item.get("pixel")
+        if isinstance(pixel, (list, tuple)) and len(pixel) >= 2:
+            try:
+                return [float(pixel[0]), float(pixel[1])]
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _frame_center_fallback(shape):
+    h, w = int(shape[0]), int(shape[1])
+    return [round(w / 2.0, 2), round(h / 2.0, 2)]
+
+
+def resolve_galaxy_center(
+    image,
+    wcs_center=None,
+    max_preview=900,
+    star_suppress=True,
+):
+    """为星系目标解析可靠中心，带降级链与一致性审计。
+
+    优先级：
+      1. wcs_center（板解/WCS 反投影的标称中心）—— 最权威；
+      2. detect_extended_target 的星点抑制弥散检测 —— 适合无 WCS 的定标帧；
+      3. 帧中心 —— 盲场/无解时的最后兜底。
+
+    返回 (center, info)。info[method] 记录实际采用的路径，
+    info[disagreement_px] 记录弥散检测与参考中心之间的偏差，供审查。
+    """
+    source = np.asarray(image)
+    shape = source.shape[:2]
+    frame_center = _frame_center_fallback(shape)
+
+    diffuse_info = None
+    diffuse_center = None
+    try:
+        diffuse_info = detect_extended_target(
+            source, max_preview=max_preview, star_suppress=star_suppress
+        )
+        diffuse_center = diffuse_info["center"]
+    except Exception:
+        diffuse_info = None
+
+    reference = wcs_center if wcs_center is not None else frame_center
+    disagreement = None
+    if diffuse_center is not None:
+        disagreement = float(
+            np.hypot(
+                diffuse_center[0] - reference[0],
+                diffuse_center[1] - reference[1],
+            )
+        )
+
+    info = {
+        'method': None,
+        'frame_center': frame_center,
+        'diffuse_center': diffuse_center,
+        'diffuse_info': diffuse_info,
+        'wcs_center': (
+            [round(float(wcs_center[0]), 2), round(float(wcs_center[1]), 2)]
+            if wcs_center is not None else None
+        ),
+        'disagreement_px': (None if disagreement is None
+                            else round(disagreement, 2)),
+        'source_shape': [int(shape[0]), int(shape[1])],
+    }
+
+    if wcs_center is not None:
+        info['method'] = 'wcs'
+        return [round(float(wcs_center[0]), 2),
+                round(float(wcs_center[1]), 2)], info
+    if diffuse_center is not None:
+        info['method'] = 'diffuse'
+        return [round(float(diffuse_center[0]), 2),
+                round(float(diffuse_center[1]), 2)], info
+    info['method'] = 'frame_center'
+    return frame_center, info
 
 def detect_target_crop(image, padding=2.0, max_preview=900):
     """Locate a compact deep-sky structure and return a square crop."""
@@ -995,6 +1371,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                  auto_crop_edges=True,
                  analysis_report=None, target_name=None, stretch_method='auto',
                  use_starnet=False, starnet_path=None, starnet_stride=128,
+                 star_removal_baseline=None,
                  starnet_domain='mtf',
                  starnet_timeout=900,
                  result_json=None, quality_policy='advisory',
@@ -1021,20 +1398,40 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                  export_starnet_payload_domain='mtf',
                  external_starless_domain='linear',
                  external_starless_midtones=None,
-                 starnet_recommendation='auto'):
+                 starnet_recommendation='auto',
+                 deepsnr='auto', deepsnr_path=None, deepsnr_timeout=900,
+                 deepsnr_strength=0.35, input_is_linear=None,
+                 capture_metadata=None, star_layers=None, subject_mask=None, input_quality_state=None):
     """执行深空后期处理全流程。"""
     started_at = now_iso()
+    requested_config = {'preset': preset, 'steps': steps,
+                        'params': dict(override_params or {}), 'input_is_linear': input_is_linear,
+                        'stretch_method': stretch_method, 'color_mode': color_mode,
+                        'style': style, 'style_strength': style_strength}
+    if capture_metadata is not None and not isinstance(capture_metadata, dict):
+        raise ValueError('capture_metadata must be an object')
+    if star_layers is not None:
+        if not isinstance(star_layers, dict) or star_layers.get('domain') not in ('linear', 'nonlinear'):
+            raise ValueError('Invalid star layer state')
+        if not all(star_layers.get(key) for key in ('source', 'starless', 'stars')):
+            raise ValueError('Star layer state requires source, starless and stars')
+        if 'stars_is_linear' in star_layers and not isinstance(star_layers['stars_is_linear'], bool):
+            raise ValueError('stars_is_linear must be a boolean')
+    source_capture_metadata = capture_metadata
     capture_metadata = {}
     header_to_use = None
     try:
         capture_metadata, header_to_use = read_capture_metadata(input_path)
     except Exception as exc:
         capture_metadata = {"source": "unavailable", "warning": str(exc)}
+    if source_capture_metadata is not None:
+        capture_metadata = dict(source_capture_metadata)
     physical_priors = build_physical_priors(capture_metadata)
 
     # ── 智能天体属性识别与自适应数据填充 ──
     if not target_name or not target_type:
-        resolved = resolve_celestial_target(header=header_to_use, target_name=target_name)
+        resolved = resolve_celestial_target(header=header_to_use,
+                                           target_name=target_name or capture_metadata.get('object'))
         if resolved['resolved_type'] != 'unknown_deep_sky':
             if not target_type:
                 target_type = resolved['resolved_type']
@@ -1045,13 +1442,28 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 print(f"[自适应] 自动识别并设定天体名称: {target_name}")
 
     # ── 配置初始化 ──
-    if preset == 'adaptive' and analysis_report:
+    if preset == 'adaptive' and analysis_report is None:
+        from analyze import analyze_image
+        linear_hint = (override_params or {}).get('input_is_linear', input_is_linear)
+        analysis_report = analyze_image(input_path, input_is_linear=linear_hint,
+                                        capture_metadata=capture_metadata)
+    stellar_analysis = (star_layers or {}).get('stellar_analysis')
+    if stellar_analysis and analysis_report:
+        analysis_report = dict(analysis_report)
+        analysis_report['starfield'] = stellar_analysis['starfield']
+        analysis_report['recommendations'] = {**analysis_report.get('recommendations', {}),
+                                               'star_tools': stellar_analysis['star_tools']}
+    if preset == 'adaptive':
         print("[自适应] 使用诊断报告驱动参数...")
         cfg = build_config_from_analysis(
             analysis_report, base_preset='medium', target_type=target_type
         )
     else:
         cfg = dict(STRENGTH_PRESETS[preset])
+
+    cfg.update(deepsnr=deepsnr, deepsnr_path=deepsnr_path,
+               deepsnr_timeout=deepsnr_timeout, deepsnr_strength=deepsnr_strength,
+               input_is_linear=input_is_linear)
 
     # 物理元数据先验低于用户显式覆盖，但高于静态预设。
     for key, value in physical_priors.get("parameter_overrides", {}).items():
@@ -1063,7 +1475,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         capture_metadata.get("filter_profile", {}).get("class")
         if isinstance(capture_metadata, dict) else None
     )
-    if color_mode == "auto" and filter_class in ("dual_band", "narrowband"):
+    if color_mode == "auto" and filter_class in ("dual_band", "narrowband", "multi_band"):
         color_mode = "emission"
         print(f"  [物理先验] filter={capture_metadata.get('filter')} → color_mode=emission")
 
@@ -1076,6 +1488,15 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 print(f"  [参数覆盖] {key}: 新增 → {value}")
             else:
                 print(f"  [参数覆盖] {key}: {old_value} → {value}")
+
+    if cfg['deepsnr'] not in ('auto', 'always', 'never'):
+        raise ValueError('DeepSNR mode must be auto, always or never')
+    if not 0 < float(cfg['deepsnr_strength']) <= 1:
+        raise ValueError('DeepSNR strength must be in (0, 1]')
+    if not np.isfinite(float(cfg['deepsnr_timeout'])) or float(cfg['deepsnr_timeout']) <= 0:
+        raise ValueError('DeepSNR timeout must be positive')
+    if cfg['input_is_linear'] is not None and not isinstance(cfg['input_is_linear'], bool):
+        raise ValueError('input_is_linear must be a boolean')
 
     if stellar_repair_mode:
         cfg['stellar_repair_mode'] = stellar_repair_mode
@@ -1095,11 +1516,18 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             steps = list(steps)
         invalid = [s for s in steps if s not in ALL_STEPS]
         if invalid:
+            # 可选步骤（linear_deconv / reference_grade /
+            # background_neutralization）**不在主流程内**，只能由各自的
+            # CLI 开关触发（--linear-deconv 等），不接受 --steps 传入。
+            # 错误信息显式说明这一点，避免用户以为「传了就会跑」。
             raise ValueError(
                 f"未知步骤: {', '.join(invalid)}; "
                 f"可选步骤: {', '.join(ALL_STEPS)}"
+                + "（可选步骤 linear_deconv / reference_grade / "
+                  "background_neutralization 请用各自的 CLI 开关）"
             )
 
+    requested_steps = list(steps)
     sr_diag = (analysis_report or {}).get("stellar_repair", {}) if isinstance(analysis_report, dict) else {}
     stellar_repair_requested = (
         stellar_repair
@@ -1112,7 +1540,46 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         idx = steps.index('color') + 1 if 'color' in steps else 0
         steps.insert(idx, 'stellar_repair')
 
-    steps, dependency_log = resolve_step_dependencies(steps)
+    if star_layers:
+        if os.path.realpath(input_path) != os.path.realpath(star_layers['starless']):
+            raise ValueError('Star layer source does not match the current artifact')
+        if linear_deconv or set(steps) & {'dbe', 'color', 'pre_denoise', 'star_remove', 'stellar_repair'}:
+            raise ValueError('Roll back before separation to rerun upstream processing')
+        subject_mask = subject_mask or star_layers.get('subject_mask')
+        if star_layers['domain'] == 'nonlinear' and 'stretch' in steps:
+            raise ValueError('The starless layer has already been stretched')
+        cfg['input_is_linear'] = star_layers['domain'] == 'linear'
+    # 星系：核球与星系盘无法靠亮度区分，去星确实可能误伤核心。但「完全不做
+    # 分离」的代价已被实测证明更高：全局 max 由稀疏亮星决定，主体被压进
+    # 归一化轴最底端（某母版星点独占 99.4% 高光余量，主体 p99 仅占余量的
+    # 0.53%），此后任何拉伸参数都无法让主体突出 —— 盘面/天空比被锁死在 ~1.22。
+    #
+    # 因此改为**默认分离**，用 `galaxy_core_protection` 半径内的亮像元判定
+    # 保护：分离只发生在「非保护且确认为恒星」的位置，核球/内盘原样保留。
+    # 显式传入 reviewed `subject_mask` 时仍走原路径（更严格）。
+    if target_type == 'galaxy' and not star_layers:
+        star_steps = {'star_remove', 'star_process', 'star_combine', 'star_reduce'}
+        if subject_mask is None:
+            # 只在**完整管线**（未显式指定 steps）时补齐分离链路。
+            # Agent 逐阶段 `run_step` 会显式传 steps，此时绝不能静默扩步 ——
+            # 否则请求 pre_denoise 会被塞进 star_remove+stretch+star_combine，
+            # 一次动作跑完整条链，阶段可追溯性直接失效。
+            if not steps_explicitly_specified and 'star_remove' not in steps:
+                for step in ('star_remove', 'star_process', 'star_combine'):
+                    if step not in steps:
+                        steps.append(step)
+                steps, _ = resolve_step_dependencies(steps, star_layers=star_layers)
+            cfg['galaxy_core_protection'] = GALAXY_CORE_PROTECTION_FRACTION
+            print(
+                "  [去星] 星系走「核球保护 + 分离」路径："
+                "分离半径外的恒星会被分离，用于把高光余量让给主体。"
+                "核心保护半径=短边×%.2f；如需更严格控制请传入 --subject-mask"
+                % GALAXY_CORE_PROTECTION_FRACTION
+            )
+        else:
+            cfg['galaxy_core_protection'] = None
+            print("  [去星] 星系使用已审查 subject_mask 保护核心")
+    steps, dependency_log = resolve_step_dependencies(steps, star_layers=star_layers)
 
     if steps is not None and 'dependency_log' not in locals():
         dependency_log = []
@@ -1129,6 +1596,9 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     cfg, steps, safety_log = apply_target_aware_safety_rules(
         cfg, steps, target_type, target_name
     )
+    if is_m42_target(target_name) and 'target_bg' in (override_params or {}):
+        cfg['target_bg'] = override_params['target_bg']
+        safety_log.append('Explicit target_bg retained for measured background matching')
     if safety_log:
         print("\n  ── 天体类型安全规则 ──")
         for entry in safety_log:
@@ -1162,7 +1632,8 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             steps.remove('dbe')
             print("    🛡️ 发射星云: 诊断显示无显著梯度，自动跳过 DBE")
 
-    keep_intermediates = bool(save_intermediates or keep_all)
+    keep_intermediates = bool(save_intermediates or keep_all or star_layers
+                              or ('star_remove' in steps and 'star_combine' not in steps))
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     if work_dir is None:
         work_dir = os.path.expanduser(f'~/.workbuddy/cache/dsp/{timestamp}')
@@ -1173,6 +1644,10 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         os.makedirs(work_dir, exist_ok=True)
         print(f"[WARN] 默认缓存目录不可写，改用: {work_dir}")
     artifact_paths = {}
+    # 产物附注：与 artifact_paths 平行，只在产物**语义需要澄清**时有条目。
+    # 例如回退时的 04_starless_fallback.tif 是原图副本而非无星图，
+    # 必须让下游/人工审查能一眼区分，不能靠「看文件名猜」。
+    artifact_meta = {}
     # 早于 Phase 4 就可能被 append（外部无星图分支），必须在此初始化。
     warnings = []
 
@@ -1182,9 +1657,32 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     print(f"  执行步骤: {' → '.join(steps)}")
     print(f"{'='*65}\n")
 
+    stretch_policy_version = cfg.setdefault("stretch_policy_version", 3)
+    runtime = runtime_info(__file__, stretch_policy_version)
+    print(f"[Runtime] skill={runtime['skill_version']} policy={stretch_policy_version} "
+          f"sha256={runtime['source_sha256']} script={runtime['script_path']}")
+    if stretch_policy_version == 1:
+        warnings.append({'code': 'LEGACY_STRETCH_POLICY',
+                         'message': 'Policy 1 retained for compatibility; initialize a new session for policy 3'})
+    if stretch_policy_version not in (1, 2, 3):
+        raise ValueError("stretch_policy_version must be 1, 2 or 3")
+
     img, meta = read_image(input_path)
     img = np.asarray(img, dtype=np.float32)
-    is_linear_input = meta.get('is_linear', False)
+    is_linear_input = (meta.get('is_linear', False) if cfg['input_is_linear'] is None
+                       else cfg['input_is_linear'])
+    inherited_quality = read_quality_state(input_path)
+    if input_quality_state is not None:
+        verify_quality_state(input_path, input_quality_state)
+        saved_issues = {issue['id']: issue for issue in (inherited_quality or {}).get('issues', [])}
+        saved_issues.update({issue['id']: issue for issue in input_quality_state['issues']})
+        inherited_quality = {**input_quality_state, 'issues': list(saved_issues.values())}
+    if (meta.get('stage_source') == 'sidecar' and cfg['input_is_linear'] is not None
+            and cfg['input_is_linear'] != meta['is_linear']):
+        raise ValueError('Input stage conflicts with saved sidecar')
+    if 'color' in steps and not is_linear_input:
+        raise ValueError('Color calibration requires linear input; roll back before stretching')
+    cfg['input_is_linear'] = is_linear_input
     print(f"[加载] {input_path} → {img.shape}  格式:{meta['format']}  线性:{is_linear_input}")
     if physical_priors.get("evidence"):
         print(f"[物理先验] evidence={physical_priors['evidence']} "
@@ -1197,7 +1695,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         auto_low_memory=auto_low_memory,
         threshold_mpix=low_memory_threshold_mpix,
         tile_size=tile_size,
-        external_starless=bool(external_starless),
+        external_starless=bool(external_starless or star_layers),
     )
     if memory_report["enabled"]:
         print(
@@ -1234,8 +1732,26 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     # FITS 输入自动增强: 线性数据暗部更密集，适度提升
     if is_linear_input:
         cfg['stretch_factor'] = cfg['stretch_factor'] * 1.5
-        cfg['star_stretch_factor'] = cfg['star_stretch_factor'] * 1.5
         print("[线性输入] stretch因子×1.5，星点拉伸×1.5")
+    stars_is_linear = star_layers.get('stars_is_linear', True) if star_layers else is_linear_input
+    if stars_is_linear:
+        cfg['star_stretch_factor'] *= 1.5
+
+    subject_mask_array = None
+    if subject_mask:
+        if str(subject_mask).lower().endswith(('.tif', '.tiff')):
+            import tifffile
+            subject_mask_array = tifffile.imread(subject_mask)
+        else:
+            subject_mask_array, _ = read_image(subject_mask, force_linear=True)
+        if (subject_mask_array.shape != img.shape[:2]
+                or not np.all(np.isfinite(subject_mask_array))
+                or subject_mask_array.min() < 0 or subject_mask_array.max() > 1):
+            raise ValueError('Subject mask must match image geometry with finite samples in [0, 1]')
+    if star_layers and (crop or auto_crop_target or stacking_crop != 'none'):
+        raise ValueError('Crop before separation; resumed star layers must retain geometry')
+    if star_layers:
+        auto_crop_edges = False
 
     # RGBA 处理
     has_alpha = img.ndim == 3 and img.shape[2] == 4
@@ -1268,10 +1784,6 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             force_linear=True,
         )
         external_denoised_full = np.asarray(external_denoised_full, dtype=np.float32)
-        if external_denoised_full.shape != img.shape:
-            raise ValueError(
-                f"外部降噪图形状 {external_denoised_full.shape} 与原图 {img.shape} 不一致"
-            )
         print(f"[AI桥接] 外部降噪图已加载: {external_denoised}")
         print("  ⚠️ 使用外部 AI 降噪结果替代管线内置降噪，Phase E 需检查 AI 伪细节")
 
@@ -1296,6 +1808,8 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             print("[自动裁边] 未检测到黑边，保留完整画幅")
 
     img, applied_crop = apply_crop(img, crop_bounds)
+    if subject_mask_array is not None:
+        subject_mask_array, _ = apply_crop(subject_mask_array, crop_bounds)
     if alpha_channel is not None:
         alpha_channel, _ = apply_crop(alpha_channel, crop_bounds)
     if applied_crop:
@@ -1311,6 +1825,9 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             print(f"[叠边裁切] 检测到抖动叠加无效边缘 top={t}, bottom={b}, left={l}, right={r}，执行裁切")
             img = trimmed_img
             stacking_crop_box = border_box
+            if subject_mask_array is not None:
+                subject_mask_array = subject_mask_array[t:subject_mask_array.shape[0]-b if b else None,
+                                                        l:subject_mask_array.shape[1]-r if r else None]
             if alpha_channel is not None:
                 alpha_channel = alpha_channel[t:alpha_channel.shape[0]-b if b>0 else None, l:alpha_channel.shape[1]-r if r>0 else None]
             if external_full is not None:
@@ -1349,9 +1866,21 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     sharpen_report = None
     reference_grade_report = None
     stretch_recovery = None
+    stretch_diagnostics = None
+    cfg = ExecutionConfig(cfg)
+    # target_type 必须进 cfg：它是**门禁阈值的选择依据**（去星门禁按 target_type
+    # 分档），不进 cfg 就等于「配置指纹相同但门禁结果不同」—— 那正是
+    # config_fingerprint 声明要防的不可区分产物。
+    cfg['target_type'] = effective_target_type
     star_layer_empty = False
     star_combine_skipped = None
     neural_bridge_report = None
+    pre_denoise_report = None
+    skip_final_denoise = bool(cfg.get('skip_final_denoise', False))
+    channel_clipping_gates = []
+    # 保真度门禁记录（噪声增益 / 色度保真）。仅在拉伸段成功且参考可比时填充，
+    # 透传给 evaluate_quality_gates；空列表时门禁体系不参与判定。
+    fidelity_gates = []
     external_starless_linear = None
     if external_full is not None:
         external_starless_linear = external_full
@@ -1365,18 +1894,32 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 f"与当前图像 {current.shape} 不一致"
             )
 
-    def save_artifact(filename, target):
+    def save_artifact(filename, target, is_linear=None):
+        # 产物 → 步骤的映射由 stage_registry.STEP_BY_ARTIFACT 单一维护，
+        # 且注册表在 import 时已校验「与本文件的实际落盘调用一致」，
+        # 因此这里新增产物时漏登记会在 import 阶段就失败。
+        completed = STEP_BY_ARTIFACT.get(filename)
+        if completed == cfg.phase and completed not in cfg.completed:
+            cfg.completed.append(completed)
         target = np.clip(np.asarray(target, dtype=np.float32), 0, 1)
         path = os.path.join(work_dir, filename)
         if keep_intermediates:
             write_image(target, path)
             artifact_paths[filename] = path
+            write_result_json_atomic({'capture_metadata': capture_metadata,
+                                      'is_linear': (is_linear if is_linear is not None else stars_is_linear if filename == '04_stars_linear.tif'
+                                                    else bool(is_linear_input and filename[:2] in ('00', '01', '02', '03', '04')))},
+                                     path + '.meta.json')
         return target
 
     def save_current(filename='', img=None):
         nonlocal current
         target = img if img is not None else current
         return save_artifact(filename, target)
+
+    if subject_mask_array is not None:
+        save_artifact('04_subject_mask.tif', subject_mask_array)
+        subject_mask = artifact_paths.get('04_subject_mask.tif', subject_mask)
 
     def tiled(operation, target):
         effective_tile = tile_size
@@ -1404,14 +1947,48 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     # ══════════════════════════════════════════════════════════════
 
     cached_target_info = None
+    galaxy_center_resolution = None
     if effective_target_type == 'galaxy':
+        # 星系主体是**弥散**目标：必须走星点抑制的弥散检测。原先用
+        # detect_target_crop 的双高通细节检测，在密集星场里必然锁到最亮的
+        # 恒星（M33 实测锁到 peak/天空=472x 的星点，而真实星系在帧中心）。
+        # 该错误会沿 Phase 1/8/8b 传导：DBE 保护区、饱和掩膜、局部增强全部
+        # 作用在空天上，导致 texture_snr 失真、local_enhance 空转。
+        galaxy_wcs_center = _galaxy_wcs_center(plate_solution, target_name)
         try:
-            _, cached_target_info = detect_target_crop(current)
+            galaxy_center, galaxy_center_resolution = resolve_galaxy_center(
+                current, wcs_center=galaxy_wcs_center
+            )
         except Exception:
-            cached_target_info = None
+            galaxy_center, galaxy_center_resolution = None, None
+        if galaxy_center is not None:
+            _diffuse = (galaxy_center_resolution or {}).get('diffuse_info') or {}
+            cached_target_info = {
+                'center': [galaxy_center[0], galaxy_center[1]],
+                'object_bbox': _diffuse.get('object_bbox', [0.0, 0.0, 0.0, 0.0]),
+                'radius': _diffuse.get('radius'),
+                'detection': galaxy_center_resolution,
+            }
+            _gm = (galaxy_center_resolution or {}).get('method', 'unknown')
+            _gd = (galaxy_center_resolution or {}).get('disagreement_px')
+            _shape = current.shape[:2]
+            _warn_px = _GALAXY_CENTER_DISAGREEMENT_WARN_PX * min(_shape)
+            print(
+                f"  [星系定位] 方法={_gm} center=({galaxy_center[0]:.0f}, "
+                f"{galaxy_center[1]:.0f})"
+                + (f" 半径={_diffuse.get('radius', 0):.0f}px" if _diffuse.get('radius') else '')
+                + (f" 与参考中心偏差={_gd:.0f}px" if _gd is not None else '')
+            )
+            if _gd is not None and _gd > _warn_px:
+                print(
+                    f"    ⚠️ 弥散检测与参考中心偏差 {_gd:.0f}px 超过 "
+                    f"{_warn_px:.0f}px（短边 {_GALAXY_CENTER_DISAGREEMENT_WARN_PX:.0%}），"
+                    f"请人工确认目标位置"
+                )
 
     # Phase 1: 背景提取 (DBE)
     if 'dbe' in steps:
+        cfg.phase = 'dbe'
         dbe_method = cfg.get('dbe_method', 'polynomial')
         dbe_degree = cfg.get('dbe_degree', 2)
         dbe_exclusion_mask = None
@@ -1420,7 +1997,13 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             tcy = float(cached_target_info['center'][1])
             ob_w = float(cached_target_info['object_bbox'][2])
             ob_h = float(cached_target_info['object_bbox'][3])
-            ex_r = max(ob_w, ob_h) * 2.2
+            # 弥散检测直接给出流量加权半径，优先用它；退化时回退到 bbox 换算。
+            _det_radius = cached_target_info.get('radius')
+            if _det_radius and float(_det_radius) > 0:
+                ex_r = float(_det_radius) * 3.0
+            else:
+                ex_r = max(ob_w, ob_h) * 2.2
+            ex_r = max(ex_r, 1.0)
             yy, xx = np.ogrid[:current.shape[0], :current.shape[1]]
             dbe_exclusion_mask = ((xx - tcx)**2 + (yy - tcy)**2) <= (ex_r ** 2)
             print(f"  [DBE] 设定星系目标保护排除区 center=({int(tcx)}, {int(tcy)}), radius={int(ex_r)}px")
@@ -1442,6 +2025,9 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                     dbe_degree = 1
                     print(f"  [DBE] 大尺度弥散发射星云覆盖度较高 ({coverage:.1%})，自动约束 degree=1 线性梯度倾斜拟合以防中心被凹陷减除")
 
+        if subject_mask_array is not None:
+            protected = subject_mask_array > 0
+            dbe_exclusion_mask = protected if dbe_exclusion_mask is None else dbe_exclusion_mask | protected
         print("\n─ 线性阶段 ─")
         print(f"[Phase 1] 背景提取 / 梯度去除 (DBE) [{dbe_method}"
               + (f", degree={dbe_degree}" if dbe_method == 'polynomial' else "")
@@ -1458,6 +2044,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         current = normalize_background_subtracted(
             current, pctl_high=cfg['dbe_pctl_high']
         )
+        cfg.used['dbe']['dbe_degree'] = dbe_degree if dbe_method == 'polynomial' else None
         save_current('01_dbe.tif')
         # 注意：黑点已改为背景稳健中心、白点锚定峰值，不再使用 dbe_pctl_low /
         # dbe_pctl_high 作为黑/白点（dbe_pctl_high 仅作为白点的下界保留）。
@@ -1479,6 +2066,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
               f"corners={[round(c, 5) for c in _corners_dbe]}")
         if not _ex_applied and _corner_ratio >= 3.0:
             print("  ⚠️ DBE 后四角不均匀度 > 3.0x — 可能需要调整 DBE 参数（degree/method）或检查天体是否靠边")
+    cfg.phase = None
 
     # 联合中位数、P99 和有效像素比例判断，避免少量亮星或黑边误判。
     decision_source = decision_preview if memory_report["enabled"] else current
@@ -1510,6 +2098,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
 
     # Phase 2: 颜色校准
     if 'color' in steps:
+        cfg.phase = 'color'
         if effective_color_mode == 'emission':
             print("\n[Phase 2] 发射星云校色 (暗部基线 + 星色软校准)...")
             current, color_calibration_report = emission_nebula_calibrate(
@@ -1530,10 +2119,12 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             )
             print("  ✓ 背景中性化(加性) + 星采样白平衡 + 绿噪去除")
         save_current('02_color.tif')
+    cfg.phase = None
 
     # Phase 2b: 线性星点色差与 PSF 形变修复 (RGB 亚像素对齐 + 亮星紫晕抑制 + PSF 形变)
     stellar_repair_report = None
     if 'stellar_repair' in steps:
+        cfg.phase = 'stellar_repair'
         print("\n[Phase 2b] 线性星点像差/色差诊断与受控修复...")
         if not is_linear_input:
             print("  ⚠️ 非线性输入禁止执行 stellar_repair，已跳过")
@@ -1574,9 +2165,11 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 with open(sr_report_path, 'w', encoding='utf-8') as handle:
                     json.dump(stellar_repair_report, handle, indent=2, ensure_ascii=False)
                 artifact_paths['02b_stellar_repair_report.json'] = sr_report_path
+    cfg.phase = None
 
     # Phase 2c: 线性域物理反卷积与 PSF 锐化 (Richardson-Lucy)
     if linear_deconv:
+        cfg.phase = 'linear_deconv'
         print("\n[Phase 2c] 线性域物理反卷积与 PSF 锐化 (Richardson-Lucy)...")
         if not is_linear_input:
             print("  ⚠️ 非线性输入跳过线性反卷积")
@@ -1594,41 +2187,117 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             current = richardson_lucy_linear(current, fwhm=fwhm_deconv, iterations=deconv_iterations)
             save_current('02c_linear_deconv.tif')
             print("  ✓ 线性反卷积完成，星点与星云高频结构已物理聚焦")
+    cfg.phase = None
 
-    # Phase 3: 初步降噪 (线性数据)
+    # Phase 3: Denoise the current linear stage, after DBE/color/stellar repair.
     if 'pre_denoise' in steps:
+        cfg.phase = 'pre_denoise'
+        before_denoise = current
+        candidate = None
+        pre_denoise_report = {'status': 'skipped', 'backend': 'starlet',
+                             'review_required': False}
         if external_denoised_full is not None:
-            # 使用外部 AI 降噪结果替代内置降噪
-            print("\n[Phase 3] 初步降噪 (使用外部 AI 降噪结果)...")
             ed_cropped, _ = apply_crop(external_denoised_full.copy(), crop_bounds)
-            current = np.clip(ed_cropped, 0, 1)
-            print("  ✓ 外部 AI 降噪图替代内置降噪 (L1 级别)")
-        elif is_very_dark:
-            print("\n[Phase 3] 初步降噪 (极暗数据：极轻度，保护微弱星云信号)...")
-            if current.ndim == 2:
-                current = np.stack([current] * 3, axis=-1)
-            current = tiled(
-                lambda tile: denoise_luminance_chroma(
-                    tile, lum_strength=0.002, chroma_strength=0.005
-                ),
-                current,
-            )
-            print("  ✓ L=0.002/C=0.005 (极轻度)")
+            validation = validate_external_denoise(current, ed_cropped)
+            pre_denoise_report.update(backend='external', validation=validation,
+                                     status='accepted' if validation['passed'] else 'fallback',
+                                     review_required=not validation['passed'])
+            if validation['passed']:
+                candidate = ed_cropped
+            else:
+                pre_denoise_report['reason'] = '; '.join(validation['warnings'])
+        elif cfg['deepsnr'] != 'never':
+            reason = None
+            if not is_linear_input:
+                reason = 'nonlinear_input'
+            elif cfg['deepsnr'] == 'auto':
+                if is_star_poi_target(effective_target_type, target_name):
+                    reason = 'stars_are_subject'
+                elif min(current.shape[:2]) < 512:
+                    reason = 'image_below_cli_minimum_size'
+                elif np.all(np.isfinite(current)):
+                    _, _, _, noise, background = denoise_noise_stats(current)
+                    relative_noise = noise / max(abs(background), 1e-8)
+                    pre_denoise_report['relative_background_noise'] = relative_noise
+                    # ponytail: 5% background noise is a conservative trigger;
+                    # calibrate on representative masters before changing this threshold.
+                    if noise <= 1e-10 or relative_noise < 0.05:
+                        reason = 'low_noise'
+            if reason:
+                pre_denoise_report['reason'] = reason
+            else:
+                print("\n[Phase 3] DeepSNR CLI (zero-shadow MTF / float32 FITS)...")
+                candidate, cli_report = run_deepsnr(
+                    current, work_dir, executable=cfg['deepsnr_path'],
+                    timeout=float(cfg['deepsnr_timeout']), strength=float(cfg['deepsnr_strength']),
+                    save_prediction=keep_intermediates,
+                )
+                pre_denoise_report.update(cli_report)
         else:
-            denoise_backend = cfg.get('denoise_method', 'bilateral')
-            print(f"\n[Phase 3] 初步降噪 ({'À Trous Wavelet (Starlet)' if denoise_backend in ('atrous', 'starlet') else 'GXP Silentium-like'})...")
+            pre_denoise_report['reason'] = 'disabled'
+
+        if candidate is not None:
+            if 'applied_validation' not in pre_denoise_report:
+                candidate, applied = validate_applied_denoise(before_denoise, candidate)
+                pre_denoise_report['applied_validation'] = applied
+                if candidate is None:
+                    pre_denoise_report.update(status='fallback', review_required=True,
+                                             reason='; '.join(applied['warnings']))
+        if candidate is not None:
+            current = candidate
+            skip_final_denoise = True
+            print("  DeepSNR/external result accepted; final denoise suppressed")
+        elif pre_denoise_report.get('reason') == 'low_noise':
+            pre_denoise_report.update(status='skipped', fallback_backend=None)
+            print('\n[Phase 3] Skipped all preliminary denoise: low noise')
+        else:
+            backend = 'atrous' if pre_denoise_report['status'] == 'fallback' else cfg.get('denoise_method', 'atrous')
+            lum = min(cfg['pre_denoise_lum'], 0.005)
+            chroma = min(cfg['pre_denoise_chroma'], 0.01)
+            if is_very_dark:
+                lum, chroma = 0.002, 0.005
+            print(f"\n[Phase 3] Conservative {backend}: L={lum}/C={chroma}")
             if current.ndim == 2:
                 current = np.stack([current] * 3, axis=-1)
-            current = tiled(
+            cfg.used['pre_denoise'].update(pre_denoise_lum=lum, pre_denoise_chroma=chroma, denoise_method=backend)
+            fallback_candidate = tiled(
                 lambda tile: denoise_luminance_chroma(
-                    tile, lum_strength=cfg['pre_denoise_lum'],
-                    chroma_strength=cfg['pre_denoise_chroma'],
-                    method=denoise_backend
-                ),
-                current,
+                    tile, lum_strength=lum, chroma_strength=chroma, method=backend), current,
             )
-            print(f"  ✓ L={cfg['pre_denoise_lum']}/C={cfg['pre_denoise_chroma']}  方法={denoise_backend}")
+            accepted_fallback, applied = validate_applied_denoise(current, fallback_candidate)
+            pre_denoise_report['fallback_backend'] = backend
+            if pre_denoise_report.get('applied_validation'):
+                pre_denoise_report['rejected_applied_validation'] = pre_denoise_report['applied_validation']
+            pre_denoise_report['applied_validation'] = applied
+            if accepted_fallback is not None:
+                current = accepted_fallback
+                pre_denoise_report['fallback_applied'] = True
+            else:
+                pre_denoise_report.update(fallback_applied=False, review_required=True,
+                                         reason='; '.join(applied['warnings']))
+                if pre_denoise_report['status'] != 'fallback':
+                    pre_denoise_report['status'] = 'rejected'
+            if pre_denoise_report['review_required']:
+                warnings.append({'code': 'PRE_DENOISE_FALLBACK',
+                                 'message': pre_denoise_report.get('reason', 'External denoise rejected')})
+        if keep_intermediates:
+            if pre_denoise_report.get('prediction_path'):
+                prediction_path = pre_denoise_report['prediction_path']
+                artifact_paths['03_pre_denoise_prediction.tif'] = prediction_path
+                write_result_json_atomic({'capture_metadata': capture_metadata, 'is_linear': True},
+                                         prediction_path + '.meta.json')
+            save_artifact('03_pre_denoise_before.tif', before_denoise)
+            original_rgb = (np.stack([before_denoise] * 3, axis=-1)
+                            if before_denoise.ndim == 2 and current.ndim == 3 else before_denoise)
+            save_artifact('03_pre_denoise_residual.tif', np.abs(original_rgb - current))
+        if current.ndim == 2:
+            current = np.stack([current] * 3, axis=-1)
         save_current('03_pre_denoise.tif')
+        if keep_intermediates:
+            report_path = os.path.join(work_dir, '03_pre_denoise_report.json')
+            write_result_json_atomic(pre_denoise_report, report_path)
+            artifact_paths['03_pre_denoise_report.json'] = report_path
+    cfg.phase = None
 
     # Phase 4: 去星 (在线性数据上！)
     starless = None
@@ -1637,7 +2306,36 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     valid_starless_layer = False
     linear_star_mask_val = None
     external_starless_diagnostics = None
+    loaded_processed_stars = None
+    layer_source_path = None
+    if star_layers:
+        starless = current
+        if star_layers.get('source_sha256'):
+            with open(star_layers['source'], 'rb') as handle:
+                if hashlib.file_digest(handle, 'sha256').hexdigest() != star_layers['source_sha256']:
+                    raise ValueError('Star layer source was modified after separation')
+        arrays = {}
+        for role in ('source', 'stars', 'processed_stars'):
+            if star_layers.get(role):
+                layer, _ = read_image(star_layers[role], force_linear=True)
+                if (layer.shape != current.shape or not np.all(np.isfinite(layer))
+                        or layer.min() < 0 or layer.max() > 1):
+                    raise ValueError(f'Invalid {role} layer geometry or samples')
+                arrays[role] = layer
+        original_linear = arrays['source']
+        stars = arrays['stars']
+        loaded_processed_stars = arrays.get('processed_stars')
+        layer_source_path = star_layers['source']
+        star_layer_empty = is_stars_layer_empty(stars)
+        valid_starless_layer = True
+        linear_star_metrics = star_layers.get('linear_star_metrics')
+        linear_star_mask_val = detect_stars(np.mean(original_linear, axis=-1) if original_linear.ndim == 3
+                                            else original_linear, star_threshold=cfg['star_threshold'])
     if 'star_remove' in steps:
+        cfg.phase = 'star_remove'
+        separation_reference = current.copy()
+        save_artifact('04_separation_reference.tif', separation_reference)
+        layer_source_path = artifact_paths.get('04_separation_reference.tif')
         print("\n[Phase 4] 去星 (StarNet-like, 线性数据)...")
         if (
             cfg.get('prefer_external_starless')
@@ -1658,14 +2356,14 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             resolved_domain = external_starless_domain
             resolved_midtones = external_starless_midtones
             if resolved_domain == 'linear':
-                meta = read_starnet_payload_meta(
+                payload_meta = read_starnet_payload_meta(
                     os.path.dirname(os.path.abspath(external_starless)),
                     work_dir,
                 )
-                if meta and meta.get('domain') == 'mtf':
+                if payload_meta and payload_meta.get('domain') == 'mtf':
                     resolved_domain = 'mtf'
                     if resolved_midtones is None:
-                        resolved_midtones = meta.get('midtones')
+                        resolved_midtones = payload_meta.get('midtones')
                     print("  ℹ️ sidecar 声明外部无星层为 MTF 域，自动按 mtf 逆变换解析")
             if resolved_domain not in ('linear', 'mtf'):
                 raise ValueError(
@@ -1687,7 +2385,27 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             scale_info = verification.get("scale_consistency") or {}
             if scale_info.get("status") == "warn":
                 warnings.append(scale_info.get("message") or "外部无星层尺度偏离")
+
+            # ── 通道保真回补（degraded 态）──
+            # StarNet2 对弱色通道的剥离量系统性高于 R（实测 MTF 域保留率
+            # R 0.856 / G 0.703 / B 0.739），使无星层从构造上就偏红。这**不是**
+            # 16bit 量化的往返误差（无损对照实测往返 rel 偏差 <0.03%），所以
+            # 门禁按「灾难形态」标定的 2.0 阈值检不出（实测 G level_drop=1.51
+            # 静默通过）。此处对「退化但未塌缩」的通道做逐通道保真回补。
+            rebalance_info = None
+            degraded = ((verification.get("channel_integrity") or {})
+                        .get("degraded_channels") or [])
+            if degraded and cfg.get('starless_channel_rebalance', True):
+                rebalance_info = _rebalance_starless_channels(
+                    current, starless, cfg, warnings)
+                if rebalance_info.get('applied'):
+                    starless = rebalance_info.pop('_corrected')
+                else:
+                    rebalance_info.pop('_corrected', None)
+
             stars = np.clip(current - starless, 0, 1)
+            starless, stars, star_mask = protect_subject_layers(
+                current, starless, stars, None, subject_mask_array)
             valid_starless_layer = True
             external_starless_diagnostics = {
                 "domain": resolved_domain,
@@ -1696,17 +2414,69 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                              else float(m_val)),
                 "channel_integrity": verification.get("channel_integrity"),
                 "scale_consistency": scale_info or None,
+                "channel_rebalance": rebalance_info,
             }
             print(f"  ✓ 使用外部无星图: {external_starless} (域={resolved_domain}, 星点能量均值={verification.get('stars_energy_mean'):.6f})")
         else:
             galaxy_center = None
+            galaxy_core_radius_px = None
             if effective_target_type == 'galaxy' and cached_target_info is not None:
                 tcx = float(cached_target_info['center'][0])
                 tcy = float(cached_target_info['center'][1])
                 galaxy_center = (tcy, tcx)
-                print(f"  [去星] 传入星系中心坐标以保护核球连通域: center=({int(tcx)}, {int(tcy)})")
+                _frac = cfg.get('galaxy_core_protection')
+                if _frac:
+                    # 核保护半径 = max(配置比例×短边, 弥散检测半径的一半)。
+                    # 后者保证保护范围随实际盘面大小走，而不是只按画幅猜。
+                    _det = float(cached_target_info.get('radius') or 0.0)
+                    galaxy_core_radius_px = max(
+                        float(_frac) * min(current.shape[:2]),
+                        _det * 0.5,
+                        15.0,
+                    )
+                    print(
+                        f"  [去星] 核球保护半径={galaxy_core_radius_px:.0f}px "
+                        f"(center=({int(tcx)}, {int(tcy)}))"
+                    )
 
             star_method = 'starnet' if use_starnet else 'inpaint'
+            # 相对判据基线读回（v0.1.44）。**必须校验来源一致**：
+            # 换了图或换了 target_type 还沿用旧基线，得到的 delta 毫无意义
+            # （甚至会给出「这次更健康」的荒谬结论）。
+            star_flux_baseline_reference = None
+            if star_removal_baseline:
+                import json as _json
+                try:
+                    with open(star_removal_baseline, 'r', encoding='utf-8') as _fh:
+                        _prior = _json.load(_fh)
+                    _prev_sr = _prior.get('star_removal') or {}
+                    _prev_base = _prev_sr.get('star_flux_baseline')
+                    # result.json 的 input 字段是**纯路径字符串**，不是 dict：
+                    # 写成 dict 会让这里每次都抛 AttributeError 并静默退化成
+                    # 「无基线」—— 相对判据永远不会触发，且不报错。
+                    _prev_in = _prior.get('input')
+                    if isinstance(_prev_in, dict):
+                        _prev_path = _prev_in.get('path') or _prev_in.get('file')
+                    else:
+                        _prev_path = _prev_in
+                    _prev_prof = _prev_sr.get('star_removal_profile')
+                    _prev_type = (_prev_prof.get('target_type')
+                                  if isinstance(_prev_prof, dict) else None)
+                    _same_input = bool(_prev_path) and os.path.realpath(
+                        _prev_path) == os.path.realpath(input_path)
+                    _same_type = (_prev_type is None
+                                  or _prev_type == effective_target_type)
+                    if _prev_base is not None and _same_input and _same_type:
+                        star_flux_baseline_reference = float(_prev_base)
+                        print("  [去星] 读回相对判据基线 = %.4f（来源一致）"
+                              % star_flux_baseline_reference)
+                    else:
+                        print("  [去星] 忽略基线文件：%s"
+                              % ("缺基线值" if _prev_base is None else
+                                 ("输入不一致" if not _same_input
+                                  else "target_type 不一致")))
+                except Exception as _exc:
+                    print("  [去星] 读取基线文件失败，按无基线处理: %s" % _exc)
             starless, stars, star_mask, star_report = separate_stars(
                 current, method=star_method,
                 star_threshold=cfg['star_threshold'],
@@ -1714,9 +2484,14 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 return_report=True,
                 starnet_path=starnet_path,
                 starnet_stride=starnet_stride,
+                star_flux_baseline_reference=star_flux_baseline_reference,
                 starnet_domain=starnet_domain,
                 starnet_timeout=starnet_timeout,
                 galaxy_center=galaxy_center,
+                galaxy_core_radius=galaxy_core_radius_px,
+                exclude_mask=subject_mask_array,
+                target_type=effective_target_type,
+                profile=_star_removal_profile_for(cfg, effective_target_type),
             )
             if star_report.get('fallback_applied'):
                 star_removal_fallback = True
@@ -1730,24 +2505,57 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                     f"  ✓ 去星质量={star_report.get('repair_quality_score', 1.0):.3f} "
                     f"method={star_report.get('repair_method', 'external')}"
                 )
-        save_artifact('04_starless_linear.tif', starless)
-        save_artifact('04_stars_linear.tif', stars)
+        # 产物语义：文件名承诺「无星图」就必须真的是无星图。
+        # 回退时 starless 是原图副本（star_tools._safe_star_removal_fallback
+        # 返回 image.copy()），落进 04_starless_linear.tif 会让后续流程与
+        # 人工审查读到一个「名为无星图、实为原图」的文件，也会让离线劣化
+        # 标定拿不到健康态对照（拿这对文件构造，orig 与 starless 恒等
+        # ⇒ damage ≡ 0，对照组无意义）。故回退时改落专用名并显式标注。
+        if star_removal_fallback:
+            save_artifact('04_starless_fallback.tif', starless)
+            artifact_meta['04_starless_fallback.tif'] = {
+                'is_fallback_copy': True,
+                'reason': star_report.get('fallback_reason') if 'star_report' in locals() and star_report else None,
+                'note': '原图副本，非去星结果；不可用于无星图评估',
+            }
+            # stars 在回退时是全零层，落盘只会污染下游「星点层是否存在」的判读
+            print("  ℹ️ 回退副本落盘为 04_starless_fallback.tif（原图副本，非无星图）")
+        else:
+            save_artifact('04_starless_linear.tif', starless)
+            save_artifact('04_stars_linear.tif', stars)
         star_layer_empty = bool(stars is None or is_stars_layer_empty(stars))
         if star_layer_empty:
             print("  ⚠️ 星点层为空（去星回退），后续星点合成将显式跳过")
         try:
             gray_linear = np.mean(current[..., :3], axis=2) if current.ndim == 3 else current
+            # FWHM 必须实测：`fwhm_est` 同时喂给 detect_stars、apply_star_halo_guard
+            # 与 INPAINT_FOOTPRINT 的采样环带，硬编码会在采样不足（真实 FWHM ≲ 3px）
+            # 的数据上把蒙版面积放大 3 倍。
+            #
+            # 优先级：star_report（内置去星时的实测值）> 本处实测 > 兜底常量。
+            #
+            # 测量对象**必须是含星的 gray_linear**，不能用 starless —— 无星层上
+            # estimate_fwhm 拟合的是星云纹理（实测同一数据 4.07 → 9.909）。
             fwhm_est = 4.0
+            fwhm_source = 'fallback_constant'
             if 'star_report' in locals() and star_report and star_report.get('estimated_fwhm') is not None:
-                fwhm_est = star_report.get('estimated_fwhm')
+                fwhm_est = float(star_report['estimated_fwhm'])
+                fwhm_source = 'star_report'
+            else:
+                measured_fwhm, _fwhm_std, n_fwhm_used, _n_cand = estimate_fwhm(gray_linear)
+                if n_fwhm_used >= 3 and 1.5 < measured_fwhm < 50.0:
+                    fwhm_est = float(measured_fwhm)
+                    fwhm_source = 'measured'
             linear_star_mask_val = detect_stars(gray_linear, star_threshold=cfg['star_threshold'], fwhm=fwhm_est)
             linear_star_area_ratio = float(np.mean(linear_star_mask_val > 0.5))
             linear_star_metrics = {
                 'star_area_ratio': linear_star_area_ratio,
                 'estimated_fwhm': float(fwhm_est),
+                'fwhm_source': fwhm_source,
                 'n_stars_detected': int(star_report.get('n_components_total', 0)) if 'star_report' in locals() and star_report else None,
             }
-            print(f"  ✓ 锁定线性阶段星点指标: area_ratio={linear_star_area_ratio:.6f} FWHM={fwhm_est:.2f}px")
+            print(f"  ✓ 锁定线性阶段星点指标: area_ratio={linear_star_area_ratio:.6f} "
+                  f"FWHM={fwhm_est:.2f}px ({fwhm_source})")
         except Exception as e_metric:
             linear_star_metrics = None
             print(f"  [WARN] 无法计算线性阶段星点指标: {e_metric}")
@@ -1758,6 +2566,9 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             from star_tools import apply_star_halo_guard
             fwhm_for_halo = fwhm_est if 'fwhm_est' in locals() and fwhm_est else 3.5
             starless = apply_star_halo_guard(starless, stars=stars, fwhm=fwhm_for_halo)
+            if subject_mask_array is not None:
+                weight = subject_mask_array[..., None] if starless.ndim == 3 else subject_mask_array
+                starless = starless * (1.0 - weight) + separation_reference * weight
             save_artifact('04_starless_linear.tif', starless)
             print("  ✓ 亮星星晕守卫完成，背景亮度 L 严格保全")
 
@@ -1820,6 +2631,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             "payload_path": payload_exported_path,
             "instructions": bridge_instructions,
         }
+    cfg.phase = None
 
     if neural_bridge_report is None and export_starnet_payload:
         env_info = detect_neural_starnet_environment(custom_path=starnet_path)
@@ -1855,33 +2667,112 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
 
     # Phase 5: 拉伸 (线性→非线性, 对去星图像)
     stretch_target = starless if starless is not None else current
+    if 'star_remove' in steps and 'stretch' not in steps:
+        current = stretch_target
     if 'stretch' in steps:
+        cfg.phase = 'stretch'
         _pre_stretch_input = stretch_target.copy()
-        # 1. 自适应确定拉伸方法
-        effective_method = stretch_method
+        # Explicit caller choices precede target policy and analysis advice.
+        override_method = (override_params or {}).get('stretch_method', 'auto')
+        effective_method = stretch_method if stretch_method != 'auto' else override_method
         if effective_method == 'auto':
-            if effective_color_mode == 'emission' and star_removal_fallback:
-                effective_method = 'masked_ghs'
-                print(
-                    "[自适应] 去星回退且保留密集星场，"
-                    "改用 masked_ghs 保护星核与背景"
-                )
-            elif effective_color_mode == 'emission':
-                effective_method = 'emission'
-            elif is_very_dark:
-                effective_method = 'very_dark'
-            elif effective_target_type in ('galaxy', 'emission_nebula', 'planetary_nebula'):
-                effective_method = 'masked_ghs'
-                print(f"[自适应] 识别为高动态范围天体 ({effective_target_type})，自动升级为 masked_ghs 拉伸以保护高光核心")
-            elif cfg.get('stretch_method') not in (None, 'auto'):
-                effective_method = cfg['stretch_method']
+            if stretch_policy_version >= 2:
+                effective_method, _ = recommend_stretch(effective_target_type, target_name, effective_color_mode)
+                if star_removal_fallback and effective_method == 'emission':
+                    effective_method = 'masked_ghs_standard'
             else:
-                effective_method = 'masked'
+                if effective_color_mode == 'emission' and star_removal_fallback:
+                    effective_method = 'masked_ghs'
+                    print(
+                        "[自适应] 去星回退且保留密集星场，"
+                        "改用 masked_ghs 保护星核与背景"
+                    )
+                elif effective_color_mode == 'emission':
+                    effective_method = 'emission'
+                elif is_very_dark:
+                    effective_method = 'very_dark'
+                elif effective_target_type in ('galaxy', 'emission_nebula', 'planetary_nebula'):
+                    effective_method = 'masked_ghs'
+                    print(f"[自适应] 识别为高动态范围天体 ({effective_target_type})，自动升级为 masked_ghs 拉伸以保护高光核心")
+                elif cfg.get('stretch_method') not in (None, 'auto'):
+                    effective_method = (analysis_report or {}).get('recommendations', {}).get('stretch', {}).get('legacy_method', cfg['stretch_method'])
+                else:
+                    effective_method = 'masked'
+        # Layer validity, not ndarray identity, defines the starless source.
+        stretching_starless = valid_starless_layer and starless is not None and is_linear_input
+        automatic_method = stretch_method == 'auto' and override_method == 'auto'
+        if stretching_starless and automatic_method and (
+                stretch_policy_version >= 3 or effective_method in (
+                    'ghs_standard', 'masked_ghs_standard')):
+            effective_method = 'background_compressed'
+        new_stretch_path = effective_method in (
+            'pi_mtf', 'ghs_standard', 'masked_ghs_standard', 'background_compressed') or (
+            stretch_policy_version >= 2 and automatic_method)
+        if new_stretch_path:
+            _, default_bg = recommend_stretch(effective_target_type, target_name, effective_color_mode)
+            cfg['target_bg'] = (override_params or {}).get('target_bg', default_bg)
+        elif stretch_policy_version == 1 and preset == 'adaptive' and 'target_bg' not in (override_params or {}):
+            cfg['target_bg'] = (analysis_report or {}).get('recommendations', {}).get('stretch', {}).get('legacy_target_bg', cfg['target_bg'])
         resolved_stretch_method = effective_method
+        stretch_diagnostics = {'requested_method': stretch_method, 'selected_method': effective_method,
+                               'policy_version': stretch_policy_version,
+                               'algorithm': 'legacy_sinh' if effective_method in ('ghs', 'masked_ghs') else effective_method}
 
         # 2. 执行拉伸分发
         print(f"\n[Phase 5] 拉伸 (亮度通道 {effective_method} 拉伸)...")
-        if effective_method == 'emission':
+        if effective_method == 'background_compressed':
+            if not is_linear_input or is_star_poi_target(effective_target_type, target_name):
+                raise ValueError('Background-compressed stretch requires a linear non-stellar subject')
+            if stretch_policy_version >= 3:
+                cfg.setdefault('stretch_subject_midtones',
+                               .20 if effective_target_type in ('reflection_nebula', 'dark_nebula') else .25)
+            stretch_target, applied = background_compressed_stretch(
+                stretch_target,
+                target_bg=cfg.get('target_bg', 0.035),
+                ceiling=1.0 - cfg.get('stretch_headroom', 0.05),
+                protect=cfg.get('ghs_protect_strength', 0.85),
+                mask_sigma=1.0 if effective_target_type == 'planetary_nebula' else 5.0,
+                subject_midtones=cfg.get('stretch_subject_midtones'),
+                target_type=effective_target_type,
+            )
+            stretch_diagnostics.update(applied)
+            resolved_stretch_method = applied['method']
+            if applied.get('fallback_reason'):
+                stretch_recovery = 'starless_anchor_unavailable_pi_mtf'
+            stretch_diagnostics['unused_params'] = [
+                key for key in cfg
+                if key in ('stretch_factor', 'stretch_gamma', 'shadow_pctl',
+                           'highlight_pctl', 'ghs_c', 'ghs_standard_log_d')
+            ]
+            stretch_diagnostics['unused_legacy_params'] = [
+                key for key in cfg if key.startswith('ghs_')
+                and not key.startswith('ghs_standard_')
+                and not (key == 'ghs_protect_strength')
+            ]
+            print(f"  ✓ Starless: method={resolved_stretch_method} "
+                  f"background={applied['actual_background']:.4f} "
+                  f"subject={applied.get('actual_subject')}")
+        elif effective_method in ('pi_mtf', 'ghs_standard', 'masked_ghs_standard'):
+            stretch_target, applied = render_protected_stretch(stretch_target, effective_method, cfg)
+            stretch_diagnostics.update(applied)
+            if 'log_d' in applied:
+                for key in ('log_d', 'b', 'sp', 'lp', 'hp'):
+                    cfg['ghs_standard_' + key] = applied[key]
+            stretch_diagnostics['unused_params'] = [key for key in cfg
+                if key in ('stretch_factor', 'stretch_gamma', 'shadow_pctl', 'highlight_pctl', 'ghs_c')]
+            stretch_diagnostics['unused_legacy_params'] = [
+                key for key in cfg if key.startswith('ghs_')
+                and not key.startswith('ghs_standard_')
+                and not (key == 'ghs_protect_strength' and effective_method == 'masked_ghs_standard')]
+            if effective_method == 'pi_mtf':
+                stretch_diagnostics['unused_standard_params'] = [key for key in cfg if key.startswith('ghs_standard_')]
+        elif effective_method == 'emission':
+            stretch_diagnostics['unused_params'] = ['stretch_factor'] + [
+                key for key in cfg if key.startswith('ghs_')]
+            # headroom 必须与 pi_mtf 走 render_protected_stretch 时的同一份高光余量
+            # 预算（默认 0.05）。缺它时 emission 峰值触顶、R 通道出现成片裁切，
+            # CHANNEL_CLIPPING 判 failed 后整条链回退到 pi_mtf —— 首选方法永远用不上。
+            # 用 cfg.get 而非字面量，使 ExecutionConfig 记录该参数已被消费。
             stretch_target = apply_luminance_stretch(
                 stretch_target,
                 method='emission',
@@ -1890,13 +2781,15 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 gamma=cfg.get('stretch_gamma', 0.43),
                 target_bg=cfg.get('target_bg', 0.08),
                 min_p99=cfg.get('stretch_min_p99', 0.5),
+                headroom=cfg.get('stretch_headroom', 0.05),
             )
             print(
                 f"  ✓ Emission stretch shadow={cfg.get('shadow_pctl', 1.0)} "
                 f"highlight={cfg.get('highlight_pctl', 99.94)} "
                 f"gamma={cfg.get('stretch_gamma', 0.43)} "
                 f"target_bg={cfg.get('target_bg', 0.08)} "
-                f"min_p99={cfg.get('stretch_min_p99', 0.5)}"
+                f"min_p99={cfg.get('stretch_min_p99', 0.5)} "
+                f"headroom={cfg.get('stretch_headroom', 0.05)}"
             )
         elif effective_method == 'very_dark':
             stretch_target = apply_luminance_stretch(
@@ -2019,51 +2912,238 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             )
             print(f"  ✓ {effective_method} stretch kwargs={method_kwargs}")
 
-        # 3. 塌缩守卫：拉伸应当展宽色调范围。若输出的绝对跨度 (p99 - p50) 被压到
-        #    很窄的一条亮度带里，说明该方法在当前数据上失准（常见于黑点估计被极亮
-        #    核心带偏），退回到保守的 masked 拉伸重试。
-        #    注意：这里**不**比较 p999/p50 比值 —— 任何抬升背景的拉伸都会让该比值
-        #    下降，无法区分正常背景抬升与病态对比度压塌（详见 is_stretch_collapsed
-        #    的 docstring）。
-        collapsed, pre_health, post_health = is_stretch_collapsed(
-            _pre_stretch_input, stretch_target
-        )
-        if collapsed:
-            print(
-                f"  ⚠️ 检测到拉伸塌缩: span={post_health['span']:.4f} "
-                f"(拉伸前 span={pre_health['span']:.4f}, "
-                f"core_ratio={post_health['core_ratio']:.2f})，改用保守 masked 拉伸"
+        from artifact_gates import evaluate_star_artifact_gates
+        display_reference, reference_curve = render_protected_stretch(_pre_stretch_input, 'pi_mtf', cfg)
+        display_reference_small = downsample_for_gates(display_reference)
+        # 保真度门禁的掩膜必须由**降采样后**的参考图重建，才能与降采样后的候选
+        # 同 shape。用全分辨率参考算掩膜再套降采样候选会 shape 不匹配。
+        fidelity_background_mask = None
+        fidelity_signal_mask = None
+        try:
+            from fidelity_gates import (
+                _background_mask as _fidelity_background_mask,
+                _resolve_signal_mask as _fidelity_resolve_signal_mask,
             )
-            recovered = apply_luminance_stretch(
-                _pre_stretch_input,
-                method='masked',
-                factor=cfg['stretch_factor'],
-                target_bg=cfg.get('target_bg', 0.08),
-            )
-            still_collapsed, _, recovered_health = is_stretch_collapsed(
-                _pre_stretch_input, recovered
-            )
-            if not still_collapsed:
-                stretch_target = recovered
-                resolved_stretch_method = 'masked'
-                stretch_recovery = 'masked'
-                print(
-                    f"  ✓ 已恢复: span={recovered_health['span']:.4f} "
-                    f"core_ratio={recovered_health['core_ratio']:.2f}"
-                )
-            else:
-                stretch_recovery = 'failed'
-                print("  ⚠️ 保守 masked 拉伸仍塌缩，保留原输出并标记 stretch_recovery=failed")
+            fidelity_background_mask = _fidelity_background_mask(display_reference_small)
+            fidelity_signal_mask = _fidelity_resolve_signal_mask(
+                display_reference_small, subject_mask_array, fidelity_background_mask)
+        except Exception as exc:
+            print(f"  [WARN] 保真度掩膜构建失败：{exc}")
 
+        def stretch_fidelity(candidate):
+            try:
+                from fidelity_gates import evaluate_fidelity_gates
+                report = evaluate_fidelity_gates(
+                    downsample_for_gates(candidate), display_reference_small,
+                    steps=['stretch'], target_type=effective_target_type,
+                    reference_comparable=True, display_reference=True,
+                    background_mask=fidelity_background_mask, signal_mask=fidelity_signal_mask,
+                    geometry='native')
+                report['context']['measurement_geometry'] = {
+                    'max_side': GATE_PREVIEW_MAX_SIDE,
+                    'shape': list(np.shape(display_reference_small)),
+                    'note': 'calibration and runtime share this downsampled geometry',
+                }
+                return report
+            except Exception as exc:
+                print(f"  [WARN] Fidelity gate evaluation failed: {exc}")
+                return {'schema': 'fidelity_gates/1.0', 'status': 'error',
+                        'summary': f'Fidelity gate evaluation failed: {exc}', 'gates': []}
+
+        def stretch_checks(candidate):
+            collapsed = is_stretch_collapsed(_pre_stretch_input, candidate, stellar_subject=is_star_poi_target(effective_target_type, target_name))[0]
+            clip = check_channel_clipping(candidate)
+            plateau = check_core_plateau(candidate, _pre_stretch_input, subject_mask_array)
+            display = evaluate_star_artifact_gates(display_reference_small, downsample_for_gates(candidate), steps=['stretch'], display_reference=True)
+            display['context'].update(measurement_domain='display', reference_type='fixed_mtf')
+            display_failed = any(
+                (g['status'] == 'failed' or (g['code'] == 'STAR_BLOAT' and g['status'] == 'warning'))
+                and not (g['code'] == 'STAR_RINGING'
+                         and not g.get('evidence', {}).get('reference_comparable', False))
+                for g in display['gates'])
+            fidelity_failed = False
+            if effective_method == 'background_compressed':
+                display['fidelity_gates'] = stretch_fidelity(candidate)
+                fidelity_failed = any(
+                    gate['status'] in ('warning', 'failed') and gate.get('escalate', True)
+                    for gate in display['fidelity_gates']['gates'])
+            return (collapsed or clip['escalate'] or plateau['escalate']
+                    or display_failed or fidelity_failed), clip, plateau, display
+
+        rejected, initial_clip, initial_plateau, final_display = stretch_checks(stretch_target)
+        if (rejected and resolved_stretch_method == 'background_compressed'
+                and cfg.get('stretch_subject_midtones') is not None):
+            initial_report = dict(stretch_diagnostics)
+            initial_rejection = {'channel_clipping': initial_clip, 'core_plateau': initial_plateau,
+                                 'display_gates': final_display, 'curve': initial_report}
+            save_artifact('05_rejected_stretch.tif', stretch_target)
+            requested_midtones = cfg['stretch_subject_midtones']
+            retry_midtones = cfg['target_bg'] + .5 * (requested_midtones - cfg['target_bg'])
+            retried, retry_report = background_compressed_stretch(
+                _pre_stretch_input, target_bg=cfg['target_bg'],
+                ceiling=1 - cfg.get('stretch_headroom', .05),
+                mask_sigma=1.0 if effective_target_type == 'planetary_nebula' else 5.0,
+                subject_midtones=retry_midtones, target_type=effective_target_type)
+            rejected, initial_clip, initial_plateau, final_display = stretch_checks(retried)
+            stretch_diagnostics.update(retry_report)
+            stretch_diagnostics.update(
+                rejected_initial=initial_rejection,
+                requested_subject_midtones=requested_midtones,
+                subject_retry={'midtones': retry_midtones, 'rejected': rejected,
+                               'curve': retry_report, 'channel_clipping': initial_clip,
+                               'core_plateau': initial_plateau, 'display_gates': final_display})
+            stretch_target = retried
+            resolved_stretch_method = retry_report['method']
+            if not rejected:
+                cfg['stretch_subject_midtones'] = retry_midtones
+                stretch_recovery = ('starless_anchor_unavailable_pi_mtf'
+                                    if retry_report.get('fallback_reason') else 'reduced_subject_midtones')
+        if rejected:
+            save_artifact('05_rejected_recovery.tif' if stretch_diagnostics.get('subject_retry')
+                          else '05_rejected_stretch.tif', stretch_target)
+            stretch_diagnostics.setdefault('rejected_initial', {
+                'channel_clipping': initial_clip, 'core_plateau': initial_plateau,
+                'display_gates': final_display, 'curve': dict(stretch_diagnostics)})
+            if new_stretch_path:
+                recovered, recovery_report = render_protected_stretch(_pre_stretch_input, 'pi_mtf', cfg)
+                still_rejected, recovered_clip, recovered_plateau, recovered_display = stretch_checks(recovered)
+                if not still_rejected:
+                    stretch_target = recovered
+                    resolved_stretch_method = 'pi_mtf'
+                    stretch_recovery = 'conservative_pi_mtf'
+                    if effective_method == 'background_compressed':
+                        attempt = dict(stretch_diagnostics)
+                        stretch_diagnostics = {
+                            **recovery_report,
+                            **{key: attempt[key] for key in (
+                                'requested_method', 'selected_method', 'policy_version',
+                                'rejected_initial', 'subject_retry') if key in attempt},
+                            'starless_anchor_attempt': attempt,
+                        }
+                    else:
+                        stretch_diagnostics.update(recovery_report)
+                    final_display = recovered_display
+                    stretch_diagnostics['unused_standard_params'] = [key for key in cfg if key.startswith('ghs_standard_')]
+                else:
+                    save_artifact('05_rejected_recovery.tif', recovered)
+                    stretch_recovery = 'failed'
+            else:
+                recovered = apply_luminance_stretch(
+                    _pre_stretch_input,
+                    method='masked',
+                    factor=cfg['stretch_factor'],
+                    target_bg=cfg.get('target_bg', 0.08),
+                )
+                _, _, recovered_health = is_stretch_collapsed(
+                    _pre_stretch_input, recovered, stellar_subject=is_star_poi_target(effective_target_type, target_name)
+                )
+                still_rejected, recovered_clip, _, recovered_display = stretch_checks(recovered)
+                if not still_rejected:
+                    stretch_target = recovered
+                    resolved_stretch_method = 'masked'
+                    stretch_recovery = 'masked'
+                    final_display = recovered_display
+                    print(
+                        f"  ✓ 已恢复: span={recovered_health['span']:.4f} "
+                        f"core_ratio={recovered_health['core_ratio']:.2f}"
+                    )
+                else:
+                    recovered = apply_luminance_stretch(
+                        _pre_stretch_input, method='masked_ghs', sp=cfg.get('ghs_sp', -1),
+                        b=min(resolve_ghs_b(cfg), 6.0), gamma=0.4,
+                        protect_strength=max(cfg.get('ghs_protect_strength', 0.5), 0.85),
+                        target_bg=cfg.get('target_bg', 0.08), shadow_pctl=0.0, highlight_pctl=100.0)
+                    still_rejected, recovered_clip, _, recovered_display = stretch_checks(recovered)
+                    if not still_rejected:
+                        stretch_target = recovered
+                        resolved_stretch_method = 'masked_ghs'
+                        stretch_recovery = 'conservative_masked_ghs'
+                        final_display = recovered_display
+                        cfg.update(ghs_b=min(resolve_ghs_b(cfg), 6.0), stretch_gamma=0.4,
+                                   ghs_protect_strength=max(cfg.get('ghs_protect_strength', 0.5), 0.85),
+                                   shadow_pctl=0.0, highlight_pctl=100.0)
+                    else:
+                        stretch_recovery = 'failed'
+
+        if stretch_recovery == 'failed':
+            stretch_target = _pre_stretch_input
+            # 位置运算改走 stage_registry.step_order（可选步骤返回 None，
+            # 排在 stretch 之后视为「拉伸之后」，与旧 ALL_STEPS.index 行为一致
+            # —— 旧实现在 steps 含孤儿步骤时会ValueError）。
+            _stretch_at = step_order('stretch')
+            def _after_stretch(step):
+                order = step_order(step)
+                return _stretch_at if order is None else order >= _stretch_at
+            stretch_diagnostics['skipped_after_failure'] = [
+                step for step in steps if _after_stretch(step)]
+            # ──失败处置策略（failure_policy）──────────────────────────
+            # 三态而非「一律截断」：此前无论失败原因如何，拉伸之后的步骤
+            # 全部丢弃且不出图，用户连线性域的中间产物都拿不到。
+            #   auto_fallback  继续跑完（现状语义）
+            #   preserve_review 保留全部中间产物 + 标记 degraded，可审但不阻断
+            #   stop           硬失败，不出图
+            _action = resolve_failure_actions(
+                'stretch',
+                requested=cfg.get('stretch_failure_action'),
+                overrides={k[7:]: v for k, v in cfg.items()
+                            if k.startswith('failure_') and k.endswith('_action')})
+            stretch_diagnostics['failure_action'] = _action
+            if _action == 'stop':
+                # 严格模式：不产出成片。仍写诊断，让用户知道失败原因。
+                stretch_diagnostics['failure_stop'] = (
+                    '拉伸链全部候选被拒，按 stop 处置不交付成片；'
+                    '线性域中间产物已保留供审查')
+                steps = []
+                stretch_diagnostics['skipped_after_failure'] = list(
+                    stretch_diagnostics['skipped_after_failure'])
+            else:
+                # auto_fallback / preserve_review 都继续跑完后续步骤。
+                # 两者的差别在于**是否保留现场并标记 degraded**：
+                # preserve_review 强制 keep_intermediates 语义（产物已落盘
+                # 的话本就已保留），并把 degradation 写进 diagnostics。
+                steps = [step for step in steps if not _after_stretch(step)]
+                if _action == 'preserve_review':
+                    stretch_diagnostics['preserve_review'] = {
+                        'reason': '拉伸链全部候选被拒，保留线性域中间产物供复核',
+                        'retained_steps': list(steps),
+                        'artifact_domain': 'linear',
+                    }
+            resolved_stretch_method = 'rejected'
+        final_stretch_clip = check_channel_clipping(stretch_target)
+        final_stretch_clip['stage'] = 'stretch'
+        if stretch_recovery != 'failed':
+            channel_clipping_gates.append(final_stretch_clip)
+            save_artifact('05_display_reference.tif', display_reference)
+            stretch_diagnostics['applied_method'] = resolved_stretch_method
+            stretch_diagnostics['algorithm'] = ('legacy_sinh' if resolved_stretch_method in ('ghs', 'masked_ghs')
+                                                else 'standard_ghs' if resolved_stretch_method in ('ghs_standard', 'masked_ghs_standard')
+                                                else 'linked_mtf' if resolved_stretch_method == 'pi_mtf' else resolved_stretch_method)
+            if effective_method in ('ghs', 'masked_ghs') and stretch_recovery:
+                stretch_diagnostics['algorithm'] = 'legacy_sinh' if resolved_stretch_method == 'masked_ghs' else resolved_stretch_method
+            stretch_diagnostics['display_reference'] = {
+                'path': artifact_paths.get('05_display_reference.tif'), 'curve': reference_curve,
+                'measurement_domain': 'display', 'source': input_path,
+                'source_sha256': hashlib.sha256(np.ascontiguousarray(_pre_stretch_input).tobytes()).hexdigest()}
+            stretch_diagnostics['display_gates'] = final_display
+            stretch_diagnostics['core_plateau'] = check_core_plateau(stretch_target, _pre_stretch_input, subject_mask_array)
+            # Reuse the accepted candidate's checks; legacy curves are checked here.
+            final_fidelity = (final_display.get('fidelity_gates')
+                              or stretch_fidelity(stretch_target))
+            stretch_diagnostics['fidelity_gates'] = final_fidelity
+            fidelity_gates = final_fidelity['gates']
         current = stretch_target
-        save_current('05_stretched_starless.tif')
+        save_artifact('05_stretched_starless.tif', current,
+                      is_linear=is_linear_input if stretch_recovery == 'failed' else False)
+    cfg.phase = None
 
     # ══════════════════════════════════════════════════════════════
     # 星点独立处理 (Star Processing, 并行)
     # ══════════════════════════════════════════════════════════════
 
-    processed_stars = stars
+    processed_stars = loaded_processed_stars if loaded_processed_stars is not None else stars
     if 'star_process' in steps and stars is not None and stars.max() > 0:
+        cfg.phase = 'star_process'
+        processed_stars = stars
         print("\n─ 星点独立处理 ─")
         # S1: 星点拉伸
         print("[Star S1] 星点拉伸 (Star Stretch)...")
@@ -2103,8 +3183,12 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         processed_stars = reduce_stars(
             processed_stars, reduction=cfg['star_reduction']
         )
+        if subject_mask_array is not None:
+            processed_stars *= (1.0 - subject_mask_array[..., None] if processed_stars.ndim == 3
+                                else 1.0 - subject_mask_array)
         save_artifact('05c_star_final.tif', processed_stars)
         print(f"  ✓ 缩星reduction={cfg['star_reduction']}")
+    cfg.phase = None
 
     # ══════════════════════════════════════════════════════════════
     # 非线性阶段 (Non-Linear Phase)
@@ -2114,6 +3198,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
 
     # Phase 6: 星云细节增强
     if 'enhance' in steps:
+        cfg.phase = 'enhance'
         print("\n─ 非线性阶段 ─")
         print("[Phase 6] 星云细节增强 (高光保护 HDR + CLAHE 局部对比)...")
         from enhance import (apply_clahe, decide_enhance_mode, measure_texture_snr,
@@ -2216,9 +3301,11 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             + f"CLAHE clip={clip_limit}, kernel={kernel_size}, "
               f"mask_gamma={clahe_mask_gamma}; 模式={enhance_mode}"
         )
+    cfg.phase = None
 
     # Phase 7: 锐化
     if 'sharpen' in steps:
+        cfg.phase = 'sharpen'
         print("\n[Phase 7] 信号蒙版锐化 (FWHM-aware)...")
         sharpen_amount = cfg.get('sharpen_amount', 0.7)
         sharpen_fwhm = None
@@ -2256,9 +3343,12 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             f"radius={sharpen_report['radius']:.2f}px "
             f"effective={sharpen_report['effective_pixel_ratio']:.1%}"
         )
+    cfg.phase = None
 
     # Phase 8: 颜色调整 (Vectra-like)
     if 'final_color' in steps:
+        cfg.phase = 'final_color'
+        before_final_color = current_nl.copy()
         print("\n[Phase 8] 颜色调整 (Vectra-like)...")
         if current_nl.ndim == 2:
             current_nl = np.stack([current_nl] * 3, axis=-1)
@@ -2405,11 +3495,16 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 current_nl = apply_curves(current_nl, midtones=1.03, shadows=0.75)
                 print("  ✓ 中性曲线调整")
         current = current_nl
+        gate = check_channel_clipping(current, before_final_color)
+        gate['stage'] = 'final_color'
+        channel_clipping_gates.append(gate)
         save_current('08_color.tif')
         print("  ✓ 背景保护曲线完成")
+    cfg.phase = None
 
     # Phase 8b: 目标区域局部对比度和纹理增强
     if 'local_enhance' in steps:
+        cfg.phase = 'local_enhance'
         target_label = target_name or effective_target_type or '目标区域'
         print(f"\n[Phase 8b] {target_label} 局部对比度和纹理增强...")
         parsed_center = (
@@ -2423,17 +3518,19 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 else original_linear
             )
             try:
-                target_info = (
-                    cached_target_info
-                    if cached_target_info is not None
-                    else detect_target_crop(detail_source)[1]
-                )
+                if cached_target_info is not None:
+                    target_info = cached_target_info
+                elif effective_target_type == 'galaxy':
+                    # 星系走星点抑制的弥散检测（见 Phase 1 前的同类注释）：
+                    # 双高通细节检测会锁到亮星，局部增强因此在空天上运行。
+                    target_info = detect_extended_target(detail_source)
+                else:
+                    target_info = detect_target_crop(detail_source)[1]
                 nebula_cx = int(round(target_info['center'][0]))
                 nebula_cy = int(round(target_info['center'][1]))
-                object_width = target_info['object_bbox'][2]
-                object_height = target_info['object_bbox'][3]
-                detected_radius = int(max(object_width, object_height) * 1.45)
                 if effective_target_type == 'galaxy':
+                    # 弥散检测直接给出流量加权 RMS 半径，无需 bbox 换算。
+                    detected_radius = int(round(float(target_info.get('radius') or 0.0)))
                     min_galaxy_radius = int(min(current_nl.shape[:2]) * 0.38)
                     if detected_radius < min_galaxy_radius:
                         print(
@@ -2441,6 +3538,10 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                             f"< 保底半径={min_galaxy_radius}px，调整为={min_galaxy_radius}px"
                         )
                         detected_radius = min_galaxy_radius
+                else:
+                    object_width = target_info['object_bbox'][2]
+                    object_height = target_info['object_bbox'][3]
+                    detected_radius = int(max(object_width, object_height) * 1.45)
                 print(
                     f"  自动增强定位 center=({nebula_cx},{nebula_cy}) "
                     f"object_bbox={target_info['object_bbox']}"
@@ -2464,21 +3565,31 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                     gray_linear, star_threshold=cfg['star_threshold']
                 )
             local_star_mask = linear_star_mask_val
+        _before_8b = current_nl
         current_nl = local_nebula_enhance(
             current_nl,
             center_y=nebula_cy, center_x=nebula_cx,
-            radius=radius, strength=local_strength,
+            radius=radius, strength=cfg.get('local_strength', local_strength),
             star_mask=local_star_mask,
         )
+        local_enhance_effect = measure_stage_effect(_before_8b, current_nl)
         current = current_nl
         save_current('08b_local_enhance.tif')
-        print(f"  ✓ 局部增强 center=({nebula_cx},{nebula_cy}) "
-              f"radius={radius} strength={local_strength}")
+        if local_enhance_effect and local_enhance_effect['no_op']:
+            print(f"  ⚠️ 局部增强空操作：星云区高频仅放大 "
+                  f"{local_enhance_effect['hf_amplification']:.3f}× "
+                  f"< {MIN_EFFECTIVE_HF_AMPLIFICATION}，已记入 skipped_reasons")
+        else:
+            print(f"  ✓ 局部增强 center=({nebula_cx},{nebula_cy}) "
+                  f"radius={radius} strength={cfg.get('local_strength', local_strength)}")
+    cfg.phase = None
 
     if 'external_detail' in steps:
+        cfg.phase = 'external_detail'
         if external_starless_linear is None:
             raise ValueError("external_detail 步骤需要 --external-starless")
         print("\n[Phase 8c] 外部无星层正向结构增强...")
+        _before_8c = current_nl
         current_nl = positive_starless_detail_enhance(
             current_nl,
             original_linear=original_linear,
@@ -2486,12 +3597,20 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             strength=external_detail_strength,
             full_frame=not auto_crop_target,
         )
+        external_detail_effect = measure_stage_effect(_before_8c, current_nl)
         current = current_nl
         save_current('08c_external_detail.tif')
-        print(f"  ✓ 仅正向细节 strength={external_detail_strength}")
+        if external_detail_effect and external_detail_effect['no_op']:
+            print(f"  ⚠️ 外部细节空操作：星云区高频仅放大 "
+                  f"{external_detail_effect['hf_amplification']:.3f}× "
+                  f"< {MIN_EFFECTIVE_HF_AMPLIFICATION}，已记入 skipped_reasons")
+        else:
+            print(f"  ✓ 仅正向细节 strength={external_detail_strength}")
+    cfg.phase = None
 
     # Phase 8d: 轻微缩星并恢复蓝白星色
     if 'star_reduce' in steps:
+        cfg.phase = 'star_reduce'
         if valid_starless_layer and processed_stars is not None and not star_layer_empty:
             print("\n[Phase 8d] 跳过无星层缩星：当前为纯净无星图，缩星已在星点层独立完成")
             save_current('08d_star_reduced.tif')
@@ -2514,6 +3633,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             current = current_nl
             save_current('08d_star_reduced.tif')
             print(f"  ✓ 缩星(reduction={cfg.get('star_reduction', 0.18)})")
+    cfg.phase = None
 
     # ══════════════════════════════════════════════════════════════
     # 最终阶段 (Final Phase)
@@ -2526,6 +3646,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     # current 同域」的图，导致 STAR_BLOAT / STAR_LAYER_LOSS / STAR_HOLES 无法运行。
     star_gate_reference = None
     if 'star_combine' in steps and processed_stars is not None and not star_layer_empty:
+        cfg.phase = 'star_combine'
         print("\n─ 最终阶段 ─")
         print("[Phase 9] 星点合成 (StarComposer)...")
         current = combine_starless_stars(
@@ -2545,6 +3666,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             print("\n─ 最终阶段 ─")
             print("[Phase 9] 跳过星点合成：星点层为空（记录原因，不做静默空操作）")
         current = current_nl
+    cfg.phase = None
 
     # 去星修补足迹检测。
     #
@@ -2556,7 +3678,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     # 星位来自线性域的星点蒙版（位置是几何量、域无关）；FWHM 也必须用线性域实测值
     # （约 3.9px），否则会拿到被拉伸放大的 9~10px，几何关系全错。
     inpaint_footprint = None
-    if ('star_remove' in steps and not star_removal_fallback
+    if (('star_remove' in steps or (star_layers and 'star_combine' in steps)) and not star_removal_fallback
             and linear_star_mask_val is not None):
         try:
             from artifact_gates import check_inpaint_footprint
@@ -2575,9 +3697,12 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 "code": "INPAINT_FOOTPRINT", "status": "error",
                 "escalate": False, "message": f"足迹检测失败：{exc}", "evidence": {},
             }
+    cfg.phase = None
 
     style_diagnostics = None
     if 'style' in steps:
+        cfg.phase = 'style'
+        before_style = current.copy()
         print("\n[Phase 9a] AI 风格定调 (非生成式)...")
         effective_style_strength = cfg.get('style_strength', style_strength)
         style_star_mask = None
@@ -2594,8 +3719,12 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             strength=effective_style_strength,
             star_mask=style_star_mask,
             return_diagnostics=True,
+            highlight_ceiling=cfg.get('style_highlight_ceiling', 0.98),
         )
         current_nl = current
+        gate = check_channel_clipping(current, before_style)
+        gate['stage'] = 'style'
+        channel_clipping_gates.append(gate)
         save_current('09a_style.tif')
         print(f"  ✓ style={selected_style} strength={effective_style_strength}")
         if style_diagnostics:
@@ -2613,9 +3742,13 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                     "    ⚠ 自愈：黑位全局下移 "
                     f"{style_diagnostics['repair_shift']:.5f} 以避免局部背景被裁成纯黑"
                 )
+    cfg.phase = None
 
     # Phase 10: 最终降噪 (SCUNet-like, 必须最后)
-    if 'final_denoise' in steps:
+    if 'final_denoise' in steps and skip_final_denoise:
+        print('\n[Phase 10] Skipped: AI denoise already accepted')
+    if 'final_denoise' in steps and not skip_final_denoise:
+        cfg.phase = 'final_denoise'
         final_denoise_backend = cfg.get('final_denoise_method', cfg.get('denoise_method', 'bilateral'))
         print(f"\n[Phase 10] 最终降噪 ({'À Trous Wavelet (Starlet)' if final_denoise_backend in ('atrous', 'starlet') else 'SCUNet-like'}, 整体)...")
         if current.ndim == 2:
@@ -2630,8 +3763,10 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         )
         save_current('10_final_denoise.tif')
         print(f"  ✓ Final-Denoise L={cfg['final_denoise_lum']}/C={cfg['final_denoise_chroma']}  方法={final_denoise_backend}")
+    cfg.phase = None
 
     if reference_image:
+        cfg.phase = 'reference_grade'
         print("\n[Phase 11] 参考图全局定调...")
         reference, _reference_meta = read_image(reference_image)
         reference = np.asarray(reference, dtype=np.float32)
@@ -2708,10 +3843,13 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         reference_grade_report["orientation_changed"] = orientation_changed
         reference_grade_report["reference_image"] = reference_image
         save_current('11_reference_grade.tif', img=current)
+    cfg.phase = None
 
     # 终极背景中性化锁定 (Final Background Neutralization Lock)
+    output_is_linear = bool(is_linear_input and 'stretch' not in steps)
     bg_neutralize_report = None
-    if background_neutralize_lock:
+    if background_neutralize_lock and not output_is_linear:
+        cfg.phase = 'background_neutralization'
         bg_star_mask = None
         if processed_stars is not None and not star_layer_empty:
             bg_star_mask = np.max(processed_stars, axis=2) if processed_stars.ndim == 3 else processed_stars
@@ -2732,9 +3870,15 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 f"色偏量级 {bg_neutralize_report['pre_cast_magnitude']} → {bg_neutralize_report['post_cast_magnitude']}, "
                 f"offsets={bg_neutralize_report['offsets']}"
             )
+    cfg.phase = None
 
     # 最终输出
     current = np.clip(current, 0, 1)
+    if not output_is_linear:
+        final_reference = img if not is_linear_input and img.shape == current.shape else None
+        gate = check_channel_clipping(current, final_reference)
+        gate['stage'] = 'final'
+        channel_clipping_gates.append(gate)
 
     if has_alpha:
         current = np.dstack([current, alpha_channel])
@@ -2745,6 +3889,32 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         data_scale=meta.get('data_scale') if is_linear_input else None,
         data_offset=meta.get('data_offset') if is_linear_input else None,
     )
+    write_result_json_atomic({'capture_metadata': capture_metadata, 'is_linear': output_is_linear},
+                             str(output_path) + '.meta.json')
+
+    output_star_layers = None
+    if valid_starless_layer and 'star_combine' not in steps:
+        save_artifact('04_stars_linear.tif', stars)
+        processed_path = None
+        if loaded_processed_stars is not None or 'star_process' in steps:
+            save_artifact('05c_star_final.tif', processed_stars)
+            processed_path = artifact_paths.get('05c_star_final.tif')
+        output_star_layers = {
+            'source': layer_source_path,
+            'starless': str(output_path),
+            'stars': artifact_paths.get('04_stars_linear.tif'),
+            'processed_stars': processed_path,
+            'domain': 'linear' if output_is_linear else 'nonlinear',
+            'subject_mask': subject_mask,
+            'stars_is_linear': stars_is_linear,
+            'linear_star_metrics': linear_star_metrics if 'linear_star_metrics' in locals() else None,
+            'stellar_analysis': stellar_analysis or {
+                'starfield': (analysis_report or {}).get('starfield', {}),
+                'star_tools': (analysis_report or {}).get('recommendations', {}).get('star_tools', {}),
+            },
+        }
+        with open(layer_source_path, 'rb') as handle:
+            output_star_layers['source_sha256'] = hashlib.file_digest(handle, 'sha256').hexdigest()
 
     # 具名星点伪影门禁（与标量门禁并存）。
     #
@@ -2767,6 +3937,8 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 downsample_for_gates(current),
                 steps=_gate_steps,
             )
+            star_artifact_gates["context"].update(
+                reference_stage="post_star_combine", candidate_stage="final")
         except Exception as exc:  # 门禁失败不阻断出图
             star_artifact_gates = {
                 "schema": "artifact_gates/1.0",
@@ -2778,18 +3950,36 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     output_metrics = calculate_metrics(
         current,
         {
-            'processing_stage': 'final',
+            'processing_stage': 'linear' if output_is_linear else 'final',
             'linear_star_metrics':
                 linear_star_metrics if 'linear_star_metrics' in locals() else None,
             'style_diagnostics': style_diagnostics,
             'inpaint_footprint': inpaint_footprint,
+            'channel_clipping_gates': channel_clipping_gates,
+            'fidelity_gates': fidelity_gates,
         },
     )
+    output_metrics['channel_clipping_gates'] = channel_clipping_gates
     quality_status, quality_gates = evaluate_quality_gates(
         output_metrics,
         target_type=effective_target_type,
         steps=steps,
     )
+    if stretch_diagnostics and stretch_diagnostics.get('review_required'):
+        from gate_authority import seal_gate
+        quality_gates.append(seal_gate({
+            'code': ('STARLESS_ANCHOR_UNAVAILABLE' if stretch_diagnostics.get('fallback_reason')
+                     else 'STARLESS_ANCHOR_TARGET'),
+            'status': 'warning', 'escalate': True,
+            'message': 'Starless subject anchoring requires review',
+            'value': {key: stretch_diagnostics.get(key) for key in (
+                'fallback_reason', 'subject_samples', 'subject_midtones',
+                'actual_subject', 'target_bg', 'actual_background')},
+            'threshold': 'subject tolerance=max(0.01,5%); background tolerance=max(0.003,10%)',
+            'stage': 'stretch',
+        }))
+        if quality_status == 'success':
+            quality_status = 'review_required'
     recognition_ok = run_optional_recognition(
         input_path=input_path,
         output_path=output_path,
@@ -2838,6 +4028,20 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
             "message": star_combine_skipped["detail"],
         })
     status = quality_status
+    if stretch_diagnostics:
+        display_review = stretch_diagnostics.get('display_gates', {}).get('status') == 'review_required'
+        plateau_review = stretch_diagnostics.get('core_plateau', {}).get('escalate', False)
+        if (display_review or plateau_review) and status == 'success':
+            status = 'review_required'
+    if stretch_recovery == 'failed' and status == 'success':
+        status = 'review_required'
+    if memory_report['skipped_steps']:
+        warnings.append({'code': 'MEMORY_STEPS_SKIPPED',
+                         'message': 'Requested steps skipped: ' + ', '.join(memory_report['skipped_steps'])})
+        if status == 'success':
+            status = 'partial_success'
+    if pre_denoise_report and pre_denoise_report['review_required'] and status == 'success':
+        status = 'review_required'
     # 具名星点门禁是**加法式**升级：只在原本 success 时升级为 review_required，
     # 不覆盖既有 partial_success / failed 语义；warnings 只收 escalate=True 的
     # warning/failed（passed/skipped 不进 warnings，避免噪音）。
@@ -2854,7 +4058,95 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         status = "partial_success"
     if recognition_review_pending and status == "success":
         status = "partial_success"
+    skipped_reasons = {}
+    if is_star_poi_target(target_type, target_name):
+        skipped_reasons.update({step: 'star_subject_protection' for step in
+                               ('star_remove', 'star_reduce', 'star_process', 'star_combine')})
+    if not is_linear_input:
+        skipped_reasons['stellar_repair'] = 'nonlinear_input'
+    if pre_denoise_report and (pre_denoise_report['status'] in ('skipped', 'rejected')
+                              or pre_denoise_report.get('fallback_applied') is False):
+        skipped_reasons['pre_denoise'] = pre_denoise_report.get('reason', 'validation_rejected')
+    if stretch_recovery == 'failed':
+        skipped_reasons.update({step: 'stretch_recovery_failed'
+                                for step in stretch_diagnostics['skipped_after_failure']})
+    if star_removal_fallback:
+        skipped_reasons['star_remove'] = 'star_separation_rejected'
+    if star_combine_skipped:
+        skipped_reasons['star_combine'] = star_combine_skipped['reason']
+    if hdr_report and hdr_report.get('enhance_mode') == 'none':
+        skipped_reasons['enhance'] = 'enhancement_not_justified'
+    if hdr_report and not hdr_report.get('applied', True):
+        cfg.used.get('enhance', {}).pop('hdr_strength', None)
+    if 'star_reduce' in steps and valid_starless_layer and not star_layer_empty:
+        skipped_reasons['star_reduce'] = 'already_processed_stellar_layer'
+    if 'style' in steps and cfg.get('style_strength', style_strength) == 0:
+        skipped_reasons['style'] = 'zero_strength'
+    # 「执行了但效果为 0」—— 与上面 9 条「前置条件不满足」是**不同**类别。
+    # cfg.completed 由 save_artifact 追加（save 了就算 executed），因此空操作阶段
+    # 本会进 executed_steps 拿「已执行」背书；这里把它从 executed 里摘出去。
+    # 门禁副作用仅限 skipped_reasons，不动 evaluate_quality_gates —— 与 CLAHE
+    # 过度增强守卫（2690-2711 附近）完全同构。
+    for _step, _effect in (
+        ('local_enhance', locals().get('local_enhance_effect')),
+        ('external_detail', locals().get('external_detail_effect')),
+    ):
+        if _effect and _effect['no_op'] and _step in cfg.completed:
+            skipped_reasons[_step] = 'no_op_zero_effect'
+    executed_steps = [step for step in cfg.completed if step is not None and step not in skipped_reasons]
+    used_params = {step: dict(cfg.used.get(step, {})) for step in executed_steps}
+    if 'stretch' in used_params and stretch_diagnostics:
+        common_stretch = {'target_bg', 'stretch_headroom'}
+        standard_params = {'ghs_standard_' + key for key in ('log_d', 'b', 'sp', 'lp', 'hp')}
+        allowed = {
+            'emission': {'shadow_pctl', 'highlight_pctl', 'stretch_gamma', 'target_bg',
+                         'stretch_min_p99', 'stretch_headroom'},
+            'background_compressed': common_stretch | {'stretch_subject_midtones'}
+                | ({'ghs_protect_strength'} if cfg.get('stretch_subject_midtones') is None else set()),
+            'pi_mtf': common_stretch,
+            'ghs_standard': common_stretch | standard_params,
+            'masked_ghs_standard': common_stretch | standard_params | {'ghs_protect_strength'},
+            'arcsinh': {'stretch_factor'}, 'luminance_arcsinh': {'stretch_factor'},
+            'masked': {'stretch_factor', 'target_bg'}, 'mtf': {'midtones'},
+            'deep': {'shadow_pctl', 'highlight_pctl', 'stretch_gamma'},
+            'very_dark': {'stretch_factor', 'stretch_gamma', 'shadow_pctl', 'highlight_pctl', 'target_bg', 'stretch_min_p99'},
+            'ghs': {'ghs_sp', 'ghs_b', 'ghs_c', 'ghs_lp', 'ghs_hp', 'stretch_factor'},
+            'masked_ghs': {'ghs_sp', 'ghs_b', 'ghs_c', 'ghs_lp', 'ghs_hp', 'stretch_factor',
+                           'ghs_protect_lp', 'ghs_protect_hp', 'ghs_protect_strength',
+                           'target_bg', 'shadow_pctl', 'highlight_pctl', 'stretch_gamma'},
+        }.get(resolved_stretch_method, set(used_params['stretch']))
+        used_params['stretch'] = {key: cfg.get(key, value) for key, value in used_params['stretch'].items()
+                                  if key in allowed}
+        stretch_keys = {key for key in cfg if (key.startswith(('ghs_', 'stretch_'))
+                        or key in ('shadow_pctl', 'highlight_pctl', 'target_bg', 'midtones'))
+                        and key not in ('stretch_policy_version', 'stretch_method')}
+        stretch_diagnostics['unused_params'] = sorted(stretch_keys - allowed)
+        stretch_diagnostics['unused_legacy_params'] = sorted(key for key in stretch_keys - allowed
+                                                             if key.startswith('ghs_') and not key.startswith('ghs_standard_'))
+        stretch_diagnostics['unused_standard_params'] = sorted(key for key in stretch_keys - allowed
+                                                               if key.startswith('ghs_standard_'))
+        if stretch_diagnostics['algorithm'] == 'standard_ghs':
+            for key in ('log_d', 'b', 'sp', 'lp', 'hp'):
+                used_params['stretch']['ghs_standard_' + key] = stretch_diagnostics[key]
+            if resolved_stretch_method == 'masked_ghs_standard':
+                used_params['stretch']['ghs_protect_strength'] = stretch_diagnostics['protect_strength']
+    used_params['runtime'] = {'input_is_linear': is_linear_input,
+                              'stretch_policy_version': stretch_policy_version}
+    consumed = set().union(*(set(values) for values in used_params.values()))
+    execution = {
+        'executed_steps': executed_steps,
+        'used_params': used_params,
+        'unused_params': {key: {'value': value, 'reason': 'not_consumed_by_applied_operations'}
+                          for key, value in cfg.items() if key not in consumed},
+        'skipped_steps': [{'step': step, 'reason': skipped_reasons.get(step,
+                           'memory_limit' if step in memory_report['skipped_steps']
+                           else 'selection_rules_or_no_application')}
+                          for step in dict.fromkeys(requested_steps + steps) if step not in executed_steps],
+    }
     result = {
+        "runtime": runtime,
+        "requested_config": requested_config,
+        "execution": execution,
         "schema_version": AGENT_SCHEMA_VERSION,
         "status": status,
         "started_at": started_at,
@@ -2868,7 +4160,11 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 if recognize and recognition_ok else None
             ),
         },
+        "pre_denoise": pre_denoise_report,
         "effective_config": {
+            "input_is_linear": is_linear_input,
+            "output_is_linear": output_is_linear,
+            "skip_final_denoise": skip_final_denoise,
             "preset": preset,
             "steps": steps,
             "params": cfg,
@@ -2891,6 +4187,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         "sharpen": sharpen_report,
         "memory": memory_report,
         "stretch_recovery": stretch_recovery,
+        "stretch_diagnostics": stretch_diagnostics,
         "star_combine_skipped": star_combine_skipped,
         "star_removal": (
             star_report if 'star_report' in locals() else None
@@ -2909,13 +4206,51 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
         "safety_rules_applied": safety_log,
         "step_dependencies_applied": dependency_log,
         "artifacts": artifact_paths,
+        "artifact_meta": artifact_meta,
+        "star_layers": output_star_layers,
+        "channel_clipping_gates": channel_clipping_gates,
     }
+
+    step_status = status
+    # 降级阶段收集：凡走了保守回退/ preserve_review 的步骤都记入，
+    # 让 quality_state 能区分「干净出图」与「回退后出图」（failure_policy）。
+    degraded_stages = sorted({
+        *( [ 'stretch' ] if stretch_recovery is not None else [] ),
+        *( ['star_remove'] if star_removal_fallback else [] ),
+    })
+    result['degraded_stages'] = degraded_stages
+    # 累计配置指纹：证明「这份产物是用哪套配置产出的」。artifact_sha256 只能
+    # 证明「文件没被改」，证明不了「配置没被改」—— 改一个上游参数重跑时，
+    # 旧配置的 issues 会被 parent_state 继承到新产物上。指纹不同即切断继承。
+    config_fp = stage_fingerprint(cfg, input_path, upto_step='stretch')
+    result['config_fingerprint'] = config_fp
+    result['config_used'] = describe_config(cfg, upto_step='stretch')
+    quality_state = build_quality_state(output_path, input_path, inherited_quality,
+                                        ','.join(executed_steps),
+                                        collect_quality_gates(result),
+                                        degraded_stages=degraded_stages,
+                                        config_fingerprint=config_fp)
+    result['quality_state'] = quality_state
+    result['step_status'] = step_status
+    if quality_state['issues'] and result['status'] == 'success':
+        result['status'] = status = 'review_required'
+    elif (quality_state['status'] == 'degraded'
+          and result['status'] == 'success'):
+        # degraded 不阻断出图，但要让调用方看得出「这不是一次干净的处理」。
+        result['status'] = status = 'degraded'
+    persist_quality_state(output_path, quality_state)
 
     if keep_intermediates:
         manifest_path = os.path.join(work_dir, 'manifest.json')
         with open(manifest_path, 'w', encoding='utf-8') as handle:
             json.dump({
                 'schema_version': AGENT_SCHEMA_VERSION,
+                'runtime': runtime,
+                'quality_state': quality_state,
+                'step_status': step_status,
+                'requested_config': requested_config,
+                'execution': execution,
+                'stretch_diagnostics': stretch_diagnostics,
                 'status': status,
                 'input': input_path,
                 'output': output_path,
@@ -2936,8 +4271,12 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
                 'ai_tools_used': {
                     'external_starless': bool(external_starless),
                     'external_denoised': bool(external_denoised),
-                    'ai_artifact_check_required': bool(external_starless or external_denoised),
+                    'deepsnr': bool(pre_denoise_report and pre_denoise_report['backend'] == 'deepsnr'
+                                    and pre_denoise_report['status'] == 'accepted'),
+                    'ai_artifact_check_required': bool(external_starless or external_denoised
+                                                       or (pre_denoise_report and pre_denoise_report['status'] == 'accepted')),
                 },
+                'pre_denoise': pre_denoise_report,
                 'neural_star_removal_bridge': neural_bridge_report,
                 'metrics': output_metrics,
                 'color_calibration': color_calibration_report,
@@ -2978,7 +4317,7 @@ def run_pipeline(input_path, output_path, steps=None, preset='medium',
     if keep_intermediates and work_dir:
         print(f"  📁 中间结果: {work_dir}/")
     print(f"{'='*65}\n")
-    if cleanup or not keep_intermediates:
+    if (cleanup or not keep_intermediates) and output_star_layers is None:
         shutil.rmtree(work_dir, ignore_errors=True)
     return result
 
@@ -3001,7 +4340,8 @@ def main():
                    help='处理强度预设 (默认: medium)')
     p.add_argument('--stretch-method', default='auto',
                    choices=['auto', 'arcsinh', 'mtf', 'masked', 'deep',
-                            'very_dark', 'emission', 'ghs', 'masked_ghs'],
+                            'very_dark', 'emission', 'ghs', 'masked_ghs',
+                            'ghs_standard', 'masked_ghs_standard', 'pi_mtf', 'background_compressed'],
                    help='拉伸方法 (默认: auto，基于目标类型自适应升级为 masked_ghs)')
     p.add_argument('--steps', default=None,
                    help=f'指定步骤,逗号分隔. 可选: {",".join(ALL_STEPS)}')
@@ -3034,6 +4374,9 @@ def main():
     )
     p.add_argument('--external-starless', default=None,
                    help='外部工具生成的无星图，如 StarNet++ starless.tif')
+    p.add_argument('--subject-mask', help='Reviewed subject protection mask matching input geometry')
+    p.add_argument('--star-layers', help='JSON file containing a previous result star_layers object')
+    p.add_argument('--capture-metadata', help='JSON file containing source capture metadata')
     p.add_argument('--external-starless-domain', default='linear',
                    choices=['linear', 'mtf'],
                    help='外部无星图所在域。linear=线性（默认，兼容旧输入）；'
@@ -3055,6 +4398,18 @@ def main():
                         'linear=原样量化（旧行为，极暗数据会丢弱色通道）')
     p.add_argument('--starnet-timeout', type=int, default=900,
                    help='StarNet2 执行超时秒数（默认: 900）')
+    p.add_argument('--star-removal-baseline', default=None,
+                   help='上一次同图运行的 result.json 路径。提供后，去星误伤门禁改用'
+                        '**相对判据**（本次 |1-q| 减去该文件里的基线），'
+                        '这是绝对读数跨样本不可比时的唯一可行路线 '
+                        '(references/star_damage_gate_calibration.md §8)')
+    p.add_argument('--deepsnr', choices=['auto', 'always', 'never'], default='auto',
+                   help='DeepSNR pre-denoise mode; auto skips low noise and star clusters')
+    p.add_argument('--deepsnr-path', default=None, help='DeepSNR executable path')
+    p.add_argument('--deepsnr-timeout', type=float, default=900, help='DeepSNR processing timeout in seconds')
+    p.add_argument('--deepsnr-strength', type=float, default=0.35, help='Linear-domain blend strength in (0, 1]')
+    p.add_argument('--input-linear', dest='input_is_linear', action='store_true', default=None,
+                   help='Declare a linear TIFF intermediate')
     p.add_argument('--external-denoised', default=None,
                    help='外部 AI 降噪工具预处理后的图像，如 NoiseXTerminator 输出 (L1 级别)')
     p.add_argument('--override-params', default=None,
@@ -3075,9 +4430,11 @@ def main():
     p.add_argument('--auto-crop-padding', type=float, default=2.0,
                    help='自动裁切边距，相对目标包围盒倍数')
     p.add_argument('--target-type', default=None,
-                   choices=['emission_nebula', 'reflection_nebula', 'galaxy',
-                            'globular_cluster', 'open_cluster',
-                            'planetary_nebula', 'dark_nebula', 'wide_field'])
+                   # 从 target_rules._KNOWN_TYPES 派生，避免两处清单各写一份
+                   # 而悄悄分叉（此前 CLI 漏了 star_cluster 与
+                   # supernova_remnant，而 target_type 一律会被 resolve_target_type
+                   # 按 _KNOWN_TYPES 校验 —— CLI 能接受的值反而少于 API）。
+                   choices=sorted(_KNOWN_TYPES))
     p.add_argument('--target-name', default=None,
                    help='目标天体名称（如 M42、M45、NGC6888），用于激活特定安全规则')
     p.add_argument('--analysis-report', default=None,
@@ -3189,27 +4546,6 @@ def main():
     analysis_report = None
     if args.analysis_report:
         analysis_report = load_analysis_report(args.analysis_report)
-    elif args.strength == 'adaptive':
-        # adaptive 预设但未提供报告：尝试自动运行 analyze.py
-        auto_report_path = os.path.join(
-            tempfile.gettempdir(),
-            f"dsp_auto_analysis_{os.getpid()}.json"
-        )
-        try:
-            import subprocess
-            result = subprocess.run(
-                [sys.executable, os.path.join(os.path.dirname(__file__), 'analyze.py'),
-                 args.input, '--output', auto_report_path],
-                capture_output=True, text=True, timeout=60
-            )
-            if result.returncode == 0:
-                analysis_report = load_analysis_report(auto_report_path)
-                if analysis_report:
-                    print(f"[自适应] 自动诊断完成: {auto_report_path}")
-            else:
-                print(f"[WARN] 自动诊断失败: {result.stderr.strip()}")
-        except Exception as exc:
-            print(f"[WARN] 自动诊断异常: {exc}")
 
     # 从 FITS header 自动推断 target_name（用户未指定时）
     target_name = args.target_name
@@ -3247,7 +4583,13 @@ def main():
         keep_all=args.keep_all,
         tile_size=args.tile_size,
         external_starless=args.external_starless,
+        subject_mask=args.subject_mask,
+        star_layers=json.loads(Path(args.star_layers).read_text()) if args.star_layers else None,
+        capture_metadata=json.loads(Path(args.capture_metadata).read_text()) if args.capture_metadata else None,
         external_denoised=args.external_denoised,
+        deepsnr=args.deepsnr, deepsnr_path=args.deepsnr_path,
+        deepsnr_timeout=args.deepsnr_timeout, deepsnr_strength=args.deepsnr_strength,
+        input_is_linear=args.input_is_linear,
         override_params=override_params,
         crop=args.crop,
         target_type=args.target_type,
@@ -3269,6 +4611,7 @@ def main():
         starnet_stride=args.starnet_stride,
         starnet_domain=args.starnet_domain,
         starnet_timeout=args.starnet_timeout,
+        star_removal_baseline=args.star_removal_baseline,
         result_json=args.result_json,
         quality_policy=args.quality_policy,
         plate_solve=args.plate_solve,

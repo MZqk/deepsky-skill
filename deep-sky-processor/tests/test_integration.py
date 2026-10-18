@@ -277,6 +277,38 @@ class IntegrationTests(unittest.TestCase):
             float(np.mean(image[shell > 0.7])),
         )
 
+    def test_local_enhance_mask_does_not_collapse_on_sparse_target(self):
+        """稀疏小目标上，两个软蒙版不能相乘。
+
+        根因：径向蒙版在核心区恒≈1，而 signal_mask 由**全图** medium_smooth 的
+        p35/p98 决定 —— 小目标只占画面 1.5%，其 medium_smooth 中位恰落在 p35
+        附近，于是目标区 signal_mask 被压到 0.18（实测），乘积随之塌陷。
+        **降分位无效**（实测 p2 时乘积仍仅 0.077，比 OR 的 0.42 差 5.5×）。
+
+        断言用**环带内高频能量比**而非亮度均值：该算子只增强细节、不改亮度
+        （实测亮度 ratio≈1.00 而 HF 提升 44%），用亮度断言会误判为空操作。
+        """
+        image = np.full((1200, 1200, 3), 0.010, dtype=np.float32)
+        yy, xx = np.mgrid[0:1200, 0:1200]
+        radius = np.sqrt((yy - 600) ** 2 + (xx - 600) ** 2).astype(np.float64)
+        image += (np.exp(-((radius / 180.0) ** 2)) * 0.05)[..., None]
+        rng = np.random.default_rng(7)
+        for _ in range(400):                      # 稀疏硬星点
+            cy = int(rng.integers(5, 1195))
+            cx = int(rng.integers(5, 1195))
+            image[cy - 2:cy + 3, cx - 2:cx + 3] += rng.uniform(0.3, 1.0)
+        image = np.clip(image, 0, 1)
+        out = local_nebula_enhance(image, 600, 600, radius=445, strength=0.30)
+
+        band = (radius >= 150) & (radius < 445)     # 排除星点主导的中心区
+
+        def band_hf(plane):
+            from scipy.ndimage import gaussian_filter
+            lum = plane.mean(axis=2)
+            return float(np.abs(lum - gaussian_filter(lum, 2.0))[band].mean())
+
+        self.assertGreater(band_hf(out) / band_hf(image), 1.02)
+
     def test_full_frame_star_reduction_respects_explicit_mask(self):
         image = np.full((64, 64, 3), 0.04, dtype=np.float32)
         image[12:17, 12:17] = 0.9

@@ -7,6 +7,7 @@
 - [CLAHE and local contrast](#clahe-and-local-contrast)
 - [Linear vs nonlinear boundaries](#linear-vs-nonlinear-boundaries)
 - [DeepSNR and external denoise guardrails](#deepsnr-and-external-denoise-guardrails)
+- [Paired star artifact attribution](#paired-star-artifact-attribution)
 - [Target-type safety rules](#target-type-safety-rules)
 
 
@@ -55,13 +56,51 @@ Hard rules:
   never infer float FITS support from the version string alone.
 - If an operation needs 8-bit or 16-bit integer input, keep the original float
   source and mark the result with `precision_reduced_for_algorithm=true`.
-- DeepSNR 1.2.3+ is not an integer-only boundary. For both linear `pre` and
-  nonlinear `final` stages, capability-gated runs must exchange float32 FITS
-  and require a float32 `BITPIX=-32` FITS result. Only legacy capability
-  fallback may use uint16 TIFF, with
-  `precision_reduced_for_algorithm=true`.
+- DeepSNR pre-denoise requires CLI 1.2.3+ with explicitly declared float32
+  FITS input/output capabilities. Exchange float32 FITS with zero-shadow,
+  reversible MTF and require a standard `BITPIX=-32` result. Unsupported
+  runtimes fall back to internal Starlet, without integer transport.
+- CLI 1.3.2+ uses the standard FITS RGB contract (verified on local 1.3.2
+  CoreML); no per-image calibration inference is needed. Legacy versions
+  require a known constant color probe, never a guess from the target's colors.
+  Record the order source and reverse legacy BGR output before inverse MTF.
+- Do not enable 1.3.2 native `--linear` by default: its capability declaration
+  states that clipped source samples are not restored. Keep the zero-shadow
+  external MTF bridge to avoid irreversible shadow clipping.
 - Master outputs should preserve float TIFF/FITS when requested. JPG/PNG are
   display deliverables, not scientific intermediates.
+
+## Paired star artifact attribution
+
+`artifact_gates.py` uses reference star positions and a shared neighbor mask.
+A clipped local plane replaces the scalar outer-annulus background. The p90
+absolute residual over all unmasked fit samples remains an uncertainty measure,
+including samples excluded from the clipped fit. A curved filament must not
+become a reliable background solely because clipping removed it.
+
+- `STAR_RINGING` requires absolute depth and paired depth increment to each
+  exceed `max(0.003, 0.12 * local_background)`. `STAR_HOLES` uses
+  `max(0.003, 0.20 * local_background)` for both depths. The failed count remains
+  `max(2, ceil(0.08 * valid_samples))`; edge and unreliable samples are excluded.
+- Fit the candidate-minus-reference background on identical samples. This
+  cancels inherited field structure without fitting away a new inner deficit.
+  `reference_dip_abs`, `added_dip_abs`, and `delta_background_error` describe
+  each suspect at the same radius or stellar center.
+- Inherited deficits and unreliable absolute backgrounds with a reliable,
+  unchanged paired contrast remain diagnostic warnings with `escalate=false`.
+  New deficits and uncertain paired backgrounds retain escalation. Random
+  background hit rates or starless-layer correlation do not exempt a frame.
+- Paired attribution requires aligned, equal-shape images in the same intensity
+  domain. Agent steps carry `input_is_linear` and `output_is_linear`; resizing
+  review previews does not establish geometric comparability. Known domain or
+  geometry mismatches require review and cannot be labeled preexisting.
+- The half-height connected stellar core supplies a diagnostic sampling width
+  when available, avoiding moment inflation from faint filaments. It is not a
+  physical PSF or resolution measurement. Explicit `fwhm` inputs remain valid.
+- Pipeline reports label the reference as `post_star_combine` and the candidate
+  as `final`. This pair covers terminal processing only. DeepSNR's saved
+  pre-denoise before/after/residual artifacts remain the evidence for that stage;
+  do not compare a linear pre-denoise image directly with a stretched final image.
 
 ## OpenCV rules
 
@@ -199,8 +238,9 @@ new evidence. The pipeline may use them only after deterministic validation:
   `BITPIX=-32`; grayscale is 2D and RGB is a simple 3-channel cube. Invalid
   sample type, layout, non-finite values, or material range overflow is a CLI
   failure before the perceptual quality gate.
-- Outputs with NaN/Inf, large luminance drift, channel mean drift, negative
-  noise reduction, low detail retention, or low edge retention are rejected.
+- Outputs with NaN/Inf, large luminance drift, channel mean drift, increased
+  background noise, low detail retention, or low edge retention are rejected.
+  High-frequency energy loss alone is not a rejection: noise removal lowers it.
 - Flat or low-edge backgrounds may pass only when drift and noise-increase
   checks remain safe.
 - Rejected DeepSNR output must fall back to internal denoise and mark
@@ -224,3 +264,87 @@ new evidence. The pipeline may use them only after deterministic validation:
 
 If target type is unknown, use conservative nebula/galaxy limits and require
 review before broad inpaint, aggressive CLAHE, or star reduction.
+
+## 星点处理引擎 v2 实现细节（`scripts/star_tools.py`）
+
+### 多尺度检测
+
+- 自动从图像估计 FWHM（2D 高斯拟合亮星候选，MAD 剔除异常值）
+- 基于 FWHM 生成 4 个尺度的结构元素：小星(0.4x)、中星(0.7x)、大星(1.1x)、星芒(1.8x)
+- 各尺度独立 White Top-hat 检测，合并响应
+
+### 连通域特征过滤
+
+对每个检测到的亮结构计算面积、等效直径、圆度(4πA/P²)、峰值亮度、长宽比、包围盒填充率。
+
+自动过滤：
+
+- **热像素**：面积 < π(0.3·FWHM)²
+- **星云亮核**：面积 > π(4·FWHM)² 且圆度 < 0.25
+- **噪声**：峰值 < 0.3·阈值
+- **星云细丝**：长宽比 > 5 且圆度 < 0.3
+
+### 梯度感知阈值
+
+计算 Sobel 梯度幅值；在星云高梯度区域（亮丝、边缘）自动降低检测响应，避免误检。
+
+### 修复方法
+
+- **默认**：OpenCV Telea 快速行进法（小/中星点）
+- **大区域/星芒**：自动降级为 Navier-Stokes 流体动力学修复
+- **OpenCV 不可用时**：回退到高斯模糊修复
+
+### 置信度系统
+
+`detect_stars_multiscale()` 返回 `confidence`（0-1），基于保留比例、圆度一致性、
+尺寸一致性、密度合理性、热像素比例综合评分。`separate_stars()` 默认
+`min_confidence=0.3`；置信度 < 0.3 时输出警告，建议改用外部 StarNet++。
+
+### CLI 使用
+
+```bash
+# 检测并输出掩膜 + 详情
+python3 scripts/star_tools.py detect input.jpg mask.tif --details
+
+# 分离星点（使用 Telea 修复）
+python3 scripts/star_tools.py separate input.jpg starless.tif --method telea
+
+# 使用旧版单尺度检测
+python3 scripts/star_tools.py separate input.jpg starless.tif --legacy
+```
+
+## FITS I/O 归一化与输出精度契约（`scripts/fits_io.py`）
+
+### 输入：不使用百分位裁剪
+
+旧版用 `p0.1-p99.9` 百分位裁剪归一化，会截断 p0.1 以下的暗部信号为 0、把 p99.9 以上
+的亮部（亮星核心、星云饱和区）压到 1，原始线性范围与测光信息丢失。现行行为：
+
+- BSCALE/BZERO 由 astropy 在 `fits.open()` 阶段按 FITS 标准自动应用（含
+  `BZERO=2**(BITPIX-1)` 的伪无符号 uint16 约定），**管线不再手动叠加**；header 原值
+  仅记录在 `scale_info` / `meta` 中供溯源。
+- 使用绝对值最大值归一化 `data = data / max(|min|, |max|)`，保留负值（噪声可以有负值），
+  完整动态范围进入管线，不做任何截断。
+- 归一化因子 `data_scale` 记录在 meta 中，供输出时恢复。
+
+### DBE 阶段的归一化
+
+黑点取**背景稳健中心**（逐通道 DBE 后背景以 0 为中心、噪声对称），白点**锚定真实峰值**，
+并保留一个 3σ 的 pedestal 让背景噪声完整通过。
+
+- 旧的 `p99.7` 白点对「亮核很小、暗晕很大」的天体是灾难：该分位落在很暗的外缘
+  （实测 M31 的 p99.7 比峰值低 36.6 倍），等于把整幅图放大 ~37 倍 —— 噪声被放大到与
+  星点可比，星点检测会把噪声当成星。
+- 旧的黑点是「正值像素的 p0.3」，等于在 `clip(0)` 之后再抬一次黑位，会把噪声底整个裁掉
+  （实测 28~44% 画面变纯 0）。
+- 配置项 `dbe_pctl_low` 已不再作为黑点使用（保留仅为兼容既有配置）；`dbe_pctl_high`
+  仅作为白点的下界保留。
+
+### 输出：float32 替代 uint16
+
+旧版把 `[0,1]` float 乘 65535 转 uint16，丢失 32-bit 浮点精度、把非线性数据硬编码为
+16-bit（语义不匹配），且 header 中的 BSCALE/BZERO 不再正确描述数据。现行行为：
+
+- 输出 `BITPIX=-32`（IEEE float32），`BSCALE=1.0, BZERO=0.0`，header 语义一致。
+- 添加 `HISTORY` 记录处理信息；可选恢复原始 `data_scale`（处理前线性数据时有用）。
+- 中间 `.tif` 继续使用 float32；JPG/PNG 输出行为不变（仍基于 `[0,1]` 范围）。

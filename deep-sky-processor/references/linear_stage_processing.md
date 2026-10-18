@@ -144,7 +144,7 @@ normalized(x, y) =
 先诊断，再选择背景模型。运行：
 
 ```bash
-python scripts/analyze.py stacked_linear.fits \
+python3 scripts/analyze.py stacked_linear.fits \
   --output analysis.json \
   --format readable
 ```
@@ -231,7 +231,7 @@ DBE 只能减弱平滑残差，不能可靠修复结构化平场错误。
 管线示例：
 
 ```bash
-python scripts/pipeline.py stacked_linear.fits widefield.jpg \
+python3 scripts/pipeline.py stacked_linear.fits widefield.jpg \
   --strength adaptive \
   --target-type wide_field \
   --steps dbe,color,pre_denoise,stretch,final_color \
@@ -241,7 +241,7 @@ python scripts/pipeline.py stacked_linear.fits widefield.jpg \
 明确覆盖诊断建议时：
 
 ```bash
-python scripts/pipeline.py stacked_linear.fits widefield.jpg \
+python3 scripts/pipeline.py stacked_linear.fits widefield.jpg \
   --strength adaptive \
   --target-type wide_field \
   --override-params '{"dbe_method":"polynomial","dbe_degree":2}' \
@@ -296,3 +296,103 @@ python scripts/pipeline.py stacked_linear.fits widefield.jpg \
 - 被剔除的异常子帧及原因；
 - `gradient_pattern`、`vignetting_ratio` 和 DBE 决策；
 - 背景模型及差分审查结论。
+
+## 内层 GHS 切线保护 `ghs_protect_lp` / `ghs_protect_hp` / `ghs_c`
+
+`masked_ghs` 路径**另有**一套内层保护，与外层 `ghs_lp`/`ghs_hp` **语义不同**，
+因此是独立键（默认 `None` = 不启用，输出与旧实现逐位一致）：
+
+| 键 | 语义 | 空间 | 默认 |
+|---|---|---|---|
+| `ghs_lp` / `ghs_hp` | **重锚点**（`source=lp→0`、`source=hp→1`） | 绝对输入单位 | `None` |
+| `ghs_protect_lp` / `ghs_protect_hp` | 内层 GHS 的**两端切线保护锚点** | 归一化 `[0,1]` | `None` |
+| `ghs_c` | GHS 输出后的高光 rolloff（域无关） | 曲线输出 `[0,1]` | `0.0` |
+
+- **为什么不能复用外层键**：外层 `lp/hp` 作用在归一化**之前**；内层 `ghs_stretch`
+  看到的已经是 `normalized`。原样透传量纲不符；按 `((v-low)/(high-low))` 换算又会
+  退化为 `(0,1)`（等于无保护）。故必须两个独立旋钮。
+- 取值可为 `None` / `"auto"` / 浮点。`"auto"` 按归一化背景中值与 `p99.5` 自动推导
+  （实测量级 `protect_lp≈0.02~0.08`、`protect_hp≈0.70~0.95`）。
+- `ghs_protect_hp <= ghs_protect_lp` 时告警并禁用内层保护。
+- 典型用法：极暗/发射星云需要「锁住已建立的暗部层次、同时给亮核留 headroom」时，
+  `--override-params '{"ghs_protect_lp":"auto","ghs_protect_hp":"auto"}'`。
+
+## GHS 两端保护 `ghs_lp` / `ghs_hp`（外层重锚点）
+
+`lp`（阴影锚点）与 `hp`（高光锚点）定义曲线的**作用窗口**：窗口内走 GHS
+基准曲线，窗口外以边界处的切线线性延伸（只做等比缩放，不引入非线性扭曲），
+最后仿射归一化使 `f(0)=0`、`f(1)=1`。
+
+- **`ghs_lp` 治「拉伸坍缩」**：极暗数据的真实动态范围常只占 `[0.002, 0.03]`，
+  而裸 GHS 的归一化锚定在固定的 `[0,1]`，导致暗部增益极低（实测压缩 172 倍），
+  整幅被压成一条窄带。把 `lp` 设为背景水平（如 `0.001`）即可重新锚定。
+- **`ghs_hp` 治「核心过曝」**：它是**拉伸阶段的高光 headroom 旋钮**，因果上
+  早于 HDR 阶段。设为真实最亮结构（如 `p99.9`）可为亮核留出余量，并让离群亮
+  像素不再主导整条曲线。注意两条路径方向不同——裸 `ghs` 下 `hp` 越小核心落点
+  越高，`masked_ghs` 下 `hp` 是归一化除数、越小核心落点越低。
+- 建议成对使用：极暗数据 `{"ghs_lp": 0.001, "ghs_hp": 0.05, "ghs_sp": 0.005}`
+  实测可把 `stretch_recovery` 从 `failed` 转为正常，暗部均匀斑块比从 0.50 降到 0。
+- `ghs_hp <= ghs_lp` 视为退化窗口，管线会告警并回退为不启用。
+
+## 标准 GHS 与目标拉伸策略（策略 3）
+
+`ghs` / `masked_ghs` 保留历史 sinh 曲线及参数语义。标准曲线使用
+`ghs_standard` / `masked_ghs_standard`；`pi_mtf` 使用共享亮度增益、零黑位及 RGB
+最大通道高光余量（新路径默认余量 5%，不会通过逐通道硬裁切保护核心）。
+
+含星自动策略：星系、行星状星云、M42 使用 `masked_ghs_standard`；星团及 M45
+使用 `pi_mtf`；弥散发射目标保留 `emission`；反射/暗星云使用保色 `arcsinh`；
+未知目标和宽场使用 `pi_mtf`。显式方法优先于覆盖配置中的方法，再采用目标规则。
+
+新管线调用与 Agent 会话记录 `stretch_policy_version: 3`；既有会话保留策略 1 或 2，
+缺失版本按策略 1。策略 3 下每个合法线性无星层在 auto 模式都用 `background_compressed`，
+包括同调用分离、外部图层和续接的 `star_layers`。分离失败保留带星策略；非线性层
+不能再次拉伸；星点主导目标保留既有安全限制。
+
+### `stretch_subject_midtones`
+
+控制无星主体的显示目标：默认 `0.25`，反射/暗星云为 `0.20`，设为 `null` 则保留
+白锚点曲线。必须满足 `target_bg < stretch_subject_midtones < (1-stretch_headroom)/3`：
+
+```json
+{"stretch_subject_midtones": 0.25, "target_bg": 0.035, "stretch_headroom": 0.05}
+```
+
+主体锚定使用原尺寸低频亮度，在最低四分位空间样本上测原始亮度背景 MAD，排除残余
+点源足迹与最亮 10% 主体样本，不复用分离核心掩膜。有理主体增益在保守 MTF 背景上
+平滑淡入；残余点源在原生尺寸羽化守卫下保留保守 MTF 细节，避免在亮主体区刻出黑洞
+（行星状星云跳过该守卫以保留紧凑主体）。请求目标在 RGB 高光肩部之后于输出上验证，
+未达标保持 review-required。背景是**相对显示代理，不是物理天空测量**。
+
+主体样本不足或锚点不可分时回退 `pi_mtf` 并保持 review-required；被拒的锚定候选
+按主体-背景目标距离减半重试一次，再走既有安全 MTF 回退。检查 `actual_subject`、
+`actual_background`、样本数、曲线与肩部参数、主体混合覆盖率、点源守卫覆盖率、
+被拒候选和质量状态。数值成功不代表接受新增环、光晕或放大的分离足迹。
+
+### 标准参数键
+
+标准参数使用独立键，旧 `ghs_b` 等不会自动换算：
+
+```json
+{
+  "ghs_standard_b": 8.0,
+  "ghs_standard_lp": 0.0,
+  "ghs_standard_hp": 0.95,
+  "ghs_protect_strength": 0.85,
+  "stretch_headroom": 0.05,
+  "target_bg": 0.035
+}
+```
+
+`ghs_standard_sp` 未提供时取归一化亮度中位数；缺省 `ghs_standard_log_d` 时在 `[0,20]`
+内先定位首次跨越目标的区间，再最多二分 24 轮。保护锚点是归一化域参数，必须满足
+`0 <= LP <= SP <= HP <= 1` 且 `HP > LP`；`log_d` 范围 `[0,20]`，`b` 范围 `[-5,15]`，
+所有显式参数必须有限，无效参数直接拒绝。强度与旧 `stretch_factor`、`ghs_b` 无换算关系。
+
+### 显示域证据边界
+
+线性 FWHM 与显示域星宽分别报告。固定 MTF 参照只用于显示外观比较，不能证明物理 PSF
+改变；不同显示曲线的星峰亮度不用于 `STAR_LAYER_LOSS` 责任判定，显示域星宽、振铃和
+暗坑仍接受检查。核心平台诊断检查低于裁切阈值的新增近常值亮区；输入已有平台保留为
+继承诊断。新自动路径只尝试一次保守 MTF 回退；全部失败则恢复输入和图层域状态，
+停止后续非线性步骤并返回 `review_required`。

@@ -187,7 +187,7 @@ class PipelineRecognitionTests(unittest.TestCase):
             self.assertEqual(manifest_payload['target_name'], 'M31')
             self.assertEqual(manifest_payload['target_type'], 'galaxy')
             # 验证 manifest 中记录的拉伸方法是否为 masked_ghs
-            self.assertEqual(manifest_payload['stretch_method'], 'masked_ghs')
+            self.assertEqual(manifest_payload['stretch_method'], 'masked_ghs_standard')
 
 
 if __name__ == "__main__":

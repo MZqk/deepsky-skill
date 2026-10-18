@@ -22,8 +22,7 @@ import sys
 import numpy as np
 from skimage import img_as_float32, img_as_ubyte
 from skimage.io import imread, imsave
-from scipy.ndimage import gaussian_filter, median_filter
-
+from scipy.ndimage import binary_dilation, gaussian_filter, median_filter
 
 def arcsinh_stretch(image, factor=30.0, black_point=0.0):
     """
@@ -253,7 +252,8 @@ def _lift_underfilled_highlights(luminance, target_bg, target_p99=0.5):
     return np.clip(luminance + signal_weight * lift, 0, 1)
 
 
-def pi_mtf_stretch(image, target_bg=0.075, headroom=0.12, shadow_ratio=0.75):
+def pi_mtf_stretch(image, target_bg=0.075, headroom=0.12, shadow_ratio=0.75,
+                   background_level=None):
     """
     PixInsight 标准 Linked MTF (Midtone Transfer Function) 拉伸。
 
@@ -269,7 +269,7 @@ def pi_mtf_stretch(image, target_bg=0.075, headroom=0.12, shadow_ratio=0.75):
     is_color = source.ndim == 3 and source.shape[2] >= 3
     rgb = source[..., :3] if is_color else source
 
-    bg = float(np.median(rgb))
+    bg = float(np.median(rgb) if background_level is None else background_level)
     max_val = float(np.max(rgb))
     if max_val <= 1e-9:
         return np.zeros_like(source, dtype=np.float32)
@@ -278,7 +278,8 @@ def pi_mtf_stretch(image, target_bg=0.075, headroom=0.12, shadow_ratio=0.75):
     highlights = max_val * (1.0 + float(headroom))
 
     x = np.clip((rgb - shadows) / max(highlights - shadows, 1e-9), 0.0, 1.0)
-    bg_x = float(np.median(x))
+    bg_x = float(np.median(x) if background_level is None else
+                 (bg - shadows) / max(highlights - shadows, 1e-9))
 
     t = float(target_bg)
     b = bg_x
@@ -287,7 +288,7 @@ def pi_mtf_stretch(image, target_bg=0.075, headroom=0.12, shadow_ratio=0.75):
         m = 0.5
     else:
         m = b * (t - 1.0) / denom
-    m = float(np.clip(m, 0.001, 0.999))
+    m = float(np.clip(m, 0.001 if background_level is None else 1e-8, 0.999))
 
     stretched = ((m - 1.0) * x) / ((2.0 * m - 1.0) * x - m)
     result = np.clip(stretched, 0.0, 1.0)
@@ -483,6 +484,371 @@ def emission_stretch(image, shadow_pctl=0.5, highlight_pctl=99.94,
     if source.shape[2] > 3:
         result = np.dstack([result, source[..., 3:]])
     return np.clip(result, 0, 1).astype(np.float32)
+
+
+def ghs_standard_stretch(image, log_d=0.0, b=8.0, sp=0.01, lp=0.0, hp=0.95):
+    """Evaluate the author's normalized, piecewise GHS in float64.
+
+    log_d is ln(1 + D), independent of the legacy sinh strength parameter.
+    Reference: ghsastro.co.uk/doc/tools/GeneralizedHyperbolicStretch/
+    """
+    values = np.asarray([log_d, b, sp, lp, hp], dtype=np.float64)
+    if (not np.isfinite(values).all() or not 0 <= log_d <= 20
+            or not -5 <= b <= 15 or not 0 <= lp <= sp <= hp <= 1 or hp <= lp):
+        raise ValueError("Invalid standard GHS parameters")
+    x = np.asarray(image, dtype=np.float64)
+    if not np.isfinite(x).all() or np.any(x < 0) or np.any(x > 1):
+        raise ValueError("Standard GHS samples must be finite and in [0, 1]")
+    if log_d == 0:
+        return x.astype(np.float32)
+    d = np.expm1(log_d)
+
+    def base(t):
+        if b == -1:
+            return np.log1p(d * t)
+        if b == 0:
+            return -np.expm1(-d * t)
+        if b < 0:
+            return -np.expm1(((b + 1) / b) * np.log1p(-b * d * t)) / (d * (b + 1))
+        return -np.expm1(-np.log1p(b * d * t) / b)
+
+    def slope(t):
+        if b == -1:
+            return d / (1 + d * t)
+        if b == 0:
+            return d * np.exp(-d * t)
+        if b < 0:
+            return np.exp(np.log1p(-b * d * t) / b)
+        return d * np.exp(-(1 + b) / b * np.log1p(b * d * t))
+
+    qlp, qhp = -base(sp - lp), base(hp - sp)
+    slp, shp = slope(sp - lp), slope(hp - sp)
+    q0, q1 = qlp - slp * lp, qhp + shp * (1 - hp)
+    out = np.sign(x - sp) * base(np.abs(x - sp))
+    out = np.where(x < lp, qlp + slp * (x - lp), out)
+    out = np.where(x > hp, qhp + shp * (x - hp), out)
+    return np.clip((out - q0) / (q1 - q0), 0, 1).astype(np.float32)
+
+
+def background_compressed_stretch(image, target_bg=0.035, ceiling=0.95,
+                                   protect=0.85, mask_sigma=5.0,
+                                   anchor_pctl=99.95, subject_midtones=None,
+                                   target_type=None):
+    """Stretch a linear starless layer with optional subject anchoring.
+
+    The background is a relative display proxy, not a physical sky measurement.
+    None retains the white-anchor curve with a pixel-local highlight shoulder.
+    """
+    source = np.asarray(image, dtype=np.float32)
+    if source.ndim not in (2, 3) or (source.ndim == 3 and source.shape[2] < 3):
+        raise ValueError('Background-compressed stretch requires gray or RGB geometry')
+    if not source.size:
+        raise ValueError('Background-compressed stretch received an empty image')
+    if not np.isfinite(source).all() or source.min() < 0:
+        raise ValueError('Background-compressed stretch requires finite nonnegative samples')
+    values = [target_bg, ceiling, protect, mask_sigma, anchor_pctl]
+    if not np.isfinite(values).all():
+        raise ValueError('Background-compressed parameters must be finite')
+    if not 0 < target_bg < 0.5 or not target_bg < ceiling <= 1.0:
+        raise ValueError('Invalid background-compressed bounds')
+    if not 0 <= protect <= 1 or mask_sigma < 0 or not 0 < anchor_pctl < 100:
+        raise ValueError('Invalid background-compressed protection or sampling')
+    if subject_midtones is not None and (
+            not np.isfinite(subject_midtones) or not target_bg < subject_midtones < ceiling / 3):
+        raise ValueError('Subject midtones must be finite and satisfy target_bg < M < ceiling / 3')
+
+    rgb = source[..., :3] if source.ndim == 3 else source
+    lum = rgb.mean(axis=2) if rgb.ndim == 3 else rgb
+    if float(lum.max()) <= 0:
+        raise ValueError('Background-compressed stretch found no positive background')
+    report = {
+        'algorithm': 'background_compressed', 'method': 'background_compressed',
+        'target_bg': float(target_bg), 'ceiling': float(ceiling),
+        'mask_sigma': float(mask_sigma), 'subject_midtones': subject_midtones,
+        'background_kind': 'relative_display_proxy', 'review_required': False,
+    }
+    background = subject = None
+    if subject_midtones is not None:
+        base = gaussian_filter(lum, sigma=mask_sigma)
+        valid = (lum > 0) & (base > 0)
+        background = valid & (base <= np.percentile(base[valid], 25))
+        sky = float(np.median(lum[background]))
+        noise = float(1.4826 * np.median(np.abs(lum[background] - sky)))
+        detection_floor = sky + 3 * noise
+        point_guard = np.zeros_like(lum)
+        if target_type != 'planetary_nebula':
+            from star_tools import detect_stars
+            points = detect_stars(lum, star_threshold=.9) > .2
+            point_guard = gaussian_filter(
+                binary_dilation(points, iterations=10).astype(np.float32), sigma=2)
+        # Residual point sources and their repair footprints are not diffuse subject.
+        subject = valid & (base > detection_floor) & (point_guard < .05)
+        if subject.any():
+            subject &= base < np.percentile(base[subject], 90)
+        anchor = float(np.median(base[subject])) if subject.any() else None
+        report.update(
+            measured_sky=sky, background_noise_sigma=noise,
+            background_samples=int(background.sum()), subject_samples=int(subject.sum()),
+            subject_anchor=anchor, anchor=anchor, subject_detection_sigma=3.0,
+        )
+        reason = ('nonpositive_background' if sky <= 0 else
+                  'insufficient_subject_samples' if subject.sum() < 25 else
+                  'inseparable_subject' if anchor - sky <= max(1e-12, sky * 1e-6) else None)
+        if reason:
+            result, applied = render_protected_stretch(
+                source, 'pi_mtf', {'target_bg': target_bg, 'stretch_headroom': 1 - ceiling})
+            return result, {
+                **report, **applied, 'subject_midtones': subject_midtones,
+                'review_required': True, 'fallback_reason': reason,
+                'anchor_status': 'unavailable',
+            }
+
+        k = (anchor - sky) * (ceiling - subject_midtones) / (subject_midtones - target_bg)
+        delta = np.maximum(base.astype(np.float64) - sky, 0)
+        upper = target_bg + (ceiling - target_bg) * delta / (delta + k)
+        x = np.minimum(base / sky, 1).astype(np.float64)
+        a = sky * (ceiling - target_bg) / (k * target_bg)
+        toe = target_bg * x / (a + (1 - a) * x)
+        curve = np.where(base <= sky, toe, upper)
+        detail_gain = np.minimum(
+            target_bg / sky, np.divide(curve, base, out=np.zeros_like(curve), where=base > 0))
+        luminance = curve + detail_gain * (lum - base)
+        reference, _ = render_protected_stretch(
+            rgb, 'pi_mtf', {'target_bg': target_bg, 'stretch_headroom': 1 - ceiling})
+        reference_lum = reference.mean(axis=2) if rgb.ndim == 3 else reference
+        reference_gain = target_bg / float(np.median(reference_lum[background]))
+        reference_lum = reference_lum * reference_gain
+        blend_anchor = detection_floor + .5 * (anchor - detection_floor)
+        confidence = np.clip((base - detection_floor) / (blend_anchor - detection_floor), 0, 1)
+        confidence = confidence * confidence * (3 - 2 * confidence)
+        blend_sigma = (0 if target_type == 'planetary_nebula' else
+                       min(4 * mask_sigma, min(lum.shape) / 50))
+        confidence = gaussian_filter(confidence, sigma=blend_sigma)
+        # Fade in the subject curve while retaining conservative background variation.
+        luminance = reference_lum + confidence * (luminance - reference_lum)
+        if point_guard.any():
+            keep = 1 - point_guard
+            guard_context_sigma = max(4 * mask_sigma, 10)
+            support = gaussian_filter(keep, sigma=guard_context_sigma)
+            diffuse_lift = np.divide(
+                gaussian_filter((luminance - reference_lum) * keep, sigma=guard_context_sigma),
+                support, out=np.zeros_like(luminance), where=support > 1e-6)
+            # Preserve the surrounding diffuse lift instead of carving dark holes.
+            luminance = luminance * keep + (reference_lum + diffuse_lift) * point_guard
+        reference_subject = float(np.median(reference_lum[subject]))
+        measured_subject = float(np.median(luminance[subject]))
+        lift_gain = ((subject_midtones - reference_subject) / (measured_subject - reference_subject)
+                     if measured_subject > reference_subject else 1.0)
+        # Bound blend calibration; ill-conditioned or missed targets stay reviewable.
+        lift_gain = float(np.clip(lift_gain, 0, 2))
+        lift = luminance - reference_lum
+        luminance = reference_lum + lift * np.where(lift > 0, lift_gain, min(lift_gain, 1))
+        report.update(anchor_status='available', curve_k=float(k), toe_a=float(a),
+                      detail_gain_limit=float(target_bg / sky),
+                      subject_blend_floor=float(detection_floor),
+                      subject_blend_anchor=float(blend_anchor),
+                      subject_blend_sigma_px=float(blend_sigma),
+                      subject_lift_gain=float(lift_gain),
+                      subject_lift_gain_limit=2.0,
+                      subject_blend_fraction=float(np.mean(confidence > .5)),
+                      background_reference_gain=float(reference_gain),
+                      point_source_guard_fraction=float(np.mean(point_guard > .5)),
+                      point_source_guard_radius_px=10,
+                      point_source_guard_sigma_px=2,
+                      point_source_guard_context_sigma_px=float(max(4 * mask_sigma, 10)),
+                      point_source_guard_enabled=target_type != 'planetary_nebula')
+        shoulder_start = max(target_bg + .25, 3 * subject_midtones)
+    else:
+        sky = float(np.median(lum))
+        if sky <= 0:
+            raise ValueError('Background-compressed stretch found no positive background')
+        above = lum >= np.percentile(lum, anchor_pctl)
+        anchor = max(float(np.median(lum[above])), sky * 2)
+        span = anchor - sky
+        # Keep the upper range unbounded until the RGB highlight shoulder.
+        t = np.maximum((lum - sky) / span, 0)
+        mask = gaussian_filter(t, sigma=mask_sigma) if protect else np.zeros_like(t)
+        if protect:
+            floor = float(np.median(mask))
+            mask = np.sqrt(np.clip(
+                (mask - floor) / max(float(mask.max()) - floor, 1e-12), 0, 1)) * protect
+        strong = target_bg + t * (ceiling - target_bg)
+        lifted = target_bg + np.arcsinh(t * 3) / np.arcsinh(3) * (ceiling - target_bg)
+        luminance = strong * (1 - mask) + lifted * mask
+        report.update(measured_sky=sky, anchor=anchor, span=span,
+                      sky_over_anchor=sky / anchor, anchor_pctl=float(anchor_pctl),
+                      protect_strength=float(protect), anchor_status='disabled')
+        shoulder_start = min(target_bg + .25, ceiling - .001)
+
+    if rgb.ndim == 3:
+        ratios = np.divide(rgb, lum[..., None], out=np.zeros_like(rgb),
+                           where=lum[..., None] > 0)
+        result = luminance[..., None] * ratios
+        peak = result.max(axis=2)
+    else:
+        result = np.where(lum > 0, luminance, 0)
+        peak = result
+    tail = np.maximum(peak - shoulder_start, 0)
+    headroom = ceiling - shoulder_start
+    limited = np.where(peak > shoulder_start,
+                       shoulder_start + headroom * tail / (headroom + tail), peak)
+    gain = np.divide(limited, peak, out=np.ones_like(peak), where=peak > 0)
+    result = result * (gain[..., None] if rgb.ndim == 3 else gain)
+    result = result.astype(np.float32)
+    actual = result.mean(axis=2) if rgb.ndim == 3 else result
+    actual_bg = float(np.median(actual[background])) if background is not None else float(np.median(actual))
+    report.update(
+        shoulder_start=float(shoulder_start), applied_ceiling=float(result.max()),
+        actual_background=actual_bg,
+        background_target_reached=abs(actual_bg - target_bg) <= max(.003, target_bg * .1),
+    )
+    if subject is not None:
+        actual_subject = float(np.median(actual[subject]))
+        report.update(
+            actual_subject=actual_subject,
+            subject_target_reached=abs(actual_subject - subject_midtones) <= max(.01, subject_midtones * .05))
+        report['review_required'] = not (
+            report['background_target_reached'] and report['subject_target_reached'])
+    if source.ndim == 3 and source.shape[2] > 3:
+        result = np.dstack([result, source[..., 3:]])
+    return result, report
+
+
+def render_protected_stretch(image, method='pi_mtf', cfg=None, diagnostic_regions=None):
+    """Render shared RGB gains, returning the applied curve and diagnostics."""
+    cfg = cfg if cfg is not None else {}
+    if method not in ('pi_mtf', 'ghs_standard', 'masked_ghs_standard'):
+        raise ValueError('Unknown protected stretch method')
+    source = np.asarray(image, dtype=np.float32)
+    if source.ndim not in (2, 3) or (source.ndim == 3 and source.shape[2] < 3):
+        raise ValueError('Stretch requires gray or RGB geometry')
+    if not np.isfinite(source).all() or source.min() < 0:
+        raise ValueError('Stretch requires finite nonnegative samples')
+    rgb = source[..., :3] if source.ndim == 3 else source
+    scale = float(np.max(rgb))
+    target_bg = float(cfg.get('target_bg', 0.05))
+    headroom = float(cfg.get('stretch_headroom', 0.05))
+    if not np.isfinite([target_bg, headroom]).all() or not 0 < target_bg < 0.5 or not 0 <= headroom < 0.5:
+        raise ValueError('Invalid background target or highlight headroom')
+    report = {'algorithm': 'linked_mtf' if method == 'pi_mtf' else 'standard_ghs',
+              'method': method, 'target_bg': target_bg, 'headroom': headroom,
+              'input_scale': scale, 'shadow': 0.0}
+    normalized = rgb / scale if scale > 0 else np.zeros_like(rgb)
+    y = normalized.mean(axis=2) if rgb.ndim == 3 else normalized
+    bg_mask = (y > 0) & (y <= np.median(y))
+    bg = float(np.median(y[bg_mask])) if bg_mask.any() else float(np.median(y))
+    if method == 'pi_mtf':
+        transformed = pi_mtf_stretch(y, target_bg, headroom=0, shadow_ratio=0,
+                                     background_level=bg)
+        report['mtf_highlights'] = float(y.max())
+        bnorm = bg / max(float(y.max()), 1e-12)
+        denom = 2 * bnorm * target_bg - target_bg - bnorm
+        report['midtones'] = float(np.clip(bnorm * (target_bg - 1) / denom, 1e-8, .999)) if denom else .5
+    else:
+        b = float(cfg.get('ghs_standard_b', 8))
+        sp = cfg.get('ghs_standard_sp')
+        lp = float(cfg.get('ghs_standard_lp', 0))
+        # SP 默认取全图中位数。当**背景本身就贴着中位数**时（无星母版：
+        # 天空 0.0669、中位数 0.0662），SP 落在背景上，曲线把天空放在中点
+        # 附近 —— 那一段只能把背景往上抬，永远压不到低目标（实测 f(sky) 在
+        # log_d=0 时 0.067、log_d=20 时 0.950，单调上升）。把 SP 抬到背景之上，
+        # 天空才落进可压暗的阴影段（实测 sp=2×bg 时 f(sky) 可降到 0.004）。
+        sp = float(np.median(y) if sp is None else sp)
+        sp = max(sp, lp)
+        hp = float(cfg.get('ghs_standard_hp', max(.95, sp)))
+        # Validate even when the background is zero or the fit cannot converge.
+        ghs_standard_stretch(np.array([0., 1.]), 0, b, sp, lp, hp)
+        protect = float(cfg.get('ghs_protect_strength', .85)) if method == 'masked_ghs_standard' else 0.0
+
+        if not np.isfinite(protect) or not 0 <= protect <= 1:
+            raise ValueError('Invalid core protection strength')
+
+        mask = gaussian_filter(y, sigma=5.) if protect else np.zeros_like(y)
+        if protect:
+            mask = np.sqrt(mask / max(float(mask.max()), 1e-12)) * protect
+        weak = arcsinh_stretch(y, factor=5)
+        stride = max(1, int(np.ceil(max(y.shape) / 1920)))
+        sample_y, sample_mask, sample_weak = y[::stride, ::stride], mask[::stride, ::stride], weak[::stride, ::stride]
+        select = (sample_y > 0) & (sample_y <= np.median(y))
+        sy, sm, sw = sample_y[select], sample_mask[select], sample_weak[select]
+        # ponytail: bounded deterministic samples suffice for fitting one scalar.
+        sample_stride = max(1, int(np.ceil(sy.size / 32768)))
+        sy, sm, sw = sy[::sample_stride], sm[::sample_stride], sw[::sample_stride]
+        def background(log_d):
+            return float(np.median(ghs_standard_stretch(sy, log_d, b, sp, lp, hp) * (1 - sm) + sw * sm)) if sy.size else 0.0
+        chosen = cfg.get('ghs_standard_log_d')
+        iterations, reason = 0, None
+        if chosen is None:
+            # Background below SP can rise and then fall; bracket the first root.
+            low, vlo = 0., background(0.)
+            nearest = (abs(vlo - target_bg), low)
+            bracket = None
+            for high in np.geomspace(1e-4, 20., 65):
+                vhi = background(high)
+                nearest = min(nearest, (abs(vhi - target_bg), float(high)))
+                if min(vlo, vhi) <= target_bg <= max(vlo, vhi):
+                    bracket = (low, float(high), vlo, vhi)
+                    break
+                low, vlo = float(high), vhi
+            if bracket is None:
+                chosen = nearest[1]
+                reason = 'target_outside_sampled_curve_range'
+            else:
+                low, high, vlo, vhi = bracket
+                report['fit_bracket'] = [low, high]
+                for iterations in range(1, 25):
+                    chosen = (low + high) / 2
+                    value = background(chosen)
+                    if abs(value - target_bg) <= 1e-5:
+                        break
+                    if (value < target_bg) == (vhi > vlo):
+                        low = chosen
+                    else:
+                        high = chosen
+        chosen = float(chosen)
+        strong = ghs_standard_stretch(y, chosen, b, sp, lp, hp)
+        transformed = strong * (1 - mask) + weak * mask
+        report.update(log_d=chosen, b=b, sp=sp, lp=lp, hp=hp, protect_strength=protect,
+                      mask_sigma=5., weak_arcsinh_factor=5., fit_iterations=iterations,
+                      background_reason=reason)
+    gain = np.divide(transformed, y, out=np.zeros_like(y), where=y > 0)
+    result = normalized * (gain[..., None] if rgb.ndim == 3 else gain)
+    if diagnostic_regions:
+        regional = {}
+        for name, roi in diagnostic_regions.items():
+            if np.shape(roi) != y.shape or not np.any(roi):
+                raise ValueError('Stretch diagnostic region must match source geometry')
+            values = {'input': y, 'mixed_luminance': transformed}
+            if method != 'pi_mtf':
+                values.update(protection_mask=mask, strong_curve=strong, weak_curve=weak)
+            regional[name] = {label: dict(zip(('p10', 'median', 'p90'),
+                              map(float, np.percentile(value[roi], [10, 50, 90]))))
+                              for label, value in values.items()}
+        report['regional_diagnostics'] = regional
+    peak = result.max(axis=2) if rgb.ndim == 3 else result
+    ceiling = 1 - headroom
+    start = min(target_bg + .25, ceiling - .001)
+    peak_max = float(peak.max())
+    if peak_max > ceiling:
+        shoulder_scale = (ceiling - start) / (peak_max - start)
+        limited_peak = np.where(peak > start, start + (peak - start) * shoulder_scale, peak)
+        shoulder_gain = np.divide(limited_peak, peak, out=np.ones_like(peak), where=peak > 0)
+        result *= shoulder_gain[..., None] if rgb.ndim == 3 else shoulder_gain
+        report['shoulder_scale'] = shoulder_scale
+    actual_y = result.mean(axis=2) if result.ndim == 3 else result
+    actual_bg = float(np.median(actual_y[bg_mask])) if bg_mask.any() else float(np.median(actual_y))
+    if diagnostic_regions:
+        for name, roi in diagnostic_regions.items():
+            report['regional_diagnostics'][name]['after_shoulder'] = dict(zip(('p10', 'median', 'p90'),
+                map(float, np.percentile(actual_y[roi], [10, 50, 90]))))
+    report.update(actual_background=actual_bg, background_target_reached=abs(actual_bg-target_bg) <= max(.001, target_bg*.05))
+    if not report['background_target_reached'] and not report.get('background_reason'):
+        report['background_reason'] = 'applied_background_differs_from_target'
+    if scale == 0:
+        report['background_reason'] = 'no_positive_signal'
+    if source.ndim == 3 and source.shape[2] > 3:
+        result = np.dstack([result, source[..., 3:]])
+    return result.astype(np.float32), report
 
 
 def _ghs_base(x, sp, b):
@@ -712,7 +1078,7 @@ def luminance_range_health(image):
     }
 
 
-def is_stretch_collapsed(before, after, min_span=0.02):
+def is_stretch_collapsed(before, after, min_span=0.02, stellar_subject=False):
     """Detect a stretch that compressed the tonal range instead of expanding it.
 
     判据只有一条：拉伸后 `p99 - p50` 既不能低于绝对下限 `min_span`，也不能低于
@@ -734,6 +1100,10 @@ def is_stretch_collapsed(before, after, min_span=0.02):
     """
     hb = luminance_range_health(before)
     ha = luminance_range_health(after)
+    percentile = 'p999' if stellar_subject else 'p99'
+    for health in (hb, ha):
+        health['span'] = health[percentile] - health['p50']
+        health['span_percentile'] = 99.9 if stellar_subject else 99.0
     collapsed = ha['span'] < max(min_span, hb['span'] * 0.25)
     return bool(collapsed), hb, ha
 
@@ -747,6 +1117,8 @@ def apply_luminance_stretch(image, method='arcsinh', **kwargs):
     对极暗数据（median < 0.001）不使用 Lab 转换（极低值下不稳定），
     直接对 RGB 做整体拉伸，保持颜色比例。
     """
+    if method in ('pi_mtf', 'ghs_standard', 'masked_ghs_standard'):
+        return render_protected_stretch(image, method, kwargs)[0]
     is_color = image.ndim == 3 and image.shape[2] >= 3
     if not is_color:
         return globals()[f'{method}_stretch'](image, **kwargs)
@@ -811,12 +1183,18 @@ def main():
     p.add_argument('output', help='输出图像路径')
     p.add_argument('--method', default='masked',
                    choices=['arcsinh', 'mtf', 'masked', 'auto', 'deep',
-                            'very_dark', 'emission', 'ghs', 'masked_ghs', 'pi_mtf'],
+                            'very_dark', 'emission', 'ghs', 'masked_ghs', 'pi_mtf',
+                            'ghs_standard', 'masked_ghs_standard'],
                    help='拉伸方法 (默认: masked)')
     p.add_argument('--factor', type=float, default=30.0, help='arcsinh factor (默认: 30)')
     p.add_argument('--midtones', type=float, default=0.3, help='MTF midtones (默认: 0.3)')
     p.add_argument('--target-bg', type=float, default=0.08, help='目标背景亮度 (默认: 0.08)')
     p.add_argument('--headroom', type=float, default=0.12, help='高光 Headroom 预留比例 (默认: 0.12)')
+    p.add_argument('--ghs-standard-log-d', type=float)
+    p.add_argument('--ghs-standard-b', type=float, default=8.0)
+    p.add_argument('--ghs-standard-sp', type=float)
+    p.add_argument('--ghs-standard-lp', type=float, default=0.0)
+    p.add_argument('--ghs-standard-hp', type=float, default=0.95)
     p.add_argument('--sp', type=float, default=0.01, help='GHS 对称点 (默认: 0.01)')
     p.add_argument('--b', type=float, default=8.0, help='GHS 强度因子 (默认: 8.0)')
     p.add_argument('--protect-strength', type=float, default=0.5, help='Masked GHS 核心保护强度 (默认: 0.5)')
@@ -866,7 +1244,12 @@ def main():
         kwargs = {'sp': args.sp, 'b': args.b, 'protect_strength': args.protect_strength,
                   'target_bg': args.target_bg, 'lp': args.lp, 'hp': args.hp}
 
-    if args.luminance_only:
+    if args.method in ('pi_mtf', 'ghs_standard', 'masked_ghs_standard'):
+        config = {key: value for key, value in vars(args).items() if key.startswith('ghs_standard_')}
+        config.update(target_bg=args.target_bg, stretch_headroom=args.headroom,
+                      ghs_protect_strength=args.protect_strength)
+        result, _ = render_protected_stretch(img, args.method, config)
+    elif args.luminance_only:
         result = apply_luminance_stretch(img, method=args.method, **kwargs)
     else:
         stretch_func = {
@@ -883,7 +1266,8 @@ def main():
         }[args.method]
         result = stretch_func(img, **kwargs)
 
-    imsave(args.output, img_as_ubyte(result))
+    from fits_io import write_image
+    write_image(result, args.output)
     print(f"[拉伸] 输出已保存: {args.output}")
 
 

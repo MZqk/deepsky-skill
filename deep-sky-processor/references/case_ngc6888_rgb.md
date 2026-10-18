@@ -17,7 +17,7 @@
 ## 推荐命令
 
 ```bash
-python scripts/pipeline.py NGC6888.xisf NGC6888.jpg \
+python3 scripts/pipeline.py NGC6888.xisf NGC6888.jpg \
   --strength emission \
   --auto-crop-edges \
   --local-strength 0.85 \
@@ -55,7 +55,7 @@ crop = (0, 0, 2160, 3840)
 先使用不含 `star_remove`、`star_reduce`、`style` 的安全基础链路：
 
 ```bash
-python scripts/pipeline.py NGC6888.xisf NGC6888_base.jpg \
+python3 scripts/pipeline.py NGC6888.xisf NGC6888_base.jpg \
   --strength adaptive \
   --target-type emission_nebula \
   --target-name NGC6888 \
@@ -72,7 +72,7 @@ python scripts/pipeline.py NGC6888.xisf NGC6888_base.jpg \
 本案例的极暗线性数据应在安全拉伸后运行 StarNet2，并独立导出无星层和星点层：
 
 ```bash
-python scripts/enhance_starless.py \
+python3 scripts/enhance_starless.py \
   starless_NGC6888.tif stars_NGC6888.tif NGC6888_starless_finish \
   --target-type emission_nebula \
   --target-name NGC6888
@@ -85,3 +85,45 @@ python scripts/enhance_starless.py \
 Python 3.14 环境必须保留当前脚本中的显式 NumPy 输出缓冲区。部分 NumPy
 构建会复用 borrowed-reference 数组操作数，导致综合色调层被高频细节层静默
 覆盖；回归测试必须检查处理后无星层中位数达到请求值。
+
+## C50 实测参数（本图专用，不是通用预设）
+
+C50 母版实测采用：
+
+| 版本 | `stretch_gamma` | `target_bg` | `stretch_min_p99` |
+|---|---|---|---|
+| 自然版 | 0.58 | 0.045 | 0.24 |
+| 增强版 | 0.50 | 0.055 | 0.30 |
+
+两版均关闭末端强调色和风格。**这些是本图参数，不得当作通用预设套用其他目标。**
+
+
+## Manual Siril background extraction, only with confirmed sky evidence
+
+The observed case above still skips DBE when no significant separable gradient is established.
+Its faint Cygnus emission is signal, including potentially dark corners; a small bright shell does
+not make the rest of the frame empty sky. Do not enable automatic full-frame RBF/polynomial sample
+grids based on the target name, apparent redness or a preference for a flatter background.
+
+If a separate additive gradient is confirmed, manually protect the inspected shell: enlarge its
+bounding-box dimensions to 1.5 times around the same center, round boundaries outward and clip to
+the frame. This is a starting total extent; enlarge or add protection for actual faint emission,
+dust and star halos beyond it. Use source-bound core/faint/stars rectangles and manual fit_samples
+in the existing Siril contracts, then clear prior samples, install only the declared coordinates
+and use -existing. A sample center outside a nebula is insufficient if its full 25x25 box crosses it.
+
+Three to five samples per verified corner are a candidate layout only. Confirm the entire box avoids
+faint/bright stars, halos and emission. Keep middle-side clean-sky samples and independent held-out
+sky controls; corner-only samples cannot replace the existing middle-third coverage gate. Missing
+trustworthy sky or controls means skip subtraction, without shrinking the exclusion or assigning
+nebular outer emission a background label. Grid tolerance is a brightness-deviation factor, not a
+pixel size, and the existing sample bridge remains fixed at 25x25 pixels.
+
+Use Order 1 for a supported near-plane additive gradient and Order 2 only with independent evidence
+of curvature. This manual field guide excludes high-order fits and RBF. General quadratic surfaces
+are not necessarily centrally symmetric or immune to subtracting broad emission. Optical vignetting
+is multiplicative: check upstream flats instead of treating subsky subtraction as its exact repair.
+Actual fixed-transfer parent/candidate review must preserve the shell and faint external emission;
+scientific improvement and geometric exclusions alone cannot establish signal preservation.
+
+Reference: [Siril 1.4.4 background extraction](https://siril.readthedocs.io/en/stable/processing/background.html).

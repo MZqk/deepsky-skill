@@ -4,8 +4,8 @@
 
 ## 总体能力边界
 
-- 当前主管线原生支持 `wide_field`。
-- 风格模块可识别 `comet` 和 `supernova_remnant`，但主管线 `--target-type` 尚未暴露这两个值。
+- 当前主管线原生支持 `wide_field` 和 `supernova_remnant`（`--target-type` 的取值直接派生自 `target_rules._KNOWN_TYPES`，两处清单不会分叉）。
+- `comet` 仍是**不可达**值：`style_tools.select_style` 保留 `comet`/`asteroid` 分支，但 `--target-type` 不接受它们（不在 `_KNOWN_TYPES` 内），`STYLE_PROFILES` 也没有对应键。该分支当前只能经 API 传入 `target_type='comet'` 命中。
 - 彗星对齐、行星幸运成像、月面视频堆叠和全景拼接不是当前管线能力。
 - 外部流程应输出 16-bit 或 float32 TIFF/FITS 母版，再进入深空管线做有限的色调、动态范围和降噪处理。
 - 不使用生成式补帧、AI 超分辨率、纹理重建或不存在的色彩。
@@ -80,7 +80,7 @@
 先在 Siril、PixInsight 等工具完成彗星合成，再使用通用轻度步骤。不要传入主管线不支持的 `comet` 类型：
 
 ```bash
-python scripts/pipeline.py comet_combined.tif comet_final.jpg \
+python3 scripts/pipeline.py comet_combined.tif comet_final.jpg \
   --strength light \
   --steps stretch,final_color,sharpen,final_denoise \
   --style natural \
@@ -312,7 +312,7 @@ HDR 必须来自真实的不同曝光：
 完成天空堆栈或全景拼接后：
 
 ```bash
-python scripts/pipeline.py widefield_master.tif widefield_final.jpg \
+python3 scripts/pipeline.py widefield_master.tif widefield_final.jpg \
   --strength adaptive \
   --target-type wide_field \
   --style widefield_punch \
@@ -418,17 +418,27 @@ B = OIII
 
 ### 管线接入
 
-主管线尚未接受 `supernova_remnant` 作为 `--target-type`，因此先使用其最接近的发射星云安全规则，再显式选择残骸风格：
+主管线原生接受 `supernova_remnant`，直接传入即可激活残骸专用的无星层档与风格：
 
 ```bash
-python scripts/pipeline.py snr_combined.tif snr_final.jpg \
+python3 scripts/pipeline.py snr_combined.tif snr_final.jpg \
   --strength adaptive \
-  --target-type emission_nebula \
+  --target-type supernova_remnant \
   --color-mode emission \
   --style supernova_remnant \
   --steps color,pre_denoise,star_remove,stretch,star_process,final_color,style,star_combine \
   --keep-all
 ```
+
+与「传 `emission_nebula` 再手动选风格」的旧写法相比，改用本类型会实际改变三处取值：
+
+| 位置 | `supernova_remnant` | `emission_nebula` |
+|---|---|---|
+| 无星层档 `starless_profiles` | 残骸档（`large .55 / medium .90 / small .90`，`background_protection .95`） | 发射档（`large .75 / medium 1. / small .55`，`background_protection .85`） |
+| 去星门禁档 | `provisional`（`star_removal_profiles`） | `emission_nebula` 档 |
+| 风格 | 自动选 `supernova_remnant`（可省略 `--style`） | 自动选 `dramatic_nebula`，须显式覆盖 |
+
+⚠ **两者都不拦去星误伤**：`star_removal_profiles` 的全部档位目前都等于 `DEFAULTS`（`damage_limit=None`），`supernova_remnant` 额外标 `provisional=True`。误伤读数照常记录但不参与判定 —— 细丝是否被误删**必须靠人工看差分**，不能依赖门禁。参见 `references/star_damage_gate_calibration.md`。
 
 如果内置去星置信度低或误伤细丝，使用外部 StarNet++ 无星图并检查差分，不能接受有明显丝状结构被删除的星点层。
 

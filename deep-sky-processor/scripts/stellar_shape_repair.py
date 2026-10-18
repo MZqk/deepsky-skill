@@ -13,6 +13,7 @@ import math
 import os
 import time
 from typing import Any
+import warnings
 
 # Production installs also use threadpoolctl below.  These caps cover the
 # deterministic fallback environment before the first BLAS/OpenMP call.
@@ -31,6 +32,10 @@ from scipy.ndimage import gaussian_filter, maximum_filter
 try:
     from threadpoolctl import threadpool_limits
 except ImportError:  # NumPy/SciPy path remains sequential without this helper.
+    warnings.warn(
+        "threadpoolctl 不可用，BLAS/OpenMP 线程数不受运行时限制（仅依赖启动前设置的环境变量上限）",
+        RuntimeWarning,
+    )
     threadpool_limits = None
 
 

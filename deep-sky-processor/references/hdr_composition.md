@@ -74,7 +74,7 @@ HDR = w_short * short
 推荐后处理：
 
 ```bash
-python scripts/pipeline.py hdr_linear.tif final.jpg \
+python3 scripts/pipeline.py hdr_linear.tif final.jpg \
   --strength adaptive \
   --target-type emission_nebula \
   --target-name M42 \

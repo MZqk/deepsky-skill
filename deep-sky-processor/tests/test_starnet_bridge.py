@@ -12,23 +12,27 @@ sys.path.insert(0, str(SCRIPTS))
 import star_tools
 
 class TestStarnetBridge(unittest.TestCase):
-    @patch("shutil.which")
-    @patch("os.path.isfile")
+    @patch("external_tools.shutil.which")
+    @patch("external_tools._is_executable_file")
     @patch.dict(os.environ, {}, clear=True)
-    def test_find_starnet_executable(self, mock_isfile, mock_which):
+    def test_find_starnet_executable(self, mock_isexec, mock_which):
+        # 探测逻辑已统一到 external_tools.find_executable，判定「可执行」
+        # 用的是 _is_executable_file（POSIX 上要求 os.access(X_OK)），故这里
+        # mock 它而不是 os.path.isfile —— 后者为 True 时文件仍可能不可执行。
+        #
         # 1. 显式传入 user_path 且存在时，应该直接返回
-        mock_isfile.return_value = True
+        mock_isexec.return_value = True
         path = star_tools.find_starnet_executable(user_path="/custom/starnet++")
         self.assertEqual(path, "/custom/starnet++")
 
         # 2. 从环境变量读取
-        mock_isfile.reset_mock()
+        mock_isexec.reset_mock()
         with patch.dict(os.environ, {"STARNET_PATH": "/env/starnet++"}):
             path = star_tools.find_starnet_executable()
             self.assertEqual(path, "/env/starnet++")
 
         # 3. 从系统 PATH 检索
-        mock_isfile.return_value = False
+        mock_isexec.return_value = False
         mock_which.return_value = "/bin/starnet++"
         path = star_tools.find_starnet_executable()
         self.assertEqual(path, "/bin/starnet++")
@@ -96,29 +100,76 @@ class TestStarnetBridge(unittest.TestCase):
 
     @patch("sys.platform", "linux")
     @patch("subprocess.run")
-    def test_run_starnet_retries_legacy_format(self, mock_run):
+    def test_run_starnet_does_not_retry_legacy_format(self, mock_run):
+        """失败时**不得**回退到位置参数语法。
+
+        v0.1.43 变更：实测 StarNet2 2.6.2 的位置参数语法已不存在
+        （StarNet2 <in> <out> 128 → PARSE ERROR），保留回退只会让
+        每次失败**再白跑一遍整帧**，且 legacy 的第 4 个位置参数在
+        新 CLI 里语义完全不同（-n 是 unscreen 输出路径）。
+        """
         failed = MagicMock(returncode=2, stderr="unknown option -i", stdout="")
-        succeeded = MagicMock(returncode=0, stderr="", stdout="")
         mock_run.side_effect = [
             MagicMock(returncode=0),  # chmod
             failed,
-            succeeded,
         ]
         image = np.zeros((16, 16, 3), dtype=np.float32)
-        output = np.zeros((16, 16, 3), dtype=np.uint16)
 
-        with patch("skimage.io.imsave"), \
-             patch("cv2.imread", return_value=output):
+        with patch("skimage.io.imsave"):
             success, _starless, report = star_tools.run_starnet_cli(
                 image,
                 "/usr/local/bin/starnet2",
                 return_report=True,
             )
 
-        self.assertTrue(success)
-        self.assertEqual(len(report["attempts"]), 2)
+        self.assertFalse(success)
+        self.assertEqual(len(report["attempts"]), 1,
+                         "失败后不应再试一次 legacy 格式")
         self.assertEqual(report["attempts"][0]["command_format"], "flags")
-        self.assertEqual(report["attempts"][1]["command_format"], "legacy")
+
+    @patch("sys.platform", "linux")
+    @patch("subprocess.run")
+    def test_run_starnet_rejects_invalid_stride_without_spawning(self, mock_run):
+        """非法 stride 必须在**启动子进程之前**被拒绝。
+
+        StarNet2 自身也要等推理开始后才报错（实测 -s 3 / -s 0 / -s 513
+        全部 rc=255），所以前置校验是唯一能避免整帧白跑的手段。
+        """
+        image = np.zeros((16, 16, 3), dtype=np.float32)
+        for bad in (3, 0, 1, 513, 1024, -4):
+            with self.subTest(stride=bad):
+                mock_run.reset_mock()
+                mock_run.side_effect = [MagicMock(returncode=0)]
+                with self.assertRaises(ValueError):
+                    star_tools.run_starnet_cli(
+                        image, "/usr/local/bin/starnet2", stride=bad)
+                # linux 下不应有任何子进程被拉起（darwin 才会走 xattr）。
+                self.assertEqual(mock_run.call_count, 0)
+
+    @patch("sys.platform", "linux")
+    @patch("subprocess.run")
+    def test_run_starnet_accepts_documented_stride_range(self, mock_run):
+        """官方范围 2~512 的偶数都应被接受（不擅自加 2 的幂约束）。
+
+        实测 -s 100（偶数但非 2 的幂）被 StarNet2 接受并正常出图，
+        官方文档亦未要求 2 的幂。
+        """
+        image = np.zeros((16, 16, 3), dtype=np.float32)
+        output = np.zeros((16, 16, 3), dtype=np.uint16)
+        for good in (2, 64, 100, 128, 512):
+            with self.subTest(stride=good):
+                mock_run.reset_mock()
+                mock_run.side_effect = [
+                    MagicMock(returncode=0),  # chmod
+                    MagicMock(returncode=0, stderr="", stdout=""),
+                ]
+                with patch("skimage.io.imsave"), \
+                     patch("cv2.imread", return_value=output):
+                    success, _out, report = star_tools.run_starnet_cli(
+                        image, "/usr/local/bin/starnet2", stride=good,
+                        return_report=True)
+                self.assertTrue(success, "stride=%d 应被接受" % good)
+                self.assertEqual(report["stride"], good)
 
     @patch("sys.platform", "linux")
     @patch("subprocess.run")

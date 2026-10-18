@@ -20,6 +20,10 @@ sys.path.insert(0, str(SCRIPTS))
 
 from agent_protocol import create_review_bundle
 from artifact_gates import (
+    _estimate_fwhm_or_default,
+    _image_megapixels,
+    _scaled_area_threshold,
+    check_channel_clipping,
     check_core_burning,
     check_ringing,
     check_star_bloat,
@@ -80,6 +84,17 @@ def to_rgb(gray):
     return np.clip(np.stack([gray] * 3, axis=-1), 0, 1)
 
 
+def make_filament_field():
+    """Curved bright filaments raise the outer annuli near stellar positions."""
+    image, stars = make_star_field(brightness=(0.25, 0.65))
+    yy, xx = np.mgrid[:image.shape[0], :image.shape[1]]
+    for cy, cx, _ in stars:
+        dy, dx = yy - cy, xx - cx
+        image += (0.06 * (1 - np.exp(-((dx + 0.025 * dy * dy) / 6) ** 2))
+                  * np.exp(-(dx * dx + dy * dy) / (2 * 18 ** 2)))
+    return image, stars
+
+
 class StarFieldHelper(unittest.TestCase):
     def setUp(self):
         self.reference, self.stars = make_star_field()
@@ -111,6 +126,125 @@ class CheckRingingTests(StarFieldHelper):
         blank = np.full((60, 80), 0.05, dtype=np.float32)
         gate = check_ringing(to_rgb(blank))
         self.assertEqual(gate["status"], "skipped")
+
+
+class PairedDeficitTests(unittest.TestCase):
+    def test_gate_scale_tracks_stellar_cores_on_filaments_and_broad_stars(self):
+        image, _ = make_filament_field()
+        fwhm, n_used = _estimate_fwhm_or_default(image)
+        self.assertGreaterEqual(n_used, 3)
+        self.assertAlmostEqual(fwhm, FWHM, delta=0.8)
+        for width in (6, 10):
+            with self.subTest(width=width):
+                image, _ = make_star_field(brightness=(0.4, 0.7), enlarge_sigma=width / FWHM)
+                fwhm, n_used = _estimate_fwhm_or_default(image)
+                self.assertGreaterEqual(n_used, 3)
+                self.assertAlmostEqual(fwhm, width, delta=1.0)
+
+    def test_unchanged_filaments_do_not_escalate(self):
+        reference, _ = make_filament_field()
+        absolute = check_ringing(to_rgb(reference), fwhm=FWHM)
+        self.assertTrue(absolute["escalate"])
+        self.assertGreater(absolute["value"]["n_uncertain"], 0)
+        result = evaluate_star_artifact_gates(to_rgb(reference), to_rgb(reference.copy()))
+        self.assertEqual(result["status"], "success")
+        gates = {g["code"]: g for g in result["gates"]}
+        self.assertFalse(gates["STAR_RINGING"]["escalate"])
+        self.assertGreater(gates["STAR_RINGING"]["value"]["n_preexisting"], 0)
+        self.assertFalse(gates["STAR_HOLES"]["escalate"])
+
+    def test_new_rings_on_filaments_still_fail(self):
+        reference, stars = make_filament_field()
+        candidate = reference.copy()
+        for cy, cx, _ in stars[:8]:
+            candidate = add_dark_ring(candidate, cy, cx, depth=0.03)
+        gate = check_ringing(to_rgb(candidate), fwhm=FWHM, reference=to_rgb(reference))
+        self.assertEqual(gate["status"], "failed")
+        self.assertTrue(gate["escalate"])
+        self.assertGreaterEqual(gate["value"]["n_ring"], 2)
+        self.assertGreater(gate["evidence"]["ringing_stars"][0]["added_dip_abs"], 0.003)
+        result = evaluate_star_artifact_gates(to_rgb(reference), to_rgb(candidate))
+        self.assertEqual(result["status"], "review_required")
+        self.assertIn("STAR_RINGING", result["summary"])
+
+    def test_new_holes_on_filaments_still_fail(self):
+        reference, stars = make_filament_field()
+        candidate = reference.copy()
+        for cy, cx, _ in stars[:8]:
+            candidate[cy - 2:cy + 3, cx - 2:cx + 3] = 0.01
+        gate = check_star_layer_integrity(to_rgb(reference), to_rgb(candidate), fwhm=FWHM)[1]
+        self.assertEqual(gate["status"], "failed")
+        self.assertTrue(gate["escalate"])
+        self.assertGreaterEqual(gate["value"]["n_holes"], 2)
+        self.assertGreater(gate["evidence"]["holes"][0]["added_dip_abs"], 0.003)
+
+    def test_preexisting_rings_are_diagnostic_but_deepening_fails(self):
+        reference, stars = make_star_field(brightness=(0.4, 0.7))
+        for cy, cx, _ in stars[:8]:
+            reference = add_dark_ring(reference, cy, cx, depth=0.01)
+        gate = check_ringing(to_rgb(reference), fwhm=FWHM, reference=to_rgb(reference.copy()))
+        self.assertFalse(gate["escalate"])
+        self.assertGreaterEqual(gate["value"]["n_preexisting"], 2)
+        self.assertEqual(gate["value"]["n_ring"], 0)
+        candidate = reference.copy()
+        for cy, cx, _ in stars[:8]:
+            candidate = add_dark_ring(candidate, cy, cx, depth=0.015)
+        gate = check_ringing(to_rgb(candidate), fwhm=FWHM, reference=to_rgb(reference))
+        self.assertEqual(gate["status"], "failed")
+        self.assertTrue(gate["escalate"])
+
+    def test_preexisting_holes_are_diagnostic_but_deepening_fails(self):
+        reference, stars = make_star_field(brightness=(0.4, 0.7))
+        for cy, cx, _ in stars[:8]:
+            reference[cy - 2:cy + 3, cx - 2:cx + 3] = 0.003
+            reference[cy, cx] = 0.3
+        gate = check_star_layer_integrity(to_rgb(reference), to_rgb(reference.copy()), fwhm=FWHM)[1]
+        self.assertFalse(gate["escalate"])
+        self.assertGreaterEqual(gate["value"]["n_preexisting"], 2)
+        candidate = reference.copy()
+        for cy, cx, _ in stars[:8]:
+            candidate[cy, cx] = 0.01
+        gate = check_star_layer_integrity(to_rgb(reference), to_rgb(candidate), fwhm=FWHM)[1]
+        self.assertEqual(gate["status"], "failed")
+        self.assertTrue(gate["escalate"])
+
+    def test_unreliable_changed_background_requires_review(self):
+        reference, _ = make_filament_field()
+        yy, xx = np.mgrid[:reference.shape[0], :reference.shape[1]]
+        candidate = reference + 0.08 * np.sin((xx + yy) / 6) ** 2
+        gate = check_ringing(to_rgb(candidate), fwhm=FWHM, reference=to_rgb(reference))
+        self.assertEqual(gate["status"], "warning")
+        self.assertTrue(gate["escalate"])
+        self.assertGreater(gate["value"]["n_uncertain"], 0)
+        self.assertTrue(gate["evidence"]["uncertain_stars"])
+
+    def test_linear_gradient_is_removed_by_local_background(self):
+        reference, _ = make_star_field(brightness=(0.25, 0.65))
+        yy, xx = np.mgrid[:reference.shape[0], :reference.shape[1]]
+        candidate = reference + 0.0003 * xx + 0.0002 * yy
+        gate = check_ringing(to_rgb(candidate), fwhm=FWHM, reference=to_rgb(reference))
+        self.assertEqual(gate["status"], "passed")
+        self.assertEqual(gate["value"]["n_ring"], 0)
+
+    def test_noncomparable_domain_never_suppresses_deficits_as_preexisting(self):
+        reference, _ = make_filament_field()
+        result = evaluate_star_artifact_gates(
+            to_rgb(reference), to_rgb(reference.copy()), reference_comparable=False)
+        self.assertEqual(result["status"], "review_required")
+        gates = {g["code"]: g for g in result["gates"]}
+        for code in ("STAR_RINGING", "STAR_HOLES"):
+            self.assertTrue(gates[code]["escalate"])
+            self.assertEqual(gates[code]["value"]["n_preexisting"], 0)
+            self.assertFalse(gates[code]["evidence"]["reference_comparable"])
+
+    def test_edge_stars_are_excluded_from_sample_denominator(self):
+        image, _ = make_star_field(height=120, width=160, brightness=(0.4, 0.7),
+                                  positions=[(12, 12), (12, 60), (12, 110),
+                                             (50, 50), (50, 100), (80, 70)])
+        gate = check_ringing(to_rgb(image), fwhm=FWHM, reference=to_rgb(image.copy()))
+        self.assertEqual(gate["value"]["n_detected"], 6)
+        self.assertEqual(gate["value"]["n_sampled"], 3)
+        self.assertEqual(gate["status"], "passed")
 
 
 class CheckStarBloatTests(StarFieldHelper):
@@ -308,6 +442,22 @@ class ReviewBundleIntegrationTests(StarFieldHelper):
                 Path(payload["report_path"]).read_text(encoding="utf-8"))
             self.assertIn("star_artifact_gates", report)
 
+    def test_bundle_rejects_domain_or_geometry_mismatch_for_attribution(self):
+        with tempfile.TemporaryDirectory() as td:
+            before, after = Path(td) / "before.png", Path(td) / "after.png"
+            self._write(before, self.reference)
+            self._write(after, self.reference.copy())
+            payload = create_review_bundle(
+                before, after, Path(td) / "domain_review",
+                context={"input_is_linear": True, "output_is_linear": False},
+            )
+            self.assertEqual(payload["star_artifact_gates"]["status"], "review_required")
+            self.assertFalse(payload["star_artifact_gates"]["context"]["reference_comparable"])
+            self._write(after, self.reference[:-5, :-5])
+            payload = create_review_bundle(before, after, Path(td) / "geometry_review")
+            self.assertEqual(payload["star_artifact_gates"]["status"], "review_required")
+            self.assertFalse(payload["star_artifact_gates"]["context"]["reference_comparable"])
+
     def test_bundle_escalates_on_star_artifact(self):
         candidate = self.reference.copy()
         n_ringed = 0
@@ -331,6 +481,91 @@ class ReviewBundleIntegrationTests(StarFieldHelper):
                 payload["star_artifact_gates"]["status"],
                 "review_required")
             self.assertEqual(payload["status"], "review_required")
+
+
+class ClippingGateResolutionTests(unittest.TestCase):
+    """面积门限必须按分辨率缩放，否则门禁「严不严取决于图像多大」。
+
+    实测 NGC6888：同一份数据、同一份代码，1/1 分辨率 R 新增区域 7 处判 failed，
+    降到 1/2 就变 0 处 passed（连通域被降采样打断）。根因是绝对像素阈值
+    `BURN_MIN_AREA_PX=25` / `BURN_BIG_AREA_PX=80`。
+    """
+
+    def test_threshold_scales_with_pixel_count(self):
+        reference = 8.3
+        self.assertAlmostEqual(
+            _scaled_area_threshold(25, reference), 25.0, places=4)
+        # 像素数降到 1/4 → 面积门限也降到 1/4
+        self.assertAlmostEqual(
+            _scaled_area_threshold(25, reference / 4.0), 25.0 / 4.0, places=4)
+        # 像素数升到 2 倍 → 面积门限升到 2 倍
+        self.assertAlmostEqual(
+            _scaled_area_threshold(25, reference * 2.0), 50.0, places=4)
+
+    def test_at_reference_resolution_keeps_legacy_thresholds(self):
+        """基准分辨率（≈8.3MP，即 3840×2160）保持历史阈值不变。"""
+        self.assertAlmostEqual(
+            _scaled_area_threshold(25, 8.3), 25.0, places=4)
+        self.assertAlmostEqual(
+            _scaled_area_threshold(80, 8.3), 80.0, places=4)
+
+    def test_smaller_images_get_proportionally_looser_thresholds(self):
+        """小图按像素数等比放宽 —— 绝对阈值会让小图门禁过严。
+
+        注意方向：低分辨率下同一伪影的连通域像素数更少，阈值须同步下调，
+        否则「门禁严不严取决于图像多大」。
+        """
+        self.assertLess(_scaled_area_threshold(25, 2.07), 25.0)
+        self.assertAlmostEqual(
+            _scaled_area_threshold(25, 2.07), 25.0 * 2.07 / 8.3, places=4)
+
+    def test_unknown_size_falls_back_to_legacy_threshold(self):
+        for size in (None, (0, 0), (10,)):
+            self.assertEqual(_scaled_area_threshold(25, _image_megapixels(size)), 25.0)
+
+    def test_tiny_image_never_collapses_threshold_below_noise_floor(self):
+        """极小图不得把门限缩到 1px —— 否则单个采样噪点都算可见伪影。
+
+        实测 64×64 图上 49 个 1px² 噪点会被判 failed。
+        """
+        from artifact_gates import BURN_FLOOR_AREA_PX
+        self.assertGreaterEqual(BURN_FLOOR_AREA_PX, 2.0)
+        self.assertEqual(_scaled_area_threshold(25, 0.004), BURN_FLOOR_AREA_PX)
+        self.assertEqual(_scaled_area_threshold(80, 0.004), BURN_FLOOR_AREA_PX)
+
+    def test_single_pixel_noise_is_never_an_artifact(self):
+        """1px² 的孤立饱和点不构成可见伪影，任何分辨率下都不该计入。"""
+        from artifact_gates import BURN_FLOOR_AREA_PX
+        for size in (64, 256, 1920):
+            before = np.full((size, size, 3), 0.1, np.float32)
+            specks = before.copy()
+            specks[::10, ::10, 0] = 1.0
+            self.assertEqual(
+                check_channel_clipping(specks, before)["status"], "passed",
+                msg=f"{size}px 图上的 1px 噪点被误判为伪影")
+
+    def test_same_artifact_verdict_across_resolutions(self):
+        """同一物理伪影在不同分辨率下判定应一致。"""
+        rng = np.random.default_rng(5)
+        base = np.full((960, 1280, 3), 0.04, np.float32)
+        yy, xx = np.mgrid[:960, :1280]
+        # 一块明确的死白斑（各分辨率下尺寸按像素数等比）
+        verdicts = []
+        for scale in (1, 2, 4):
+            size = max(1, 64 // scale)
+            h, w = 960 // scale, 1280 // scale
+            yy2, xx2 = np.mgrid[:h, :w]
+            patch = np.zeros((h, w, 3), np.float32)
+            cy, cx = h // 2, w // 2
+            patch[cy - size // 2:cy + size // 2, cx - size // 2:cx + size // 2] = 1.0
+            small = np.full((h, w, 3), 0.04, np.float32) + patch
+            gate = check_channel_clipping(small)
+            verdicts.append(gate["status"])
+            self.assertGreater(
+                gate["value"]["r"]["n_regions"], 0,
+                msg=f"scale={scale} 应检出到死白斑")
+        self.assertEqual(len(set(verdicts)), 1,
+                         f"同伪影在 1/1、1/2、1/4 下判定不一致: {verdicts}")
 
 
 if __name__ == "__main__":

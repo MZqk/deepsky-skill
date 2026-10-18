@@ -26,7 +26,7 @@
 先运行现有基础审查：
 
 ```bash
-python scripts/quality_metrics.py output.tif \
+python3 scripts/quality_metrics.py output.tif \
   --manifest intermediates/manifest.json \
   --output quality.json
 ```
@@ -249,7 +249,7 @@ catalog_color ≈ a + b × instrumental_color
 `plate_solve.py` 可提供 WCS 和投影用户星表：
 
 ```bash
-python scripts/plate_solve.py linear_rgb.fits \
+python3 scripts/plate_solve.py linear_rgb.fits \
   --output-dir plate_solve_work \
   --output-json plate_solve.json \
   --catalog-json photometric_catalog.json
@@ -407,3 +407,118 @@ Drizzle 可以改善有足够子像素位移的欠采样数据表达，但不会
 - 像素尺度来源是 WCS 还是设备参数；
 - 分辨率结论是否包含独立视宁度依据；
 - 哪些指标因缺少元数据或外部星表未能计算。
+
+## 具名星点伪影门禁（`scripts/artifact_gates.py`）
+
+**两条路径都会运行**：Agent-in-the-loop 的 review bundle（`review.json` 的
+`star_artifact_gates`），以及 `pipeline.py` 主管线（`result.json` 的同名顶层键）。
+主管线在 Phase 9 星点合成后快照一张**同域**参照图，末端与成品成对比较，因此
+`STAR_BLOAT`/`STAR_LAYER_LOSS`/`STAR_HOLES` 都能跑（此前它们只在会话路径生效，
+导致星点胀大在主管线里无人报警）。
+
+- **STAR_RINGING**：固定参照图星位，以屏蔽邻星的局部背景平面检测暗环；同域配对
+  比较欠冲增量，已有场结构只保留诊断，不因本阶段再次升级状态。
+- **STAR_BLOAT**：星点整体胀大，复用 `measure_paired_star_profiles` 的成对 FWHM 比。
+- **STAR_LAYER_LOSS / STAR_HOLES**：星点层保留率不足或新增/加深的中心暗坑，定位到具体星坐标。
+  振铃与暗坑的背景估计不足、配对残差不可靠或参照域不可比时保留审查，不自动判通过。
+  `warning` 且 `escalate=False` 表示已有结构或已证明未变化的背景诊断。
+  门禁半高核心尺度是处理诊断，不代表物理分辨率；主管线参照阶段为
+  `post_star_combine`，只能归因合成后的末端润色，不能据此豁免更早阶段的损伤。
+- **CORE_BURNING**：处理引入的死白连通域，区分"输入自带饱和"与"处理烧毁"。
+- **CHANNEL_CLIPPING**：逐通道检查 `>=0.995` 的裁切区域，定位新增或扩大区域；复用 25/80 像素阈值。同域处理比较阶段前后，跨域拉伸检查显示结果并保留归因边界。拉伸回退仍需重新验证，末端校色与风格记录首次损伤阶段。
+
+这些门禁与标量门禁（BACKGROUND_CRUSHED / CORNER_NONUNIFORM 等）**并存**：数值门禁是
+审查触发器，具名门禁提供定位证据。两者都不声称"视觉质量合格"——最终判断仍由
+AI/human critic 完成。
+
+主管线路径下，具名门禁触发是**加法式**升级：只在原本 `success` 时升级为
+`review_required`，且只把 `escalate=True` 的 warning/failed 写进 `warnings`。
+
+## 标量门禁 `INPAINT_FOOTPRINT`（去星修补足迹）
+
+盯住「线性域 inpaint 补丁被拉伸放大成可见斑块」。判据是**联合**的：补丁缺纹理
+（核心 std < 35% × 环带 std）**且**与邻域有亮度落差（|Δ| ≥ 0.020）。
+单独任一条都会大量误报（实测只看落差命中 63%、只看纹理 36%；联合命中 ~10%）。
+
+- 量的是**合成星点之后**的成品（斑块是星点层 screen 混合后才出现的），星位来自
+  线性域星点蒙版，FWHM 必须用**线性域**实测值。
+- `warning`（命中 ≥2%）只记录不升级；`failed`（≥8%）升级为 `review_required`。
+
+## 保真度门禁（`scripts/fidelity_gates.py`）
+
+与星点伪影门禁**并存**，补齐「处理有没有放大噪声、破坏色度」这一维度。
+`BACKGROUND_COLOR_CAST` 只看**静态**每通道背景中位数比，严重偏色的输出
+（例如背景 R/G≈3.3）能一路通过；本模块做**逐像素相对参照图的**漂移测量。
+
+参照图是同一份拉伸输入以固定 `pi_mtf` 保守曲线渲染的结果（与成品的唯一差异
+是曲线），因此度量的是「**这条曲线相对保守基线损伤了多少**」。
+
+| 门禁码 | 含义 |
+|---|---|
+| `BACKGROUND_RELATIVE_NOISE_BOUNDED` | 相对背景噪声增益（σ/中位 之比）。**唯一具备升级能力的门** —— degraded 1.1407、hard 1.60（硬上限不可放松） |
+| `BACKGROUND_NOISE_BOUNDED` | 绝对 σ。**只记录不判定**（`uncalibrated`）—— 实测健康组跨目标相差约 150 倍（M31 6.0e-05 vs NGC6888 9.2e-03），单一阈值必然要么全静默要么全误报 |
+| `HUE_PRESERVED` | 逐像素三通道 chromaticity 漂移 p95（L∞，非 L2） |
+| `SUBJECT_CHROMA_VISIBILITY_PRESERVED` | 主体色度 SNR 保留比 |
+| `BACKGROUND_CHROMA_NOISE_BOUNDED` | 背景色度噪声增益 |
+
+**三态语义**（承接「阈值按灾难形态标定会留静默通过区」的教训）：
+
+- 健康 ⇒ **不 append**（完全静默，避免在 gates/warnings 里造噪音）
+- `degraded` ⇒ 进 `warnings` **可见但不升级**，且**不产生 quality_state issue**
+- `unavailable` / `uncalibrated` ⇒ 不可测量或未标定，**均不等于健康**。
+  「测不到」绝不能报成 0.0 当健康值 —— 那是静默通过区的来源。
+
+全部度量都是**显示域、比较性**的，不是目录测光校色，也不是物理 SNR 测量；
+每条门禁的 `evidence["physical_snr"]` 恒为 `False`。阈值来源与复现命令见
+`fidelity_gate_calibration.md`。该文档同时记录了两个被实测**否决**的设计假设
+（绝对 σ 不可用；「压主体」不是主体色度保留比的有效劣化对照），改阈值前先读它。
+阈值不暴露为 cfg —— 相对噪声的硬上限 1.60 连放宽接口都不给。
+
+## 配置指纹（`scripts/config_fingerprint.py`）
+
+证明「这份产物是用哪套配置产出的」。
+
+- `artifact_sha256` 只能证明「**产物文件**没被改」，**证明不了「产生它的配置没被改」**。
+  没有指纹时的静默失效路径：配置 A 跑出产物 P → 改配置 B → 重跑 →
+  `parent_state` 把**配置 A 的 issues 继承到配置 B 的产物上**。
+- **累计指纹**（借鉴 starun 侧 `task_plan.py:208-229`）：
+  `fingerprint(N) = hash(Stage 1..N 的全部配置 + 输入 SHA)`。
+  「改 Stage 2 参数 ⇒ Stage 5 指纹失效」是这条性质的直接后果。
+- **指纹不同即切断父 issue 继承**（`quality_state.build_quality_state` 的
+  `config_changed`）；父 state 无指纹（历史产物）时**保守继承**，不静默丢弃已有 finding。
+- `result.json` 带 `config_fingerprint`（20 位）与 `config_used`（按阶段分组的
+  实际参数清单）—— 报告能自证「我是用哪套参数判的」。
+- 参数按 82 条精确映射 + 16 条前缀规则归阶段；**未识别的键进 `_unassigned`
+  桶并照样参与哈希** —— 漏算会让「改了某参数却算出同样指纹」。
+- **与 `runtime_info.source_fingerprint()` 正交**：source 管「跑的是哪版代码」
+  （全部 `scripts/*.py` + `references/**` + `SKILL.md`），config 管「用的是哪套参数」。
+  改代码只动前者，改参数只动后者。不要把两者混为一谈。
+
+## 失败处置策略（`scripts/failure_policy.py`）
+
+决定性失败时怎么走。三个动作（`--override-params '{"stretch_failure_action": "..."}'`
+或 cfg 同名键）：
+
+- `auto_fallback`（默认）：回退到该阶段的保守输入并**继续**后续步骤，能出图。
+- `preserve_review`：同样继续，但**强制标记 `degraded`** 并把
+  `stretch_diagnostics["preserve_review"]` 写明保留的步骤与原因。
+  适用于「结果可能不是最终想要的，但先给我看」。
+- `stop`：**不出图**，状态 `failed`，但线性域中间产物仍保留供审查。
+  用于「宁可不交付也不要错图」。
+
+**`stop_is_stricter`**：一旦任一阶段选了 `stop`，其他阶段的
+`auto_fallback` / `preserve_review` 一律失效。混合语义（「前面自动回退、
+后面突然终止」）产生的结果最难解释。
+
+非法动作值**报错不回落** —— 处置策略是最后一道闸，回落会把显式意图变成别的行为。
+
+**`degraded` 是 success 与 review_required 之间的中间态**：产物可用、
+有降级记录、**不阻断 `accept`**，但调用方看得出「这不是一次干净的处理」。
+`quality_state.degraded_stages` 列出走过回退的步骤（如 C50 实测的
+`["star_remove"]`）。status 优先级：`failed` > `review_required` > `degraded`
+> `success`（有未解决 issue 时不会被 degraded 掩盖）。
+**此前 status 只有二值**，拉伸 4 级回退链中「第 2 级 masked 成功」与
+「一次成功的 pi_mtf」完全无法区分 —— 补上这一态就是为了找回这个信息。
+
+门禁级 `degraded`（某道门处于退化区）与管线级 `degraded`（某阶段走了回退）
+是同一概念的两种载体：**都可见但不升级**。

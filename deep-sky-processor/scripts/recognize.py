@@ -431,7 +431,67 @@ def analyze_starfield(gray):
         }
 
 
+def _compact_primary_bbox(gray, max_preview=900, area_gate=0.55):
+    """紧凑主体定位：高频细节峰值 → argmax → 单个连通域。
+
+    与 `pipeline.detect_target_crop` 同源算法（双高斯差分找细节、argmax 锚定
+    峰值、只取该峰所在的**单个**连通域）。此处**不能**反向 import pipeline ——
+    pipeline 顶层已 import recognize，会成环 —— 故独立实现并在此注明同源。
+
+    为什么需要：`estimate_primary_region` 取**所有**亮像素的 min/max，密集星场
+    下任意一颗星落四角即满帧。实测 NGC6888 上 bbox=[0,0,1,1]、confidence 0.77，
+    而同数据 `detect_target_crop` 给出 object_bbox=[442, 824, 128, 144]。
+
+    返回归一化 [x, y, w, h]，或 None（无法定位）。
+    """
+    src = np.asarray(gray, dtype=np.float32)
+    if src.ndim != 2:
+        return None
+    h, w = src.shape
+    scale = min(1.0, max_preview / max(h, w))
+    if scale < 1.0:
+        preview = resize(src, (max(32, round(h * scale)), max(32, round(w * scale))),
+                         preserve_range=True, anti_aliasing=True).astype(np.float32)
+    else:
+        preview = src
+    fine = gaussian_filter(preview, sigma=2)
+    broad_sigma = max(12.0, min(preview.shape) / 14.5)
+    detail = np.clip(fine - gaussian_filter(preview, sigma=broad_sigma), 0, None)
+    score = gaussian_filter(detail, sigma=max(3.0, min(preview.shape) / 84.0))
+    margin = max(4, int(min(score.shape) * 0.08))
+    score[:margin, :] = score[-margin:, :] = 0
+    score[:, :margin] = score[:, -margin:] = 0
+    peak = float(score.max())
+    if not np.isfinite(peak) or peak <= 0:
+        return None
+    py, px = np.unravel_index(int(np.argmax(score)), score.shape)
+    labels, _count = cc_label(score > peak * 0.15)
+    ys, xs = np.where(labels == labels[py, px])
+    if xs.size < 4:
+        return None
+    x0, x1 = float(xs.min()) / scale, float(xs.max() + 1) / scale
+    y0, y1 = float(ys.min()) / scale, float(ys.max() + 1) / scale
+    width, height = (x1 - x0) / w, (y1 - y0) / h
+    if not np.isfinite(width * height) or width * height >= area_gate:
+        return None
+    return [round(x0 / w, 4), round(y0 / h, 4), round(width, 4), round(height, 4)]
+
+
 def estimate_primary_region(gray):
+    # 稀疏主体必然满帧的修复：`max(p80, mean+std)` 在密集星场被星点拉高，随后取
+    # **所有**亮像素的 min/max —— 任意一颗星落四角即满帧。实测 NGC6888 上
+    # bbox=[0,0,1,1]、confidence 0.77（必然过 0.35 的 min_confidence 门）。
+    # 先尝试紧凑主体定位；失败或面积仍近满帧才回落到原「亮度显著性」逻辑。
+    compact = _compact_primary_bbox(gray)
+    if compact is not None:
+        area_ratio = compact[2] * compact[3]
+        # confidence 下限 0.55：make_detections 会再乘 0.85 并与 min_confidence
+        # （默认 0.35）比较 —— 0.55×0.85=0.4675 才不会被过滤掉。紧凑定位的
+        # 价值是 bbox 准确，**不应**顺带让 detection 消失。真实 NGC6888 上
+        # 面积占比 0.0097 → 0.55 + 0.4×min(0.0097/0.2, 1.0) = 0.569。
+        return {"bbox": compact,
+                "confidence": round(clamp01(0.55 + 0.4 * min(area_ratio / 0.2, 1.0)), 3),
+                "method": "compact_structure_peak"}
     threshold = max(float(np.percentile(gray, 80)), float(gray.mean() + gray.std()))
     mask = gray >= threshold
     if np.mean(mask) < 0.002:

@@ -98,5 +98,83 @@ class StyleColourPreservationTests(unittest.TestCase):
         self.assertEqual(styled.shape[:2], image.shape)
 
 
+class HighlightCeilingTests(unittest.TestCase):
+    """高光增益封顶：tone curve 不得把亮通道推过 clip 点。
+
+    根因（实测 NGC6888）：`dramatic_nebula` 的 tone curve 在亮区给出
+    gain p99=1.32 / max=1.36，而星云核心的 R 通道本就接近 0.86 ——
+    全通道同乘后直接撞 1.0，`np.clip` 把 R 削平。逐步拆解（降采样 1/2）：
+
+        起点 09_star_combined      R 饱和率 0.036%
+        tone-curve 全通道同乘       0.220%   ← +0.183%，占饱和增量最大头
+        + color_separation(0.12)   0.279%
+        + saturation(1.32)         0.517%
+    """
+
+    @staticmethod
+    def _bright_core(size=192):
+        """构造「R 接近上限、其余通道偏低」的高亮核心 —— 发射星云的典型形态。"""
+        yy, xx = np.mgrid[:size, :size]
+        base = 0.02 + 0.84 * np.exp(
+            -(((xx - size / 2) ** 2 + (yy - size / 2) ** 2) / (2 * (size / 8.0) ** 2))
+        )
+        img = np.stack([base * 0.98, base * 0.62, base * 0.70], axis=-1)
+        return np.clip(img, 0, 1).astype(np.float32)
+
+    @staticmethod
+    def _saturated_ratio(image):
+        return float(np.mean(image[..., 0] >= 0.995))
+
+    def test_default_ceiling_keeps_legacy_behaviour(self):
+        """默认 ceiling=1.0 必须与历史逐位相同 —— 该参数默认不改变输出。"""
+        image = self._bright_core()
+        legacy = apply_professional_style(
+            image.copy(), style="dramatic_nebula",
+            target_type="emission_nebula", color_mode="emission",
+            strength=1.0, highlight_ceiling=1.0)[0]
+        default = apply_professional_style(
+            image.copy(), style="dramatic_nebula",
+            target_type="emission_nebula", color_mode="emission",
+            strength=1.0)[0]
+        np.testing.assert_array_equal(legacy, default)
+
+    def test_ceiling_below_one_prevents_saturation(self):
+        image = self._bright_core()
+        uncapped = apply_professional_style(
+            image.copy(), style="dramatic_nebula",
+            target_type="emission_nebula", color_mode="emission",
+            strength=1.0, highlight_ceiling=1.0)[0]
+        capped = apply_professional_style(
+            image.copy(), style="dramatic_nebula",
+            target_type="emission_nebula", color_mode="emission",
+            strength=1.0, highlight_ceiling=0.98)[0]
+        self.assertEqual(self._saturated_ratio(capped), 0.0)
+        # 封顶后确实改变了高光（否则本测试无意义）
+        self.assertLessEqual(capped.max(), 0.98 + 1e-6)
+
+    def test_ceiling_does_not_reduce_shadows(self):
+        """只压亮部增益：暗部压暗行为不得改变（否则等于改了风格）。"""
+        image = self._bright_core()
+        uncapped = apply_professional_style(
+            image.copy(), style="dramatic_nebula",
+            target_type="emission_nebula", color_mode="emission",
+            strength=1.0, highlight_ceiling=1.0)[0]
+        capped = apply_professional_style(
+            image.copy(), style="dramatic_nebula",
+            target_type="emission_nebula", color_mode="emission",
+            strength=1.0, highlight_ceiling=0.98)[0]
+        dark = image.mean(axis=2) < 0.05
+        np.testing.assert_allclose(capped[dark], uncapped[dark], rtol=1e-6, atol=1e-6)
+
+    def test_ceiling_keeps_channels_below_limit(self):
+        """封顶后所有通道都应 ≤ ceiling。"""
+        image = self._bright_core()
+        capped = apply_professional_style(
+            image.copy(), style="dramatic_nebula",
+            target_type="emission_nebula", color_mode="emission",
+            strength=1.0, highlight_ceiling=0.95)[0]
+        self.assertLessEqual(float(capped.max()), 0.95 + 1e-6)
+
+
 if __name__ == "__main__":
     unittest.main()

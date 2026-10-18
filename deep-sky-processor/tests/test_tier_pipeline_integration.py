@@ -52,7 +52,9 @@ def test_pipeline_tier_options_integration():
         )
 
         assert os.path.exists(output_jpg)
-        assert result.get('status') == 'success'
+        # One removed star cannot establish display-domain stretch acceptance.
+        assert result.get('status') == 'review_required'
+        assert result['stretch_diagnostics']['display_gates']['gates'][0]['evidence']['insufficient_samples']
         # 验证调色板与反卷积产物已正常生成
         work = os.path.join(tmpdir, "work")
         assert os.path.exists(os.path.join(work, "02c_linear_deconv.tif"))

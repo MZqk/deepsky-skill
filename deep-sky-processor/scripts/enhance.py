@@ -117,6 +117,19 @@ CLAHE_MIN_TEXTURE_SNR = 1.7
 # 保守起见只拦"明显过度"的情形。**该阈值目前只在单一案例上标定过，需随样本积累复核。**
 CLAHE_MAX_HF_AMPLIFICATION = 1.5
 
+# 阶段「执行了但效果为 0」的判据：星云区**绝对**高频能量放大倍数下限。
+#
+# 为什么需要：cfg.completed 由 save_artifact 追加（pipeline.py 的 save 分支），
+# 即「save 了就算 executed」，因此被蒙版塌陷毁掉的阶段照样进 executed_steps
+# 拿「已执行」背书。实测 NGC6888 上 local_enhance 的 HF 放大恒为 1.0026×、
+# mean|d| 1.6e-5 —— 数值上等同没跑，但日志打 ✓。
+#
+# 阈值取 1.02：高于量化噪声（float32 重算逐位相同的幂律是 1.0000），低于真实
+# 有效的增强（OR 融合修复后实测 1.055×）。窗口窄是刻意的：只抓「彻底空转」，
+# 不抓「增强偏弱」—— 后者属审美参数，不该由门禁判定。
+# **该阈值仅在 NGC6888 一例上标定过，需随样本积累复核。**
+MIN_EFFECTIVE_HF_AMPLIFICATION = 1.02
+
 
 def _nebula_hf_energy(image, sigma=2.0, nebula_percentile=55.0):
     """星云主体区（亮度分位以上）的**绝对**高频能量。"""
@@ -132,6 +145,42 @@ def _nebula_hf_energy(image, sigma=2.0, nebula_percentile=55.0):
         return None
     hf = np.abs(lum - gaussian_filter(lum, sigma=float(sigma)))
     return float(hf[mask].mean())
+
+
+def measure_stage_effect(before, after, preview_max_side=1400):
+    """实测阶段是否空操作。
+
+    返回 dict（含 `no_op` 布尔）；**返回 None 表示无法判定**，调用方必须把
+    「无法判定」与「无效果」区分开 —— 常量图没有信号区，`_nebula_hf_energy`
+    给 None，那不是空操作。
+    """
+    def _energy(img):
+        arr = np.asarray(img, dtype=np.float32)
+        if max(arr.shape[:2]) > preview_max_side:
+            # 8MP 全图统计内存峰值高，且 HF 能量是均值统计，降采样不改变结论
+            from skimage.transform import resize
+            scale = preview_max_side / max(arr.shape[:2])
+            target = (max(1, int(arr.shape[0] * scale)),
+                      max(1, int(arr.shape[1] * scale)))
+            if arr.ndim == 3:
+                target = target + (arr.shape[2],)
+            arr = resize(arr, target, preserve_range=True,
+                         anti_aliasing=True).astype(np.float32)
+        return _nebula_hf_energy(arr)
+
+    before_energy = _energy(before)
+    after_energy = _energy(after)
+    if before_energy is None or before_energy <= 1e-9:
+        return None
+    if after_energy is None:
+        return None
+    amplification = after_energy / before_energy
+    return {
+        "hf_before": before_energy,
+        "hf_after": after_energy,
+        "hf_amplification": round(float(amplification), 4),
+        "no_op": bool(amplification < MIN_EFFECTIVE_HF_AMPLIFICATION),
+    }
 
 
 def preview_clahe_hf_amplification(image, clip_limit, kernel_size,
@@ -452,7 +501,13 @@ def local_nebula_enhance(image, center_y, center_x, radius=500, strength=0.25,
         0,
         1,
     )
-    mask *= gaussian_filter(signal_mask, sigma=max(3.0, radius / 35.0))
+    # 两个软蒙版必须用 OR 融合，不能相乘。相乘时量纲不同会塌陷：径向蒙版在
+    # 核心区恒≈1，而 signal_mask 由**全图** medium_smooth 的 p35/p98 决定 ——
+    # 稀疏小目标只占画面 1.5%，其 medium_smooth 中位恰落在 p35 附近，于是目标区
+    # signal_mask≈0.03，乘积 0.03。**降分位无效**（实测 p2 时乘积仍仅 0.077，
+    # 比 OR 的 0.42 差 5.5×）。OR 融合后同一数据 r150-300 从 0.0154 → 0.417（27×），
+    # 端到端 HF 能量比 1.003 → 1.055。
+    mask = np.maximum(mask, gaussian_filter(signal_mask, sigma=max(3.0, radius / 35.0)))
     if star_mask is not None:
         stars = np.asarray(star_mask, dtype=np.float32)
         if stars.ndim == 3:

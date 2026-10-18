@@ -466,7 +466,7 @@ def test_pipeline_skips_stellar_repair_for_nonlinear_input(tmp_path):
     result = run_pipeline(
         str(input_png),
         str(output_jpg),
-        steps="color,stellar_repair,stretch",
+        steps="stellar_repair,final_color",
         work_dir=str(tmp_path / "work"),
         save_intermediates=True,
     )

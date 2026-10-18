@@ -32,7 +32,8 @@ pipeline.py --external-denoised denoised.tif ... 其余步骤
 
 **质量验证**: 运行 `denoise.py` 的 `validate_external_denoise()` 函数：
 - 背景区域 RGB 均值偏移 < 5%
-- 高频能量比 > 0.5（低于此值 = 过度涂抹）
+- 背景噪声不增加，已解析结构与边缘保留率不过低或异常增高
+- 高频能量比仅作参考：降噪本身会降低高频能量，不能单凭低于 0.5 拒绝结果
 
 **适用场景**: 噪声水平为 `high` 或 `very_high` 时推荐，`moderate` 及以下无需使用。
 
@@ -41,8 +42,8 @@ pipeline.py --external-denoised denoised.tif ... 其余步骤
 **接入方式**: 使用 StarNet++ CLI 生成无星图，通过 `--external-starless` 接入管线。
 
 ```bash
-# StarNet++ CLI 示例
-starnet++ input.tif starless.tif --stride 256
+# StarNet2 CLI（flags 形式；2.6.2 已移除位置参数语法）
+starnet2 -i input.tif -o starless.tif -s 128
 
 # 接入管线
 pipeline.py input.tif output.jpg \

@@ -460,21 +460,14 @@ def validate_starless_channel_integrity(
     zero_surge: float = 0.25,
     min_signal_pixels: int = 100,
 ) -> Dict[str, Any]:
-    """双图逐通道完整性校验：抓「原图该通道存在、无星层却大范围丢失」。
+    """Compare channel proportions on a shared parent-only heuristic mask.
 
-    两个**互补**信号（缺一不可）：
-      - level_drop：通道被**均匀压低**（像素都还在，但强度只剩 <1/2）。
-        例如 G 被整体乘 0.3 —— 此时归零比例可能没变，只有本信号能抓。
-      - zero_surge：通道被**大面积剪零**（归零比例比原图上升 ≥25pp）。
-        实测故障即此形态：星云区 G 有 93%+ 像素精确为 0。
-
-    **不误伤天然缺通道的窄带图**：先用 `presence_floor` 判断「原图该通道本来
-    是否存在」（相对最强通道 ≥5%）。纯 Hα 无 OIII 时 rel_orig 可能只有 0.01
-    → 永不判塌缩。
-
-    与 `quality_metrics.collapsed_channels` 的区别：后者是**单图绝对**判定
-    （某通道 p99 < 最强通道 p99 的 1%），没有原图参照，且 1% 阈值过宽 ——
-    通道剩 7% 时 0.07 > 0.01，检不出；也看不到「大面积归零」这一独立信号。
+    level_drop detects relative loss in a channel present in the parent.
+    zero_surge measures pixels at/below each image's channel p10 background,
+    not scientific clipping. raw_zero_* separately measures actual <=0 pixels.
+    A common amplitude loss is invisible to normalized profiles; evaluate scale
+    separately when units match. Neither proportions nor presence thresholds
+    establish physical passbands or independent emission-line observations.
     """
     orig = np.asarray(original_image, dtype=np.float32)
     sl = np.asarray(starless_image, dtype=np.float32)
@@ -487,6 +480,9 @@ def validate_starless_channel_integrity(
 
     o = _as_rgb(orig)
     s = _as_rgb(sl)
+    if not np.isfinite(o).all() or not np.isfinite(s).all():
+        return {"valid": False, "skipped": "nonfinite_pixels", "collapsed_channels": [],
+                "signal_pixel_count": 0, "channels": {}, "error": "Nonfinite scientific pixels"}
     mask = _nebula_signal_mask(o)
     n = int(np.count_nonzero(mask))
     if n < min_signal_pixels:
@@ -517,6 +513,8 @@ def validate_starless_channel_integrity(
             "level_drop": drop_ratio,
             "zero_orig": round(zero_o[i], 4),
             "zero_starless": round(zero_s[i], 4),
+            "raw_zero_orig": float(np.mean(o[..., i][mask] <= 0)),
+            "raw_zero_starless": float(np.mean(s[..., i][mask] <= 0)),
             "present_in_original": bool(present),
             "collapsed": bool(reasons),
             "reason": "+".join(reasons) if reasons else None,
@@ -541,10 +539,128 @@ def validate_starless_channel_integrity(
         "valid": not collapsed,
         "skipped": None,
         "collapsed_channels": collapsed,
+        "degraded_channels": _degraded_channels(channels),
         "signal_pixel_count": n,
         "channels": channels,
         "error": error,
+        "zero_measurement": "signal_at_or_below_each_image_channel_p10",
+        "common_scale_loss": "not_detected_by_relative_channel_profiles",
     }
+
+
+# 通道相对强度掉到 1/DEGRADED_LEVEL_DROP 之前算「塌缩」（拒绝），
+# 掉到 1/DEGRADED_LEVEL_DROP 之后但仍在 1/DEGRADED_HARD_DROP 之内算
+# 「退化」（可补偿）。两级门限的存在是因为两者处置方式完全不同：
+# 塌缩无法靠增益救回，退化只是网络对弱色通道响应更强，可以用逐通道
+# 增益把色比拉回原图。
+DEGRADED_LEVEL_DROP = 1.25
+DEGRADED_HARD_DROP = 2.0
+
+
+def _degraded_channels(channels: Dict[str, Any]) -> List[str]:
+    """挑出「可补偿」的通道：明显掉强度但未到塌缩程度。
+
+    `validate_starless_channel_integrity` 的 `level_drop_factor` 是按
+    「G 被剪零 93%」那种灾难形态标定的（2.0），本函数用更严的
+    `DEGRADED_LEVEL_DROP`（1.25）去捕捉「掉三成」这类**静默**偏色 ——
+    现象完全可信（实测 StarNet2 的 MTF 域通道保留率 R 0.856 / G 0.703 /
+    B 0.739，G 掉 34%），但旧判据按设计检不出。
+    """
+    out: List[str] = []
+    for label, ch in channels.items():
+        if ch.get("collapsed") or not ch.get("present_in_original"):
+            continue
+        drop = ch.get("level_drop")
+        # level_drop 为 None 表示该通道被完全清零，属塌缩而非退化
+        if drop is not None and DEGRADED_LEVEL_DROP <= drop < DEGRADED_HARD_DROP:
+            out.append(label)
+    return out
+
+
+def solve_channel_rebalance_gains(
+    original_image: np.ndarray,
+    starless_image: np.ndarray,
+    *,
+    signal_percentile: float = 55.0,
+    max_gain: float = 4.0,
+    iterations: int = 4,
+    tolerance: float = 0.01,
+    probe=None,
+) -> Dict[str, Any]:
+    """Solve bounded gains and verify the final, unclipped candidate.
+
+    A supplied probe defines the display transfer; the default measures linear
+    ratios. Matching either ratio does not establish photometric calibration.
+    """
+    o = _as_rgb(np.asarray(original_image, dtype=np.float32))
+    s = _as_rgb(np.asarray(starless_image, dtype=np.float32))
+    if o.shape != s.shape:
+        return {"applied": False, "reason": "shape_mismatch", "gains": None}
+    if (not np.isfinite(o).all() or not np.isfinite(s).all()
+        or not np.isfinite(max_gain) or max_gain < 1
+        or not np.isfinite(tolerance) or not 0 < tolerance < 1):
+        return {"applied": False, "reason": "invalid_input", "gains": None}
+
+    mask = _nebula_signal_mask(o)
+    if int(np.count_nonzero(mask)) < 100:
+        return {"applied": False, "reason": "insufficient_signal", "gains": None}
+
+    if probe is None:
+        probe = lambda image: _signal_channel_ratios(image, mask, signal_percentile)
+    ratios_before = np.asarray(probe(s), dtype=float)
+    ratios_target = np.asarray(probe(o), dtype=float)
+    if (ratios_before.shape != (3,) or ratios_target.shape != (3,)
+        or not np.isfinite(ratios_before).all() or not np.isfinite(ratios_target).all()
+        or np.any(ratios_before <= 0) or np.any(ratios_target <= 0)):
+        return {"applied": False, "reason": "degenerate_ratio", "gains": None}
+    result: Dict[str, Any] = {
+        "applied": False,
+        "gains": None,
+        "iterations": 0,
+        "max_gain": float(max_gain),
+        "channel_ratio_before": [round(v, 4) for v in ratios_before],
+        "channel_ratio_target": [round(v, 4) for v in ratios_target],
+    }
+    gain = np.ones(3, dtype=np.float32)
+    for iteration in range(1, max(1, int(iterations)) + 1):
+        current = np.asarray(probe(s * gain), dtype=float)
+        if current.shape != (3,) or not np.isfinite(current).all() or np.any(current <= 0):
+            return {**result, "reason": "degenerate_ratio"}
+        step = ratios_target / np.maximum(current, 1e-9)
+        gain = gain * step
+        gain = np.asarray(gain / max(float(gain[0]), 1e-9), dtype=np.float32)
+        if float(gain.max()) > max_gain:
+            return {**result, "reason": "gain_limit_exceeded",
+                    "gains": [round(float(v), 4) for v in gain]}
+        corrected = s * gain
+        if (not np.isfinite(corrected).all()
+            or np.any((corrected >= 1) & (s < 1))
+            or np.any((corrected <= 0) & (s > 0))):
+            return {**result, "reason": "new_clipping"}
+        after = np.asarray(probe(corrected), dtype=float)
+        if after.shape != (3,) or not np.isfinite(after).all() or np.any(after <= 0):
+            return {**result, "reason": "degenerate_ratio"}
+        residual = float(np.abs(after / ratios_target - 1.0).max())
+        result["iterations"] = iteration
+        if residual <= tolerance:
+            break
+
+    result.update(
+        applied=residual <= tolerance,
+        reason="solved" if residual <= tolerance else "not_converged",
+        gains=[float(v) for v in gain],
+        channel_ratio_after=[round(v, 4) for v in after],
+        residual=residual,
+    )
+    return result
+
+
+def _signal_channel_ratios(image: np.ndarray, mask: np.ndarray,
+                           signal_percentile: float) -> np.ndarray:
+    """信号区逐通道 p99，以最强通道为 1 归一 —— 尺度无关的比值向量。"""
+    values = [float(np.percentile(image[..., c][mask], 99.0)) for c in range(3)]
+    scale = max(max(values), 1e-12)
+    return np.array([v / scale for v in values], dtype=np.float32)
 
 
 def check_starless_scale_consistency(

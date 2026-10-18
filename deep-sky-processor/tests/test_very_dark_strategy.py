@@ -43,15 +43,17 @@ class VeryDarkStrategyTests(unittest.TestCase):
 
         recommendations = _generate_recommendations(report)
         stretch = recommendations["stretch"]
-        self.assertEqual(stretch["method"], "very_dark")
-        self.assertEqual(stretch["target_bg"], 0.12)
+        self.assertEqual(stretch["method"], "pi_mtf")
+        self.assertEqual(stretch["target_bg"], 0.05)
         self.assertIn("gamma", stretch)
+        self.assertEqual(stretch["legacy_method"], "very_dark")
+        self.assertEqual(stretch["legacy_target_bg"], 0.12)
 
         config = build_config_from_analysis(
             {"recommendations": recommendations, "starfield": report["starfield"]}
         )
-        self.assertEqual(config["stretch_method"], "very_dark")
-        self.assertEqual(config["target_bg"], 0.12)
+        self.assertEqual(config["stretch_method"], "pi_mtf")
+        self.assertEqual(config["target_bg"], 0.05)
 
     def test_color_diagnostics_include_signal_ratios(self):
         image = np.full((32, 32, 3), [0.001, 0.001, 0.001], dtype=np.float32)

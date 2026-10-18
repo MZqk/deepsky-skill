@@ -15,10 +15,12 @@ from __future__ import annotations
 from fits_io import LOCAL_CELESTIAL_DB, normalize_target_name
 
 # 星点即主体的类型：去星/缩星会破坏目标本身。
+# 双星 (double_star) 与星团同理 —— 目标本身就是几个星点，去星等于抹掉主体。
 STAR_DOMINANT_TYPES = frozenset({
     "globular_cluster",
     "open_cluster",
     "star_cluster",
+    "double_star",
 })
 
 # 极小的特殊规则表。只收录无法从 LOCAL_CELESTIAL_DB 类型推导的例外：
@@ -42,6 +44,7 @@ _KNOWN_TYPES = frozenset({
     "globular_cluster",
     "open_cluster",
     "star_cluster",
+    "double_star",
     "supernova_remnant",
     "wide_field",
 })
@@ -100,3 +103,17 @@ def is_reflection_nebula_target(target_type, target_name) -> bool:
 def is_m42_target(target_name) -> bool:
     """M42 猎户座大星云——需要核心保护。"""
     return resolve_catalog_id(target_name) == "M42"
+
+
+def recommend_stretch(target_type=None, target_name=None, color_mode='auto'):
+    """Return the version-two target policy shared by analysis and execution."""
+    kind = resolve_target_type(target_type, target_name)
+    if kind in ('galaxy', 'planetary_nebula') or is_m42_target(target_name):
+        return 'masked_ghs_standard', .035
+    if is_star_poi_target(kind, target_name):
+        return 'pi_mtf', .05
+    if kind in ('reflection_nebula', 'dark_nebula'):
+        return 'arcsinh', .05
+    if kind == 'emission_nebula':
+        return 'emission', .045
+    return 'pi_mtf', .05

@@ -112,12 +112,28 @@ class ColorCastGateTests(unittest.TestCase):
         self.assertEqual(status, "review_required")
         self.assertEqual(gates[0]["code"], "CORNER_NONUNIFORM")
 
-    def test_existing_gates_keep_default_escalation(self):
+    def test_star_dominance_is_recorded_but_does_not_escalate(self):
+        """密集星场下 star_area_ratio 天然偏高（实测 0.187 vs 阈值 0.18），
+        升为 escalate 门会稳定误报 —— 召回 86~100% 的门禁等于没有门禁。
+        改为只记录，门禁条目与数值仍进 gates/warnings 供人工参考。"""
         _status, gates = evaluate_quality_gates(
             _neutral_final_metrics(star_area_ratio=0.4)
         )
         star_gate = next(g for g in gates if g["code"] == "STAR_DOMINANCE")
-        self.assertTrue(star_gate["escalate"])
+        self.assertEqual(star_gate["status"], "warning")
+        self.assertFalse(star_gate["escalate"])
+        self.assertEqual(star_gate["value"], 0.4)
+
+    def test_existing_gates_keep_default_escalation(self):
+        """保留原始意图：别误改其他门的 escalate。用 DENOISE_PLASTICITY 承担
+        「未改动的门仍应升级」这一断言（STAR_DOMINANCE 已改为只记录）。"""
+        _status, gates = evaluate_quality_gates(
+            _neutral_final_metrics(star_area_ratio=0.02,
+                                  uniform_5x5_dark_patch_ratio=0.5)
+        )
+        denoise_gate = next(g for g in gates
+                            if g["code"] == "DENOISE_PLASTICITY")
+        self.assertTrue(denoise_gate["escalate"])
 
 
 if __name__ == "__main__":

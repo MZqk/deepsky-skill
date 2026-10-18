@@ -20,10 +20,13 @@ SCHEMA_VERSION = "1.0"
 
 
 def find_solve_field(user_path=None):
-    if user_path:
-        path = Path(user_path).expanduser()
-        return str(path) if path.is_file() and os.access(path, os.X_OK) else None
-    return shutil.which("solve-field")
+    """定位 astrometry.net 的 ``solve-field``（委托给通用探测器）。
+
+    四级优先与跨平台路径表见 :mod:`external_tools`。注意本机当前**确实未
+    安装** astrometry.net，探测返回 None 属真实缺失而非代码缺陷。
+    """
+    from external_tools import find_executable
+    return find_executable("solve-field", user_path=user_path)
 
 
 def _header_float(header, key):

@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from agent_workflow import apply_action, initialize_session
+from agent_workflow import apply_action, initialize_session, load_state
+from quality_state import read_quality_state
 from mask_tools import (
     create_color_mask,
     create_mask,
@@ -139,6 +140,43 @@ class MaskToolsTests(unittest.TestCase):
                 Path(result["mask_report"]).read_text(encoding="utf-8")
             )
             self.assertEqual(payload["schema_version"], "1.0")
+            # 掩码调整**不经管线**（作用域内无 pipeline_result 变量），
+            # 指纹须取自父状态。回归锁：曾误传 pipeline_result.get(...)
+            # 导致 NameError —— 这里从产物 sidecar 验证实际落盘结果。
+            quality = read_quality_state(result["artifact"])
+            self.assertIsNone(quality["config_fingerprint"])
+            self.assertFalse(quality["config_changed"])
+
+    def test_masked_adjustment_inherits_parent_config_fingerprint(self):
+        """掩码调整不改配置 ⇒ 产物应沿用父状态的指纹（不制造"配置已变"）。"""
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source.png"
+            session = Path(td) / "session"
+            imsave(source,
+                   np.clip(synthetic_color_scene() * 255, 0, 255).astype(np.uint8))
+            initialize_session(str(source), session)
+            # 手工给输入产物挂一个指纹，模拟「上一轮管线跑过」。
+            # 直接改session.json：load_state 会做路径归一化与后续校验，
+            # 手工拼一个 quality_state 反而容易漏字段。
+            state, _session_path = load_state(session)   # 返回 (state, path)
+            input_artifact = state["input_artifact"]
+            entry = state["artifact_state"][input_artifact]
+            entry["quality_state"] = dict(entry.get("quality_state") or {})
+            entry["quality_state"]["config_fingerprint"] = "fp_from_previous_run"
+            (session / "session.json").write_text(
+                json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+            event = apply_action(session, {
+                "operation": "masked_adjustment",
+                "mask": {"type": "range", "low": 0.05, "high": 0.8},
+                "adjustment": {"method": "arcsinh", "factor": 25,
+                               "strength": 0.7},
+            })
+            # 指纹落在产物 sidecar（event 里只带 result 路径）
+            quality = read_quality_state(event["result"]["artifact"])
+            self.assertEqual(quality["config_fingerprint"],
+                             "fp_from_previous_run")
+            self.assertFalse(quality["config_changed"])
 
 
 if __name__ == "__main__":

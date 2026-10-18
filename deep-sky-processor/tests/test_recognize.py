@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from recognize import (
     build_recognition_workflow,
+    estimate_primary_region,
     finalize_recognition_workflow,
     safe_visual_preview,
 )
@@ -258,6 +259,77 @@ class RecognizeCliTests(unittest.TestCase):
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(payload["source"]["stage"], "input")
             self.assertEqual(payload["metadata"]["analysis_report"]["brightness"]["darkness_level"], "dark")
+
+
+class PrimaryRegionTests(unittest.TestCase):
+    """密集星场上的稀疏主体不得被定位成满帧。
+
+    旧实现用 `max(p80, mean+std)` 阈值后取**所有**亮像素的 min/max —— 密集星场
+    下阈值被星点拉高，而任意一颗星落四角即满帧。实测 NGC6888 上 bbox=[0,0,1,1]、
+    confidence 0.77（必然过 0.35 的 min_confidence 门，下游以为定位成功）。
+    """
+
+    @staticmethod
+    def _dense_field(size=(400, 600), target_center=(300, 200), seed=11):
+        img = np.full(size, 0.02, np.float32)
+        yy, xx = np.mgrid[0:size[0], 0:size[1]]
+        cy, cx = target_center
+        img += np.exp(
+            -(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 70.0 ** 2))
+        ) * 0.5
+        rng = np.random.default_rng(seed)
+        for _ in range(300):                    # 星点铺满全图
+            sy = int(rng.integers(3, size[0] - 3))
+            sx = int(rng.integers(3, size[1] - 3))
+            img[sy - 1:sy + 2, sx - 1:sx + 2] = 1.0
+        return img
+
+    def test_sparse_target_is_not_full_frame(self):
+        img = self._dense_field()
+        img[0, 0] = img[0, -1] = img[-1, 0] = img[-1, -1] = 1.0   # 四角星点
+        result = estimate_primary_region(img)
+        self.assertNotEqual(result["bbox"], [0.0, 0.0, 1.0, 1.0])
+        self.assertLess(result["bbox"][2] * result["bbox"][3], 0.55)
+        self.assertEqual(result["method"], "compact_structure_peak")
+
+    def test_bbox_no_longer_spans_the_whole_frame(self):
+        """密集星场下 bbox 收缩到局部区域。
+
+        注意断言刻意**不**要求中心命中目标：峰值法在「大量紧邻硬星点 + 平滑弱目标」
+        的极端合成图上仍可能被星点抢占（实测 300 颗 3×3 硬星点可压过峰值 0.52 的
+        目标）。这正是它相对「取所有亮像素 min/max」的价值 —— 从满帧收缩到局部，
+        且真实数据（星云有丰富纹理）上实测能准确命中主体
+        （NGC6888：bbox [0,0,1,1] → [0.437, 0.458, 0.127, 0.081]，对准新月）。
+        """
+        img = self._dense_field()
+        result = estimate_primary_region(img)
+        x, y, w, h = result["bbox"]
+        self.assertGreater(w * h, 0.0)
+        self.assertLess(w * h, 0.55)
+        # bbox 必须包含画面中心附近（主体所在），而不是贴在某角落
+        self.assertTrue(x < 0.5 < x + w or y < 0.5 < y + h)
+
+    def test_flat_field_falls_back_without_raising(self):
+        result = estimate_primary_region(np.full((64, 64), 0.05, np.float32))
+        self.assertEqual(len(result["bbox"]), 4)
+        self.assertTrue(0.0 <= result["bbox"][0] <= 1.0)
+
+    def test_wide_target_near_full_frame_falls_back_gracefully(self):
+        """主体本就占满画面时退回原逻辑，而不是强行裁一个假 bbox。"""
+        img = np.full((200, 200), 0.02, np.float32)
+        img += 0.5                                  # 均匀主体 → 面积近满帧
+        result = estimate_primary_region(img)
+        self.assertEqual(len(result["bbox"]), 4)
+
+    def test_compact_result_keeps_detection_above_min_confidence(self):
+        """紧凑定位后 detection 仍须产出 —— bbox 变准不应顺带让 detection 消失。
+
+        `make_detections` 会把 confidence 乘 0.85 再与 min_confidence（默认
+        0.35）比较，故紧凑路径的 confidence 下限取 0.55（0.55×0.85=0.4675）。
+        """
+        result = estimate_primary_region(self._dense_field())
+        self.assertEqual(result["method"], "compact_structure_peak")
+        self.assertGreaterEqual(result["confidence"] * 0.85, 0.35)
 
 
 if __name__ == "__main__":

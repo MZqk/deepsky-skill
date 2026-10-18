@@ -29,7 +29,7 @@ from scipy.signal import convolve2d
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from fits_io import read_image, build_physical_priors, resolve_celestial_target
+from fits_io import read_image, build_physical_priors, resolve_celestial_target, extract_capture_metadata
 from recognize import (analyze_starfield as recognize_starfield,
                        classify_scene, color_features, normalize_image)
 from neural_star_bridge import (
@@ -38,9 +38,17 @@ from neural_star_bridge import (
 )
 
 
-def analyze_image(filepath):
+def analyze_image(filepath, input_is_linear=None, capture_metadata=None):
     """完整图像诊断分析，返回结构化诊断报告。"""
+    filepath = str(filepath)
     img, meta = read_image(filepath)
+    if input_is_linear is not None:
+        if meta.get('stage_source') == 'sidecar' and input_is_linear != meta['is_linear']:
+            raise ValueError('Input stage conflicts with saved sidecar')
+        meta['is_linear'] = input_is_linear
+    if capture_metadata is not None:
+        meta['capture_metadata'] = capture_metadata
+    channels = _detect_channels(filepath, img, meta)
 
     # 处理 RGBA
     has_alpha = img.ndim == 3 and img.shape[2] == 4
@@ -55,7 +63,8 @@ def analyze_image(filepath):
 
     # 优先从 FITS/XISF Header 读取并解析天体真实身份，若无法识别再回退到纯像素启发式
     header = meta.get('header')
-    target_resolved = resolve_celestial_target(header=header) if header else None
+    target_resolved = resolve_celestial_target(
+        header=header, target_name=meta.get('capture_metadata', {}).get('object'))
     if target_resolved and target_resolved.get('resolved_type') != 'unknown_deep_sky':
         target_hint = {
             'target_type': target_resolved['resolved_type'],
@@ -67,7 +76,7 @@ def analyze_image(filepath):
     else:
         capture_meta = meta.get('capture_metadata', {})
         filter_class = capture_meta.get('filter_profile', {}).get('class')
-        if filter_class in ('dual_band', 'narrowband'):
+        if filter_class in ('dual_band', 'narrowband', 'multi_band'):
             target_hint = {
                 'target_type': 'emission_nebula',
                 'confidence': 0.90,
@@ -85,9 +94,10 @@ def analyze_image(filepath):
         'file': filepath,
         'format': meta.get('format', 'unknown'),
         'is_linear': meta.get('is_linear', False),
+        'stage_source': meta.get('stage_source', 'format'),
         'shape': list(img.shape),
         'has_alpha': has_alpha,
-        'channels': _detect_channels(filepath, img, meta),
+        'channels': channels,
         'capture_metadata': meta.get('capture_metadata', {}),
         'physical_priors': build_physical_priors(
             meta.get('capture_metadata', {})
@@ -143,32 +153,29 @@ def _interpret_color_signal(color_report, target_hint):
 
 
 def _detect_channels(filepath, img, meta):
-    """Detect channel count and likely semantic channel type."""
+    """Keep pixel geometry separate from header-backed spectral roles."""
     count = 1 if img.ndim == 2 else int(img.shape[2])
-    header = meta.get('header')
-    filter_name = str(header.get('FILTER', '') if header is not None else '').strip()
-    stem = Path(filepath).stem.lower()
-    token = filter_name.lower() or stem
+    capture = meta.get('capture_metadata')
+    if not isinstance(capture, dict) or 'filter_profile' not in capture:
+        capture = extract_capture_metadata(meta.get('header'))
+    profile = capture['filter_profile']
     if count == 4:
         channel_type = 'rgba'
     elif count == 3:
         channel_type = 'rgb'
-    elif any(name in token for name in ('sii', 's2', 'sulfur')):
-        channel_type = 'sii'
-    elif any(name in token for name in ('ha', 'halpha', 'h-alpha')):
-        channel_type = 'ha'
-    elif any(name in token for name in ('oiii', 'o3', 'oxygen')):
-        channel_type = 'oiii'
-    elif filter_name.upper() in ('L', 'LUM', 'LUMINANCE') or 'luminance' in token:
+    elif count == 1 and profile['class'] == 'narrowband' and len(profile['lines']) == 1:
+        channel_type = {'H-alpha': 'ha', 'OIII': 'oiii', 'SII': 'sii'}[profile['lines'][0]]
+    elif count == 1 and profile['class'] == 'luminance':
         channel_type = 'luminance'
-    elif filter_name.upper() in ('R', 'G', 'B'):
-        channel_type = filter_name.lower()
+    elif count == 1 and profile['class'] == 'broadband_channel':
+        channel_type = profile['normalized'].lower()
     else:
         channel_type = 'mono' if count == 1 else f'{count}_channel'
     return {
         'channel_count': count,
         'channel_type': channel_type,
-        'filter': filter_name or None,
+        'filter': capture.get('filter'),
+        'filter_profile': profile,
     }
 
 
@@ -308,11 +315,18 @@ def _analyze_noise(gray, img):
         except Exception:
             chroma_noise = 0
 
+    from denoise import denoise_noise_stats
+    _, smooth, _, sigma, background = denoise_noise_stats(img)
+    signal_span = float(np.percentile(smooth, 99) - background)
     return {
         'background_noise_std': round(background_noise, 5),
         'noise_level': noise_level,
         'chroma_noise_estimate': round(chroma_noise, 5),
         'sample_blocks': len(local_std_estimates),
+        'highpass_mad': sigma,
+        'background_level': background,
+        'relative_background_noise': sigma / max(abs(background), 1e-8),
+        'background_baseline_review': bool(background > 0.05 and background > 2 * max(signal_span, 3 * sigma)),
     }
 
 
@@ -863,8 +877,17 @@ def _generate_recommendations(r):
         stretch_gamma = 0.5
         target_bg = 0.06
 
+    from target_rules import recommend_stretch
+    legacy_method, legacy_bg = stretch_method, target_bg
+    hint = r.get('target_type_hint') or {}
+    stretch_method, target_bg = recommend_stretch(hint.get('target_type'),
+                                                  hint.get('resolved_name'),
+                                                  c.get('recommended_mode', 'auto'))
+
     rec['stretch'] = {
         'method': stretch_method,
+        'legacy_method': legacy_method,
+        'legacy_target_bg': legacy_bg,
         'factor': stretch_factor,
         'gamma': stretch_gamma,
         'target_bg': target_bg,

@@ -93,7 +93,7 @@ result = Ytarget + saturation_factor * (LRGB - Ytarget)
 ```
 
 ```bash
-python scripts/pipeline.py lrgb_combined.tif final.jpg \
+python3 scripts/pipeline.py lrgb_combined.tif final.jpg \
   --strength adaptive \
   --target-type galaxy \
   --style galaxy_core \

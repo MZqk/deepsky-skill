@@ -36,8 +36,10 @@ import numpy as np
 from scipy.ndimage import (
     binary_dilation,
     gaussian_filter,
+    distance_transform_edt,
     label,
     maximum_filter,
+    find_objects,
 )
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -51,14 +53,59 @@ RING_DIP_ABS = 0.003         # 且绝对深度 ≥ 0.003（防暗背景噪声误
 RING_MIN_SAMPLED = 3         # 可测亮星 < 3 → skipped
 RETENTION_FAILED = 0.55      # 星点峰值保留率中位 < 0.55 → failed
 RETENTION_WARNING = 0.75     # < 0.75 → warning
-HOLE_CENTER_RATIO = 0.80     # 星点中心均值 < 0.80 × 环带中值 → 暗坑
-BURN_MIN_AREA_PX = 25        # 新生死白连通域 ≥ 25px²（≈6px 直径）才计入
-BURN_BIG_AREA_PX = 80        # 单个 ≥ 80px² 或 ≥2 个 → failed
+HOLE_CENTER_RATIO = 0.80     # Center intensity below 80% of the local background
+# 新生死白连通域的面积门限 —— **以 3840×2160（8.3MP）为基准等比缩放**。
+#
+# 为什么不能是固定像素数：绝对阈值让门禁**分辨率依赖** —— 同一份数据、同一份
+# 代码，实测 1/1 分辨率 R 新增区域 7 处判 failed，降到 1/2 就变 0 处 passed
+# （连通域被降采样打断）。这等于「门禁严不严取决于图像多大」。
+#
+# 基准 8.3MP 下 25px² ≈ 6px 直径（星点级死白），80px² 是其 3.2 倍；
+# 4K（3840×2160）恰好是基准，故 8.3MP 及以下行为与历史完全一致。
+CLIPPING_GATE_REFERENCE_MP = 8.3
+BURN_MIN_AREA_PX = 25        # 8.3MP 基准：新生死白连通域 ≥ 25px²（≈6px 直径）
+BURN_BIG_AREA_PX = 80        # 8.3MP 基准：单个 ≥ 80px² 或 ≥2 个 → failed
+BURN_FLOOR_AREA_PX = 2.0     # 缩放下限：单像素只是采样噪点，不算可见伪影
+
+
+def _scaled_area_threshold(area_px, megapixels):
+    """把面积门限按像素数等比缩放到当前分辨率。
+
+    面积随**像素数**线性变化（一阶近似，忽略各向异性缩放），故按
+    `megapixels / CLIPPING_GATE_REFERENCE_MP` 线性缩放。
+
+    下限 2px²：线性缩放在小图上会把门限压到近 0，使**单个像素**都算
+    「新增死白连通域」—— 实测 64×64 图上 49 个 1px 噪点会被判 failed。
+    2px² 是「至少两个像素构成一块」的物理下限：单像素只能是采样噪点，
+    不构成用户可见的伪影。
+    """
+    if megapixels is None or megapixels <= 0:
+        return float(area_px)
+    scale = float(megapixels) / CLIPPING_GATE_REFERENCE_MP
+    return max(float(area_px) * scale, BURN_FLOOR_AREA_PX)
+
+
+def _image_megapixels(shape):
+    """按短边构造等价方形估算像素数（只用于面积门限缩放，不做几何假设）。"""
+    if shape is None or len(shape) < 2:
+        return None
+    height, width = float(shape[0]), float(shape[1])
+    if height <= 0 or width <= 0:
+        return None
+    return max(height, width) * min(height, width) / 1_000_000.0
 
 
 def _gate(code, status, message, value=None, threshold=None,
           evidence=None, escalate=True):
-    return {
+    """构造门禁记录。
+
+    键集与 fidelity_gates._gate 逐键一致（下游 quality_state / pipeline
+    warnings 路径按同一套 schema 消费）。此处**封印**授权字段 ——
+    见 gate_authority 模块文档：诊断字段（message/evidence）可自由改写，
+    授权字段（code/status/escalate/value/threshold）改动会被复验检出。
+    """
+    from gate_authority import seal_gate
+    return seal_gate({
         "code": code,
         "status": status,           # passed / warning / failed / skipped
         "escalate": escalate,
@@ -66,11 +113,13 @@ def _gate(code, status, message, value=None, threshold=None,
         "value": value,
         "threshold": threshold,
         "evidence": evidence or {},
-    }
+    })
 
 
 def _luminance(image):
     image = np.asarray(image, dtype=np.float32)
+    if not np.all(np.isfinite(image)):
+        raise ValueError("artifact gates require finite image values")
     if image.ndim == 2:
         return image
     if image.ndim != 3 or image.shape[2] < 3:
@@ -86,6 +135,29 @@ def _estimate_fwhm_or_default(gray):
     fwhm, _std, n_used, _cand = estimate_fwhm(gray)
     if n_used < 3 or not np.isfinite(fwhm) or fwhm <= 0:
         return 3.0, n_used
+    # Moments include faint extended filaments. Use the connected half-height
+    # core to keep the artifact sampling scale tied to the stellar peak.
+    centers = _find_star_centers(gray, 3.0, max_stars=50,
+                                 peak_percentile=99.5, min_significance=0.15)
+    patch_r = max(8, int(np.ceil(1.5 * fwhm)))
+    widths = []
+    for cy, cx, _ in centers:
+        if (cy < patch_r or cx < patch_r or cy + patch_r >= gray.shape[0]
+                or cx + patch_r >= gray.shape[1]):
+            continue
+        patch = gray[cy - patch_r:cy + patch_r + 1, cx - patch_r:cx + patch_r + 1]
+        bg = float(np.percentile(patch, 20))
+        components, _ = label(patch >= bg + 0.5 * (float(gray[cy, cx]) - bg))
+        core_id = components[patch_r, patch_r]
+        if not core_id:
+            continue
+        core = components == core_id
+        if any(np.any(edge) for edge in (core[0], core[-1], core[:, 0], core[:, -1])):
+            continue
+        # ponytail: half-height area is a diagnostic width; physical resolution needs PSF fitting.
+        widths.append(2 * np.sqrt(np.count_nonzero(core) / np.pi))
+    if len(widths) >= 3:
+        return max(1.5, float(np.median(widths))), len(widths)
     return float(fwhm), n_used
 
 
@@ -138,113 +210,185 @@ def _find_star_centers(gray, fwhm, max_stars, peak_percentile,
 # STAR_RINGING：亮星暗环
 # ══════════════════════════════════════════════════════════════
 
-def check_ringing(candidate, fwhm=None, max_stars=120):
-    """亮星周围暗环检测（振铃/黑环）。
+def _background_exclusion(gray, fwhm):
+    """Mask stellar peaks and their wings, including saturated neighbors."""
+    peaks = (gray == maximum_filter(gray, size=max(3, int(round(fwhm)))))
+    peaks &= gray - gaussian_filter(gray, fwhm) > 0.03
+    radius = int(np.ceil(1.2 * fwhm))
+    return distance_transform_edt(~peaks) <= radius if np.any(peaks) else np.zeros_like(peaks)
 
-    对每颗亮星取环形半径剖面（1.2–3.0×FWHM 环带均值），
-    与该星外圈（3.5–5.0×FWHM）像素的**中值**局部背景比较：
-    环带最低值低于局部背景 12%（且绝对深度 ≥0.003）→ 判定暗环。
 
-    用外圈像素中值（而非均值）做基准：邻近星的亮翼只污染环带的
-    小弧段，中值稳健；这避免了"双星靠近时亮翼抬高外圈均值"的假阳性。
+def _local_background(patch, dx, dy, mask):
+    """Fit a clipped local plane; retain all-sample residuals as uncertainty.
+
+    A plane cannot describe curved filaments. Its residual must remain visible
+    rather than letting clipping turn a poor background model into a pass.
+    """
+    mask = mask & np.isfinite(patch)
+    if np.count_nonzero(mask) < 12:
+        return None
+    design = np.column_stack((np.ones(np.count_nonzero(mask)), dx[mask], dy[mask]))
+    values = patch[mask]
+    active = np.ones(len(values), dtype=bool)
+    for _ in range(4):
+        coefficients, _, rank, _ = np.linalg.lstsq(design[active], values[active], rcond=None)
+        if rank < 3:
+            return None
+        residual = values - design @ coefficients
+        median = np.median(residual[active])
+        sigma = 1.4826 * np.median(np.abs(residual[active] - median))
+        next_active = np.abs(residual - median) <= max(3.5 * sigma, 1e-7)
+        if np.array_equal(active, next_active) or np.count_nonzero(next_active) < 12:
+            break
+        active = next_active
+    plane = coefficients[0] + coefficients[1] * dx + coefficients[2] * dy
+    error = float(np.percentile(np.abs(values - design @ coefficients), 90))
+    return plane, error
+
+
+def check_ringing(candidate, fwhm=None, max_stars=120, reference=None,
+                  reference_comparable=True):
+    """Detect absolute undershoot and attribute only new paired deficits.
+
+    Paired inputs must share geometry and intensity domain. The same centers,
+    radial bins and neighbor mask are used for both images. Fitting their
+    difference preserves shared field structure even on a curved filament.
     """
     gray = _luminance(candidate)
+    ref_gray = _luminance(reference) if reference is not None else None
+    paired = ref_gray is not None and reference_comparable and ref_gray.shape == gray.shape
+    source = ref_gray if paired else gray
     if fwhm is None:
-        fwhm, _n = _estimate_fwhm_or_default(gray)
+        fwhm, _n = _estimate_fwhm_or_default(source)
     fwhm = max(float(fwhm), 1.5)
-
     centers = _find_star_centers(
-        gray, fwhm, max_stars=max_stars,
+        source, fwhm, max_stars=max_stars,
         peak_percentile=99.5, min_significance=0.15,
     )
-    if len(centers) < RING_MIN_SAMPLED:
-        return _gate(
-            "STAR_RINGING", "skipped",
-            f"可测亮星不足（{len(centers)} < {RING_MIN_SAMPLED}），暗环检测跳过",
-            value={"n_sampled": len(centers)},
-        )
-
     ring_zone = (1.2 * fwhm, 3.0 * fwhm)
     bg_zone = (3.5 * fwhm, 5.0 * fwhm)
     step = max(0.8, 0.3 * fwhm)
-    edges = np.arange(0.8 * fwhm, 5.0 * fwhm + step, step)
-    r_max = float(edges[-1])
-    patch_r = int(np.ceil(r_max)) + 1
+    edges = np.arange(ring_zone[0], ring_zone[1] + step, step)
+    patch_r = int(np.ceil(bg_zone[1])) + 1
+    excluded = _background_exclusion(gray, fwhm)
+    if paired:
+        excluded |= _background_exclusion(ref_gray, fwhm)
 
     h, w = gray.shape
-    ringing = []
-    for cy, cx, signal in centers:
+    ringing, preexisting, uncertain, background_diagnostics = [], [], [], []
+    n_sampled = 0
+    for cy, cx, _signal in centers:
         y0, y1 = cy - patch_r, cy + patch_r + 1
         x0, x1 = cx - patch_r, cx + patch_r + 1
         if y0 < 0 or x0 < 0 or y1 > h or x1 > w:
             continue
         patch = gray[y0:y1, x0:x1]
-        yy, xx = np.mgrid[y0:y1, x0:x1]
-        dist = np.hypot(yy - cy, xx - cx)
-
-        outer = patch[(dist >= bg_zone[0]) & (dist <= bg_zone[1])]
-        if outer.size < 12:
+        dy, dx = np.mgrid[-patch_r:patch_r + 1, -patch_r:patch_r + 1]
+        dist = np.hypot(dy, dx)
+        valid = ~excluded[y0:y1, x0:x1]
+        outer = valid & (dist >= bg_zone[0]) & (dist <= bg_zone[1])
+        background = _local_background(patch, dx, dy, outer)
+        if background is None:
+            uncertain.append({"center_rc": [cy, cx], "reason": "insufficient_background"})
             continue
-        bg_ref = float(np.median(outer))
-        if bg_ref < 0.004:
-            continue  # 背景近黑，相对深度不可靠
+        plane, error = background
+        delta_background = None
+        if paired:
+            delta = patch - ref_gray[y0:y1, x0:x1]
+            delta_background = _local_background(delta, dx, dy, outer)
+            if delta_background is None:
+                uncertain.append({"center_rc": [cy, cx], "reason": "insufficient_paired_background"})
+                continue
 
-        ring_mask = (dist >= ring_zone[0]) & (dist <= ring_zone[1])
-        ring_pixels = patch[ring_mask]
-        if ring_pixels.size < 8:
-            continue
-        # 分箱均值找最深环带（半径定位用）
-        ring_radii = dist[ring_mask]
-        bin_means = []
+        profiles = []
         for lo, hi in zip(edges[:-1], edges[1:]):
-            sel = (ring_pixels >= 0) & (ring_radii >= lo) & (ring_radii < hi)
-            if int(np.count_nonzero(sel)) >= 3:
-                bin_means.append((float(lo + hi) / 2.0,
-                                  float(np.mean(ring_pixels[sel]))))
-        if not bin_means:
+            # The target star mask is used only for fitting the background;
+            # exclude neighboring stars from profiles without masking the ring.
+            sel = (dist >= lo) & (dist < min(hi, ring_zone[1]))
+            sel &= valid | (dist <= 1.2 * fwhm + 1)
+            if np.count_nonzero(sel) < 3:
+                continue
+            bg = float(np.mean(plane[sel]))
+            if bg < 0.004:
+                continue
+            depth = float(np.mean((plane - patch)[sel]))
+            increment = None
+            if delta_background is not None:
+                increment = float(np.mean((delta_background[0] - delta)[sel]))
+            profiles.append((float(lo + hi) / 2, bg, depth, increment))
+        if not profiles or max(t[1] for t in profiles) < 0.004:
             continue
-        ring_min_radius, ring_min = min(bin_means, key=lambda t: t[1])
+        n_sampled += 1
+        suspects = [t for t in profiles if t[2] >= max(RING_DIP_ABS, RING_DIP_REL * t[1])]
+        if not suspects:
+            limit = max(RING_DIP_ABS, RING_DIP_REL * float(np.median(plane[outer])))
+            if error > limit:
+                diagnostic = {"center_rc": [cy, cx], "reason": "background_model_unreliable",
+                              "background_error": round(error, 5)}
+                if paired and delta_background[1] <= limit and all(t[3] < limit for t in profiles):
+                    background_diagnostics.append(diagnostic)
+                else:
+                    uncertain.append(diagnostic)
+                    n_sampled -= 1
+            continue
+        radius, bg, depth, increment = max(
+            suspects, key=lambda t: (t[3] if paired else t[2])
+            - max(RING_DIP_ABS, RING_DIP_REL * t[1]))
+        limit = max(RING_DIP_ABS, RING_DIP_REL * bg)
+        measurement = {
+            "center_rc": [cy, cx], "radius_px": round(radius, 2),
+            "radius_fwhm": round(radius / fwhm, 2),
+            "dip_abs": round(depth, 5), "dip_rel": round(depth / max(bg, 1e-6), 4),
+            "background_error": round(error, 5),
+        }
+        if paired:
+            measurement.update(reference_dip_abs=round(depth - increment, 5),
+                               added_dip_abs=round(increment, 5),
+                               delta_background_error=round(delta_background[1], 5))
+            if delta_background[1] > limit:
+                measurement["reason"] = "paired_background_model_unreliable"
+                uncertain.append(measurement)
+                n_sampled -= 1
+            elif increment < limit:
+                preexisting.append(measurement)
+            else:
+                ringing.append(measurement)
+        elif error > limit:
+            measurement["reason"] = "background_model_unreliable"
+            uncertain.append(measurement)
+            n_sampled -= 1
+        else:
+            ringing.append(measurement)
 
-        dip_abs = bg_ref - ring_min
-        dip_rel = dip_abs / max(bg_ref, 1e-6)
-        if dip_rel >= RING_DIP_REL and dip_abs >= RING_DIP_ABS:
-            ringing.append({
-                "center_rc": [cy, cx],
-                "radius_px": round(ring_min_radius, 2),
-                "radius_fwhm": round(ring_min_radius / fwhm, 2),
-                "dip_rel": round(dip_rel, 4),
-                "dip_abs": round(dip_abs, 5),
-            })
-
-    n_sampled = len(centers)
     n_ring = len(ringing)
     fail_count = max(2, int(np.ceil(0.08 * n_sampled)))
-    if n_ring >= fail_count:
-        radii = [r["radius_px"] for r in ringing]
-        status = "failed"
-        message = (
-            f"{n_ring}/{n_sampled} 颗亮星检出暗环"
-            f"（半径 {min(radii):.1f}–{max(radii):.1f}px，"
-            f"深度 {min(r['dip_rel'] for r in ringing):.0%}+），"
-            "疑似反卷积/锐化振铃或去星修补发黑"
-        )
-    elif n_ring >= 1:
-        radii = [r["radius_px"] for r in ringing]
+    status = "failed" if n_ring >= fail_count else "warning" if n_ring or uncertain else "passed"
+    if n_sampled < RING_MIN_SAMPLED and not uncertain:
+        status = "skipped"
+    if preexisting or background_diagnostics:
+        if status == "passed":
+            status = "warning"
+    if reference is not None and not paired and status in ("passed", "skipped"):
         status = "warning"
-        message = (
-            f"{n_ring}/{n_sampled} 颗亮星检出暗环"
-            f"（半径 {min(radii):.1f}–{max(radii):.1f}px），建议视觉复核"
-        )
-    else:
-        status = "passed"
-        message = f"{n_sampled} 颗亮星未检出暗环"
+    message = (f"{n_ring}/{n_sampled} stars with {'new or deepened' if paired else 'suspected'} "
+               f"dark rings; {len(preexisting)} preexisting, {len(uncertain)} uncertain, "
+               f"{len(background_diagnostics)} unchanged background diagnostics")
+    if n_ring:
+        message += "; 疑似反卷积/锐化振铃或去星修补发黑"
+    if reference is not None and not paired:
+        message += "; reference geometry or intensity domain is not comparable"
     return _gate(
         "STAR_RINGING", status, message,
-        value={"n_sampled": n_sampled, "n_ring": n_ring,
+        value={"n_sampled": n_sampled, "n_detected": len(centers), "n_ring": n_ring,
+               "n_preexisting": len(preexisting), "n_uncertain": len(uncertain),
+               "n_background_diagnostics": len(background_diagnostics),
                "fwhm_px": round(fwhm, 2)},
-        threshold=f"环带深度≥{RING_DIP_REL:.0%}×局部背景且绝对深度≥{RING_DIP_ABS}",
-        evidence={"ringing_stars": ringing[:16],
-                  "coordinate_convention": "row_col"},
+        threshold=f"dip and paired increment ≥ max({RING_DIP_ABS}, {RING_DIP_REL} × local background)",
+        evidence={"ringing_stars": ringing[:16], "preexisting_stars": preexisting[:16],
+                  "uncertain_stars": uncertain[:16], "background_diagnostics": background_diagnostics[:16],
+                  "reference_comparable": paired,
+                  "background_model": "clipped_local_plane", "coordinate_convention": "row_col"},
+        escalate=bool(n_ring or uncertain or (reference is not None and not paired)),
     )
 
 
@@ -307,17 +451,13 @@ def check_star_bloat(reference, candidate):
 
 def check_star_layer_integrity(reference, candidate, fwhm=None,
                                star_removal_intended=False,
-                               star_reduction_step=False):
-    """星点层完整性：保留率 + 暗坑。
+                               star_reduction_step=False, reference_comparable=True):
+    """Check stellar retention and newly introduced central undershoot.
 
-    在 reference 上找中等亮度星（p99 峰、显著度 ≥0.08），逐星比对：
-      - 保留率：candidate 星点峰值信号 / reference 星点峰值信号，取中位；
-      - 暗坑：candidate 星点中心（r≤1.5px）均值显著低于其外环
-        （1.8–3.0×FWHM）像素中值 → 去星修补发黑/过腐蚀的典型指纹。
-
-    star_removal_intended=True（star_remove / star_process 步骤审查）
-    时两道门都 skipped —— 剥离星点本就是该步骤的目的；
-    star_reduction_step=True（star_reduce）时 LOSS 门只记录不升级。
+    Reference centers are fixed. Hole depth uses a neighbor-masked local plane;
+    its increment uses the same fit on candidate minus reference. A missing
+    comparable intensity domain remains a review trigger. Intended removal
+    skips both gates, while reduction suppresses only retention escalation.
     """
     ref_gray = _luminance(reference)
     cand_gray = _luminance(candidate)
@@ -358,8 +498,9 @@ def check_star_layer_integrity(reference, candidate, fwhm=None,
     center_r = max(1.5, 0.5 * fwhm)
 
     retentions = []
-    holes = []
+    holes, preexisting, uncertain, background_diagnostics = [], [], [], []
     n_bright = 0
+    excluded = _background_exclusion(ref_gray, fwhm) | _background_exclusion(cand_gray, fwhm)
     for cy, cx, ref_signal in centers:
         y0, y1 = cy - annulus_patch, cy + annulus_patch + 1
         x0, x1 = cx - annulus_patch, cx + annulus_patch + 1
@@ -377,24 +518,64 @@ def check_star_layer_integrity(reference, candidate, fwhm=None,
         if ref_signal > 1e-6:
             retentions.append(cand_signal / ref_signal)
 
-        # 暗坑：只对 reference 上清晰的星（信号 ≥0.15）检测
+        # Compare center deficits against a local plane on identical masks.
         if ref_signal >= 0.15:
+            dy, dx = yy - cy, xx - cx
+            outer = ((dist >= annulus_r[0]) & (dist <= annulus_r[1])
+                     & ~excluded[y0:y1, x0:x1])
+            background = _local_background(cand_patch, dx, dy, outer)
+            if background is None:
+                uncertain.append({"center_rc": [cy, cx], "reason": "insufficient_background"})
+                continue
+            plane, error = background
+            center_mask = dist <= center_r
+            bg = float(np.mean(plane[center_mask]))
+            if bg < 0.005:
+                continue
             n_bright += 1
-            annulus = cand_patch[
-                (dist >= annulus_r[0]) & (dist <= annulus_r[1])]
-            if annulus.size < 10:
+            center_mean = float(np.mean(cand_patch[center_mask]))
+            depth = bg - center_mean
+            limit = max(RING_DIP_ABS, (1 - HOLE_CENTER_RATIO) * bg)
+            delta_background = None
+            if reference_comparable:
+                delta = cand_patch - ref_gray[y0:y1, x0:x1]
+                delta_background = _local_background(delta, dx, dy, outer)
+            if depth < limit:
+                if error > limit:
+                    diagnostic = {"center_rc": [cy, cx], "reason": "background_model_unreliable",
+                                  "background_error": round(error, 5)}
+                    if (delta_background is not None and delta_background[1] <= limit
+                            and float(np.mean((delta_background[0] - delta)[center_mask])) < limit):
+                        background_diagnostics.append(diagnostic)
+                    else:
+                        uncertain.append(diagnostic)
+                        n_bright -= 1
                 continue
-            annulus_median = float(np.median(annulus))
-            if annulus_median < 0.005:
+            measurement = {"center_rc": [cy, cx], "center_mean": round(center_mean, 5),
+                           "background_at_center": round(bg, 5), "dip_abs": round(depth, 5),
+                           "background_error": round(error, 5)}
+            if not reference_comparable:
+                measurement["reason"] = "reference_domain_not_comparable"
+                uncertain.append(measurement)
+                n_bright -= 1
                 continue
-            center_mean = float(np.mean(
-                cand_patch[dist <= center_r]))
-            if center_mean < HOLE_CENTER_RATIO * annulus_median:
-                holes.append({
-                    "center_rc": [cy, cx],
-                    "center_mean": round(center_mean, 5),
-                    "annulus_median": round(annulus_median, 5),
-                })
+            if delta_background is None:
+                measurement["reason"] = "insufficient_paired_background"
+                uncertain.append(measurement)
+                n_bright -= 1
+                continue
+            increment = float(np.mean((delta_background[0] - delta)[center_mask]))
+            measurement.update(reference_dip_abs=round(depth - increment, 5),
+                               added_dip_abs=round(increment, 5),
+                               delta_background_error=round(delta_background[1], 5))
+            if delta_background[1] > limit:
+                measurement["reason"] = "paired_background_model_unreliable"
+                uncertain.append(measurement)
+                n_bright -= 1
+            elif increment < limit:
+                preexisting.append(measurement)
+            else:
+                holes.append(measurement)
 
     # ── STAR_LAYER_LOSS ──
     if not retentions:
@@ -430,40 +611,31 @@ def check_star_layer_integrity(reference, candidate, fwhm=None,
                 threshold=f"≥{RETENTION_WARNING}",
             )
 
-    # ── STAR_HOLES ──
-    if n_bright < 3:
-        hole_gate = _gate(
-            "STAR_HOLES", "skipped",
-            f"清晰星样本不足（{n_bright} < 3），暗坑检测跳过",
-            value={"n_bright": n_bright},
-        )
-    else:
-        n_holes = len(holes)
-        fail_count = max(2, int(np.ceil(0.08 * n_bright)))
-        if n_holes >= fail_count:
-            hole_gate = _gate(
-                "STAR_HOLES", "failed",
-                f"{n_holes}/{n_bright} 颗星点位置出现暗坑"
-                "（中心显著暗于外环），疑似去星修补发黑或缩星过腐蚀",
-                value={"n_holes": n_holes, "n_bright": n_bright},
-                threshold=f"暗坑数<max(2, 8%×{n_bright})",
-                evidence={"holes": holes[:16],
-                          "coordinate_convention": "row_col"},
-            )
-        elif n_holes >= 1:
-            hole_gate = _gate(
-                "STAR_HOLES", "warning",
-                f"{n_holes}/{n_bright} 颗星点位置出现暗坑，建议视觉复核",
-                value={"n_holes": n_holes, "n_bright": n_bright},
-                evidence={"holes": holes[:16],
-                          "coordinate_convention": "row_col"},
-            )
-        else:
-            hole_gate = _gate(
-                "STAR_HOLES", "passed",
-                f"{n_bright} 颗清晰星点位置无暗坑",
-                value={"n_holes": 0, "n_bright": n_bright},
-            )
+    # Inherited deficits remain visible without blaming this processing stage.
+    n_holes = len(holes)
+    fail_count = max(2, int(np.ceil(0.08 * n_bright)))
+    status = "failed" if n_holes >= fail_count else "warning" if n_holes or uncertain else "passed"
+    if n_bright < 3 and not uncertain:
+        status = "skipped"
+    if (preexisting or background_diagnostics) and status == "passed":
+        status = "warning"
+    if not reference_comparable and status in ("passed", "skipped"):
+        status = "warning"
+    hole_gate = _gate(
+        "STAR_HOLES", status,
+        f"{n_holes}/{n_bright} stars with new or deepened central deficits; "
+        f"{len(preexisting)} preexisting, {len(uncertain)} uncertain, "
+        f"{len(background_diagnostics)} unchanged background diagnostics",
+        value={"n_holes": n_holes, "n_bright": n_bright,
+               "n_preexisting": len(preexisting), "n_uncertain": len(uncertain),
+               "n_background_diagnostics": len(background_diagnostics)},
+        threshold=f"dip and paired increment ≥ max({RING_DIP_ABS}, {1 - HOLE_CENTER_RATIO:.2f} × local background)",
+        evidence={"holes": holes[:16], "preexisting_holes": preexisting[:16],
+                  "uncertain_stars": uncertain[:16], "background_diagnostics": background_diagnostics[:16],
+                  "reference_comparable": reference_comparable,
+                  "background_model": "clipped_local_plane", "coordinate_convention": "row_col"},
+        escalate=bool(n_holes or uncertain or not reference_comparable),
+    )
     return [loss_gate, hole_gate]
 
 
@@ -476,9 +648,14 @@ def _clip_components(gray):
     labeled, n = label(mask, structure=np.ones((3, 3), dtype=int))
     components = []
     if n:
-        for index in range(1, n + 1):
-            area = int(np.count_nonzero(labeled == index))
-            ys, xs = np.where(labeled == index)
+        areas = np.bincount(labeled.ravel())
+        for index, bounds in enumerate(find_objects(labeled), 1):
+            if bounds is None:
+                continue
+            area = int(areas[index])
+            ys, xs = np.where(labeled[bounds] == index)
+            ys = ys + bounds[0].start
+            xs = xs + bounds[1].start
             eq_diam = 2.0 * np.sqrt(area / np.pi)
             components.append({
                 "label": index,
@@ -487,6 +664,101 @@ def _clip_components(gray):
                 "eq_diameter_px": round(float(eq_diam), 2),
             })
     return mask, labeled, components
+
+
+def check_channel_clipping(candidate, reference=None):
+    """Locate channel clipping; compare only registered, same-domain images."""
+    candidate = np.asarray(candidate, dtype=np.float32)
+    _luminance(candidate)
+    if reference is not None and np.shape(reference) != candidate.shape:
+        raise ValueError('Channel clipping requires identical image geometry')
+    if reference is not None:
+        _luminance(reference)
+    channels = candidate[..., :3] if candidate.ndim == 3 else candidate[..., None]
+    references = (np.asarray(reference)[..., :3] if candidate.ndim == 3
+                  else np.asarray(reference)[..., None]) if reference is not None else None
+    evidence = {}
+    significant = []
+    megapixels = _image_megapixels(candidate.shape)
+    min_area = _scaled_area_threshold(BURN_MIN_AREA_PX, megapixels)
+    big_area = _scaled_area_threshold(BURN_BIG_AREA_PX, megapixels)
+    for i, name in enumerate(('r', 'g', 'b')[:channels.shape[-1]]):
+        mask, labeled, components = _clip_components(channels[..., i])
+        ref_mask = (references[..., i] >= 0.995 if references is not None
+                    else np.zeros(mask.shape, dtype=bool))
+        ref_expanded = binary_dilation(ref_mask, iterations=2) if references is not None else ref_mask
+        additions = np.bincount(labeled[mask & ~ref_expanded], minlength=len(components) + 1)
+        regions = []
+        for component in components:
+            area = int(additions[component['label']])
+            if area >= min_area:
+                regions.append({**component, 'new_area_px': area})
+                significant.append(area)
+        evidence[name] = {
+            'clip_ratio': float(np.mean(mask)),
+            'reference_clip_ratio': float(np.mean(ref_mask)) if references is not None else None,
+            'regions': regions[:16],
+            'n_regions': len(regions),
+        }
+    status = ('failed' if any(area >= big_area for area in significant)
+              or len(significant) >= 2 else 'warning' if significant else 'passed')
+    return _gate('CHANNEL_CLIPPING', status,
+                 'Channel clipping requires review' if significant else 'No significant new channel clipping',
+                 value=evidence, threshold='clip>=0.995; new region>=25px; large region>=80px',
+                 evidence={'channels': evidence, 'reference_comparable': reference is not None,
+                           'coordinate_convention': 'row_col'}, escalate=bool(significant))
+
+
+def check_core_plateau(candidate, reference, subject_mask=None, minimum_level=.5, region_mask=None):
+    """Locate new float plateaus, including flattened cores below clipping."""
+    gray, original = _luminance(candidate), _luminance(reference)
+    if gray.shape != original.shape:
+        raise ValueError('Core plateau geometry must match')
+    if subject_mask is not None and np.shape(subject_mask) != gray.shape:
+        raise ValueError('Core plateau subject mask geometry must match')
+    roi = original >= np.percentile(original, 99.5)
+    if subject_mask is not None:
+        roi |= np.asarray(subject_mask) > 0
+
+    if region_mask is not None:
+        if np.shape(region_mask) != gray.shape:
+            raise ValueError('Core plateau region geometry must match')
+        roi &= np.asarray(region_mask, dtype=bool)
+    if not np.isfinite(minimum_level):
+        raise ValueError('Core plateau minimum level must be finite')
+
+    def flat_mask(arr):
+        differences = np.zeros_like(arr)
+        dx, dy = np.abs(np.diff(arr, axis=1)), np.abs(np.diff(arr, axis=0))
+        differences[:, 1:] = np.maximum(differences[:, 1:], dx)
+        differences[:, :-1] = np.maximum(differences[:, :-1], dx)
+        differences[1:, :] = np.maximum(differences[1:, :], dy)
+        differences[:-1, :] = np.maximum(differences[:-1, :], dy)
+        return differences <= 1e-6
+
+    mask = flat_mask(gray) & (gray >= minimum_level) & roi
+    inherited = flat_mask(original)
+    labels, count = label(mask, structure=np.ones((3, 3), dtype=int))
+    regions, preexisting = [], []
+    areas = np.bincount(labels.ravel())
+    for i, bounds in enumerate(find_objects(labels), 1):
+        if bounds is None or areas[i] < 25:
+            continue
+        part = labels[bounds] == i
+        ys, xs = np.where(part)
+        item = {'area_px': int(areas[i]), 'centroid_rc': [float(ys.mean()+bounds[0].start), float(xs.mean()+bounds[1].start)],
+                'level': float(np.median(gray[bounds][part]))}
+        new_area = int(np.count_nonzero(part & ~inherited[bounds]))
+        item['new_area_px'] = new_area
+        (regions if new_area >= 25 else preexisting).append(item)
+    return _gate('CORE_PLATEAU', 'warning' if regions else 'passed',
+                 'New float core plateaus require review' if regions else 'No significant new core plateau',
+                 value={'new_regions': regions[:16], 'inherited_regions': preexisting[:16],
+                        'new_area_px': sum(r['new_area_px'] for r in regions + preexisting),
+                        'inherited_area_px': sum(r['area_px'] - r['new_area_px'] for r in regions + preexisting)},
+                 threshold=f'level>={minimum_level}; adjacent difference<=1e-6; new area>=25px',
+                 evidence={'coordinate_convention': 'row_col', 'reference_kind': 'source_geometry'},
+                 escalate=bool(regions))
 
 
 def check_core_burning(candidate, reference=None, fwhm=None):
@@ -505,11 +777,14 @@ def check_core_burning(candidate, reference=None, fwhm=None):
 
     cand_mask, _cand_labeled, cand_components = _clip_components(gray)
     n_pixels = int(gray.size)
+    megapixels = _image_megapixels(gray.shape)
+    min_area = _scaled_area_threshold(BURN_MIN_AREA_PX, megapixels)
+    big_area = _scaled_area_threshold(BURN_BIG_AREA_PX, megapixels)
 
     if reference is None:
         star_cores = [c for c in cand_components
                       if c["eq_diameter_px"] <= star_core_max_diam
-                      and c["area_px"] >= BURN_MIN_AREA_PX]
+                      and c["area_px"] >= min_area]
         regions = [c for c in cand_components
                    if c["eq_diameter_px"] > star_core_max_diam]
         status = "warning" if any(
@@ -546,7 +821,7 @@ def check_core_burning(candidate, reference=None, fwhm=None):
         if existing:
             continue
         if comp["eq_diameter_px"] <= star_core_max_diam:
-            if comp["area_px"] >= BURN_MIN_AREA_PX:
+            if comp["area_px"] >= min_area:
                 new_star_cores.append(comp)
         else:
             new_regions.append(comp)
@@ -558,7 +833,7 @@ def check_core_burning(candidate, reference=None, fwhm=None):
 
     burnt_cores = new_star_cores
     n_new = len(burnt_cores)
-    big_new = [c for c in burnt_cores if c["area_px"] >= BURN_BIG_AREA_PX]
+    big_new = [c for c in burnt_cores if c["area_px"] >= big_area]
     spread_burn = (
         growth >= 0.0015 * n_pixels and growth_ratio > 0.5
     )
@@ -603,8 +878,9 @@ def check_core_burning(candidate, reference=None, fwhm=None):
                "clip_area_growth_ratio": round(growth_ratio, 4),
                "reference_clip_area_px": ref_total,
                "candidate_clip_area_px": cand_total},
-        threshold=f"新生星点级死白<{BURN_MIN_AREA_PX}px² 不计，"
-                  f"≥2 处或单处≥{BURN_BIG_AREA_PX}px² 判 failed",
+        threshold=f"新生星点级死白<{min_area:.0f}px² 不计（8.3MP 基准 "
+                  f"{BURN_MIN_AREA_PX}px²，按 {megapixels:.1f}MP 缩放），"
+                  f"≥2 处或单处≥{big_area:.0f}px² 判 failed",
         evidence={"new_star_cores": new_star_cores[:16],
                   "new_regions": new_regions[:8],
                   "coordinate_convention": "row_col"},
@@ -810,7 +1086,8 @@ def check_inpaint_footprint(candidate, star_mask, fwhm=None,
 # 聚合器
 # ══════════════════════════════════════════════════════════════
 
-def evaluate_star_artifact_gates(reference, candidate, steps=None):
+def evaluate_star_artifact_gates(reference, candidate, steps=None,
+                                 reference_comparable=True, display_reference=False):
     """运行全部星点具名伪影门禁并聚合。
 
     reference 为 None 时只跑 candidate 侧门禁（RINGING / 绝对 BURNING）。
@@ -818,24 +1095,43 @@ def evaluate_star_artifact_gates(reference, candidate, steps=None):
     任何 escalate 的 warning/failed → review_required。
     """
     steps = set(steps or [])
-    gray = _luminance(candidate)
+    gray = _luminance(reference if reference is not None and reference_comparable else candidate)
     fwhm, n_fwhm = _estimate_fwhm_or_default(gray)
 
     star_removal_intended = bool(
         steps & {"star_remove", "star_process"})
     star_reduction_step = "star_reduce" in steps
 
-    gates = [check_ringing(candidate, fwhm=fwhm)]
+    ring_comparable = reference_comparable and (not display_reference or np.array_equal(reference, candidate))
+    gates = [check_ringing(candidate, fwhm=fwhm, reference=reference,
+                           reference_comparable=ring_comparable)]
+    if 'stretch' in steps and gates[0]['value']['n_sampled'] < RING_MIN_SAMPLED:
+        gates[0].update(status='warning', escalate=True)
+        gates[0]['message'] += '; insufficient star samples for stretch acceptance'
+        gates[0]['evidence']['insufficient_samples'] = True
     if reference is not None:
-        gates.append(check_star_bloat(reference, candidate))
+        if reference_comparable:
+            gates.append(check_star_bloat(reference, candidate))
+        else:
+            gates.append(_gate('STAR_BLOAT', 'skipped',
+                               'Cross-domain FWHM is not a physical expansion measurement',
+                               evidence={'reference_comparable': False}, escalate=False))
         gates.extend(check_star_layer_integrity(
             reference, candidate, fwhm=fwhm,
             star_removal_intended=star_removal_intended,
             star_reduction_step=star_reduction_step,
+            reference_comparable=reference_comparable,
         ))
+    if display_reference:
+        gates[0]['evidence']['attribution'] = ('identical_display_pixels' if ring_comparable
+                                              else 'unconfirmed_independent_display_curves')
+        gates = [_gate('STAR_LAYER_LOSS', 'skipped',
+                       'Independent display curves do not measure stellar signal retention',
+                       evidence={'measurement_domain': 'display'}, escalate=False)
+                 if g['code'] == 'STAR_LAYER_LOSS' else g for g in gates]
     gates.append(check_core_burning(
         candidate,
-        reference=reference, fwhm=fwhm))
+        reference=reference if reference_comparable else None, fwhm=fwhm))
 
     escalating = [
         g for g in gates
@@ -848,12 +1144,13 @@ def evaluate_star_artifact_gates(reference, candidate, steps=None):
         "summary": (
             f"{len(triggered)} 项星点门禁触发：{', '.join(triggered)}"
             if triggered else
-            "星点具名伪影门禁全部通过或跳过"
+            "No escalating star artifacts; inherited/background diagnostics are retained"
         ),
         "gates": gates,
         "context": {
             "steps": sorted(steps),
             "reference_provided": reference is not None,
+            "reference_comparable": reference is not None and reference_comparable,
             "fwhm_px": round(fwhm, 2),
             "fwhm_n_stars": n_fwhm,
         },
@@ -894,7 +1191,10 @@ def main():
             if reference.ndim == 3 else reference, 0, 1)
 
     steps = [s.strip() for s in args.steps.split(",") if s.strip()]
-    result = evaluate_star_artifact_gates(reference, candidate, steps=steps)
+    result = evaluate_star_artifact_gates(
+        reference, candidate, steps=steps,
+        reference_comparable=reference is not None and _r_meta["is_linear"] == _meta["is_linear"],
+    )
 
     text = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
