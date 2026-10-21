@@ -148,6 +148,35 @@ SIGNATURES = [
         },
     },
     {
+        "id": "touptek_atr585m_mono",
+        "class": "traditional",
+        "description": "ToupTek ATR585M (monochrome IMX585) with an external filter wheel",
+        "match": {
+            "INSTRUME": r"(?i)^atr585m",
+        },
+        "prefer": {
+            "SWCREATE": r"(?i)n\.?i\.?n\.?a\.?",
+        },
+        "profile": {
+            "flats_available": True,
+            "dark_embedded": False,
+            "cfa_sensor": "IMX585 (monochrome)",
+            "mono_sensor_capable": True,
+            "mount": "unknown",
+            "field_rotation_per_frame": False,
+            "mosaic_capable": False,
+            "live_stacking": False,
+            "min_pairs": 8,
+            "notes": "A mono IMX585 writes NAXIS=2 with no BAYERPAT -- the same "
+                     "shape a colour sensor writes, minus the mosaic. The mono "
+                     "chain therefore keys off this profile flag, never off the "
+                     "geometry. CCD-TEMP/GAIN/OFFSET are all present, so "
+                     "calibration matching uses the full key set. The mount is "
+                     "not recorded in the capture header; field rotation is "
+                     "measured empirically during the transform probe.",
+        },
+    },
+    {
         "id": "zwo_seestar_generic",
         "class": "smart",
         "description": "ZWO Seestar family, model not pinned",
@@ -338,7 +367,8 @@ def match_master(light_header, master_header, tolerance, optional_keys=None):
     return True, score, deltas
 
 
-def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=None):
+def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=None,
+                             allow_missing_dark=False):
     """Decide which calibration frames to apply for a light sequence.
 
     Args:
@@ -346,6 +376,12 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
         device: Output of :func:`identify_device`.
         calibration_dir: Directory containing masters, or ``None``.
         tolerance: Overrides for the default temperature/gain/exposure window.
+        allow_missing_dark: Explicit operator opt-in to continue without a master
+            dark on traditional equipment. The refusal below exists because an
+            uncalibrated stack looks plausible while carrying the sensor's
+            thermal signal and hot pixels; this flag does not remove that
+            consequence, it only records the decision and keeps the rest of the
+            calibration (bias, flat) in force.
 
     Returns:
         Dict with ``bias``, ``dark``, ``flat`` (paths or ``None``), ``cc`` and
@@ -356,6 +392,8 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
     Raises:
         CalibrationMissing: for traditional equipment when a required master is
             absent, since proceeding would silently produce uncalibrated data.
+            ``allow_missing_dark`` downgrades the dark case to a recorded
+            warning; a missing flat never raises.
     """
     if calibration_dir is not None:
         calibration_dir = os.path.abspath(calibration_dir)
@@ -401,12 +439,24 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
             optional_keys=optional_keys,
         )
         if plan["dark"] is None:
-            raise CalibrationMissing(
-                "traditional equipment requires a master dark matching "
-                "CCD-TEMP +/-%s C, GAIN +/-%s, EXPTIME +/-%s s; none found in %s"
-                % (tolerance["CCD-TEMP"], tolerance["GAIN"],
-                   tolerance["EXPTIME"], calibration_dir or "<no directory>"),
-                "dark",
+            if not allow_missing_dark:
+                raise CalibrationMissing(
+                    "traditional equipment requires a master dark matching "
+                    "CCD-TEMP +/-%s C, GAIN +/-%s, EXPTIME +/-%s s; none found in %s"
+                    % (tolerance["CCD-TEMP"], tolerance["GAIN"],
+                       tolerance["EXPTIME"], calibration_dir or "<no directory>"),
+                    "dark",
+                )
+            # Opt-in override: keep the consequence visible in every artifact
+            # rather than letting the stack look like a calibrated one.
+            plan["dark_missing_reason"] = "explicit_override"
+            plan["cc"]["enabled"] = False
+            warnings.append(
+                "master dark intentionally omitted (--allow-missing-dark): the "
+                "thermal signal and hot pixels of the light frames are NOT "
+                "corrected, and -cc=dark cannot run without a dark. Pixel "
+                "rejection is the only outlier defence in this stack. Bias and "
+                "flat correction, if present, still apply."
             )
 
     if profile.get("flats_available"):

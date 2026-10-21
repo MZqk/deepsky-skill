@@ -27,7 +27,7 @@
 
 | 来源 | 触发 | 母版头 |
 |---|---|---|
-| **mono 链路** | profile 含 `mono_sensor_capable` 且几何未触发 drizzle | `NAXIS=2`，**`BAYERPAT` 保留**（每像素仍是 CFA 交错的单波段采样） |
+| **mono 链路** | profile 含 `mono_sensor_capable` 且几何未触发 drizzle | `NAXIS=2`；输入带 `BAYERPAT`（单反机身）时保留，纯单色传感器（无 `BAYERPAT`）时无该键 |
 | **PWS 引擎** | `--stack-engine=pws` | `NAXIS=2`，无 `BAYERPAT`（引擎输出灰度即亮度成品） |
 | **默认链路** | 其余情况 | `NAXIS=3` |
 

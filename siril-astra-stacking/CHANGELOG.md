@@ -2,6 +2,17 @@
 
 本文件记录 `siril-astra-stacking` 的独立版本变更。
 
+## [1.4.4] - 2026-10-21
+
+- **修复 `.fits` 输入无法叠加（真实数据暴露）**：`stage_workdir` 按源文件后缀建链，`.fits` 帧在工作目录里仍是 `<stem>NNNN.fits`，而 Siril 1.4.4 按自身设置的扩展名（默认 `.fit`）发现序列，直接报 `No sequence found, verify working directory or change FITS extension in settings (current is .fit)` 并中止于 `calibrate`。现一律链接为 `<stem>NNNN.fit`——与函数注释原本的承诺一致，也使序列发现不再依赖采集软件的后缀与 Siril 的设置。IC 342 实测：修复前 30 帧数据 100% 失败，修复后 27/30 帧出片。
+- **支持 `NAXIS=2` 无 `BAYERPAT` 的单色传感器**：`classify_input` 此前把 `NAXIS=2` 硬等同拜耳阵列，缺 `BAYERPAT` 即抛 `ValueError`——而单色相机（ToupTek ATR585M 实测）的合法输出正是这个形态。新增 `is_mono` 结构位与 `frame_kind="mono"`，放行条件**只有** profile 的 `mono_sensor_capable`：无该标记、或彩色 profile 上仍按原样拒绝，因为「彩色帧丢头」与「单色帧」在字节层不可区分。
+- **drizzle 强制请求在单色数据上被明确拒绝**：`decide_chain` 的早返回现覆盖 `is_mono`，`--force-chain drizzle|debayer` 会记一条 `ignored` 理由而不是静默生效（`seqapplyreg -drizzle` 与 `-debayer` 对无拜耳数据都会虚构平面）。
+- **单色帧不再被 `initial_chain` 误推到 drizzle**：无 flat 的 `NAXIS=2` 数据原本会被预置成 drizzle 以保住 CFA 供探针测量；单色传感器没有马赛克可保，该预置现按 profile 排除。
+- **新增设备签名 `touptek_atr585m_mono`**：`INSTRUME=ATR585M` 命中，`traditional` + `mono_sensor_capable`，`flats_available=true`，`CCD-TEMP`/`GAIN`/`OFFSET` 齐全故走全键校准匹配。`TELESCOP='80'` 是望远镜名、`OBJECT='???1???'` 是 N.I.N.A. 未解析名，均未被用作判据。
+- **新增 `--allow-missing-dark`**：传统设备缺 master dark 时不再只能退出码 3。显式给出后 `dark_missing_reason="explicit_override"`、`cc.enabled=false`，并在报告写明热信号与热像元未校正；bias/flat 照常应用。不开该开关时行为与 1.4.3 完全一致，不构成静默降级。
+- 自检 814 → **843 项**：新增 `test_work_dir_sequence_extension`（`.fits` 源必须被链接成 `.fit`）、`test_mono_sensor_without_bayerpat`（含无设备/彩色 profile 双向拒绝、`--force-chain drizzle` 被记理由）、`test_missing_dark_override`（豁免语义、`-cc=dark`/`-dark=` 不生成、CLI 默认关闭）。
+- **真实验收（IC 342，2026-10-03，ATR585M + 80mm f/5 + N.I.N.A.）**：L 30 帧 300s 出片 27 帧（LIVETIME 8100s），HA 15 帧 300s 出片 13 帧（3900s），两通道均 `chain=mono`、母版 `NAXIS=2` / `BITPIX=-32`，span 47.2 / 76.7 px、旋转 0.10 / 0.08°（均在阈值内，未触发 drizzle）。平场实测矫正 1.6% 光学渐晕；剩余约 9% 的角部差异是真实天空梯度，不属平场职责。
+
 ## [1.4.3] - 2026-10-11
 
 - **自适应兼容 Astra 扁平输出目录**：`prepare_composition.py` 的输入收集逻辑此前硬编码要求报告必须位于直接子目录（`RUN_DIR/*/*_report.json`），导致无法直接消费 `astra_stack.py` 单目标及同目录多通道叠加产出的扁平输出（如 `out/<target>_<FILTER>_report.json`）。现已支持自适应双拓扑识别：优先无缝直接消费 Astra 扁平输出根目录，同时向下兼容历史分滤镜子目录批处理结构；若两层同时存在 >=2 个报告，严谨拒绝并提示结构歧义。

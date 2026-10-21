@@ -42,6 +42,7 @@ Seestar 的暗场在**每次开机初始化时**拍摄并应用到导出帧。�
 ### 传统设备分支
 
 - master dark 缺失 → **抛 `CalibrationMissing`，退出码 3**。不降级、不继续：未校准的 data 产出看起来正常但背景偏置错误的结果。
+- **唯一例外是显式开关 `--allow-missing-dark`**（传统设备）。给出后：`dark = None`、`dark_missing_reason = "explicit_override"`、`cc.enabled = False`，并把「热信号与热像元未校正、拒绝法是唯一离群防护」写入 `report.warnings`。bias/flat 照常应用。这不是「自动降级」——不给开关，行为与旧版完全一致。适用场景：0°C 制冷的 CMOS 在短曝光下暗电流可忽略、但用户只拍了 bias/flat；不适用场景：未制冷的单反长曝光。
 - master flat 缺失 → 仅 warning，继续运行（平场比暗场可选性强）。
 - master bias 始终可选。
 

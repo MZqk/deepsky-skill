@@ -7,7 +7,7 @@ license: Proprietary
 compatibility: "Requires siril-cli 1.4.x and Python 3.9+. Optional PWS mode requires sibling pws-stacking skill."
 metadata:
   slug: siril-astra-stacking
-  version: "1.4.3"
+  version: "1.4.4"
   displayName: Siril Astra Stacking
   summary: 使用 Siril 1.4 CLI 按设备元数据推导校准、配准与堆栈参数，无头叠加 FITS 序列，交付 32bit 线性母版、MTF 预览与可审计报告。
   tags: "astronomy, siril, stacking, fits, seestar"
@@ -44,6 +44,9 @@ python3 scripts/astra_stack.py /data/M42 --out ./results --dry-run > plan.sir
 
 # 传统设备：指定校准帧目录
 python3 scripts/astra_stack.py /data/M31 --out ./results --calibration-dir ./masters
+
+# 传统设备缺暗场：显式豁免（后果写入报告，bias/flat 照常应用）
+python3 scripts/astra_stack.py /data/IC342 --out ./results --calibration-dir ./masters --allow-missing-dark
 
 # 强制指定 CFA 链路（默认按实测变换自动判定；mono 仅单色传感器可用）
 python3 scripts/astra_stack.py /data/NGC7000 --out ./results --force-chain drizzle
@@ -136,11 +139,16 @@ NAXIS=2 + BAYERPAT
        stack rej w 4 3
 
 NAXIS=3 → RGB 路径，drizzle 不适用（非 Bayer 传感器）
+
+NAXIS=2 且无 BAYERPAT（单色传感器的正常形态）
+  ├─ profile 标记 mono_sensor_capable → MONO 链路
+  │    calibrate 不带 -cfa、不带 -debayer；母版 NAXIS=2、无 BAYERPAT
+  └─ 否则一律拒绝：几何上与「彩色帧丢头」无法区分，猜错即丢色
 ```
 
 **默认两条链路（drizzle / debayer）的输出都是三通道 RGB**（1.4.4 实测）：debayer 链路在 `calibrate -debayer` 转换，drizzle 链路在 `seqapplyreg -drizzle` 内部转换——**drizzle 要求输入仍是 CFA，遇到已去拜耳的 RGB 序列会报 `This sequence is not mono / CFA, cannot drizzle.`**。所以「保持 CFA」指的是**转换发生的时机**，不是最终产物的格式；`BAYERPAT` 不会出现在母版里。转换点详见 [03-registration.md §3.1](references/03-registration.md)。
 
-**mono 链路是例外**：母版为 `NAXIS=2` 且 `BAYERPAT` 保留。**Siril 1.4.4 没有 `-mono` 参数**（已对二进制核验），mono 就是「没有 `-debayer`」而已。它只对 profile 标记单色传感器的设备生效——彩色传感器上拜耳阵列的每个位置记录的是真实颜色，去掉去拜耳等于丢色。
+**mono 链路是例外**：母版为 `NAXIS=2`；输入带 `BAYERPAT`（如 ASIAIR + 单反）时该关键字保留，纯单色传感器（ATR585M 等）本就没有。**Siril 1.4.4 没有 `-mono` 参数**（已对二进制核验），mono 就是「没有 `-debayer`」而已。它只对 profile 标记单色传感器的设备生效——彩色传感器上拜耳阵列的每个位置记录的是真实颜色，去掉去拜耳等于丢色。
 
 三条链路不可混用：Siril 对非 Bayer 数据拒绝 drizzle（`Cannot use drizzle on non-bayer sensors, aborting.` / `This sequence is not mono / CFA, cannot drizzle.`），对 CFA 数据用普通插值会破坏拜耳结构（`Applying interpolation on a sequence opened as CFA is a bad idea.`）。
 
@@ -156,6 +164,7 @@ NAXIS=3 → RGB 路径，drizzle 不适用（非 Bayer 传感器）
 - **`-cc=dark` 的 sigma 不可脚本化。** 手册写 `-cc=dark [siglo] sighi`，实测 1.4.4 CLI：`-cc=dark 3` 报 `Unknown parameter 3`（"sigma 3.00 for hot pixels" 日志是内置默认值，不是读到了参数），`-cc=dark=3` 与整体加引号也被拒。只有裸 `-cc=dark` 可用（=热 sigma 3、冷关，即计划默认值）。生成器只输出裸形式，自定义 sigma 直接拒绝。
 - **`-framing=max` 依赖 drizzle 权重。** 它不是独立的插值选项，脱离 drizzle 使用会撞 `Drizzle stacking cannot be performed because drizzle weights are missing.`。因此画幅判定必须绑在 drizzle 链路上。
 - **median 叠加会静默禁用 `-maximize`**（只记 `Disabling` 不报错），拼接会无声丢失。参数层硬禁 median。
+- **序列发现只认 Siril 设置的扩展名。** 1.4.4 默认找 `.fit`，工作目录里即使全是 `.fits` 也会报 `No sequence found, verify working directory or change FITS extension in settings (current is .fit)`——同一份字节改名即可正常处理。因此 work 目录一律把帧链接为 `<stem>NNNN.fit`，不继承源文件后缀。
 - **序列名不能以数字结尾。** 帧命名为 `<stem>NNNN.fit` 时，Siril 把尾部数字并入序号：目标 `astra_t1` 生成的 `astra_t10000.fit` 被解析为 stem `astra_t` + index `10000`，导致命令报 `invalid input sequence`。`sequence_stem()` 会剔除末尾数字。
 - **序列名必须相对 CWD。** 绝对路径被拒。Siril 用 `-d <dir>` 指定工作目录；且当目录中存在多个序列时，它会忽略请求的名字、只取自己发现的第一个——所以 work 目录必须保持单一 stem。
 - **各级前缀会累积。** `calibrate -prefix=c_` 产出 `c_<stem>`，随后 `seqapplyreg -prefix=ap_` 产出 `ap_c_<stem>`。名称需逐级推导。
@@ -211,7 +220,8 @@ python3 scripts/test_prepare_composition.py --real # 合成准备的真实 Siril
 - **智能望远镜无平场，背景梯度无法校正**：M8 数据（高天空背景 + 33° 旋转 + 1264 px 漂移）下渐晕与光污染梯度在预览中明显可见。这不是处理缺陷，而是设备物理限制。
 - **中间文件占用大量磁盘**：81 帧 2160×3840 需约 8 GiB，134 帧需约 12 GiB。空间不足时报 `Not enough free disk space` 并中止。磁盘紧张时用 `--dry-run` 先看参数，或分批处理。
 - `--resume` 尚未实现跨运行检查点复用，仍重建 work 目录，仅用于失败后重试；有效 `.seq` 可在同次运行的多个 Siril 调用之间复用。
-- 签名表收录 ZWO Seestar 系列与 ZWO ASIAIR + PTP 单反（如 Nikon D5100）。其它设备需扩展 `scripts/device_signatures.py` 的 `SIGNATURES`，或用 `--device-profile` 提供 JSON 覆盖（覆盖只能改 profile，不能让未列入表的设备通过识别）。
+- 签名表收录 ZWO Seestar 系列、ZWO ASIAIR + PTP 单反（如 Nikon D5100）与 ToupTek ATR585M 单色相机（N.I.N.A. 采集）。其它设备需扩展 `scripts/device_signatures.py` 的 `SIGNATURES`，或用 `--device-profile` 提供 JSON 覆盖（覆盖只能改 profile，不能让未列入表的设备通过识别）。
+- **`--allow-missing-dark` 是显式豁免，不是降级路径**：只对传统设备生效，缺失 master dark 时不再退出码 3，而是把 `calibration.dark_missing_reason = "explicit_override"`、`cc.enabled = false` 与「热信号与热像元未校正」写入报告。bias/flat 仍照常应用。没有该开关时行为不变。
 - **单反（ASIAIR + DSLR）路径已在真实数据上端到端验证**：145 帧 Nikon D5100 NGC 6946（2025-08-17，B 滤镜，300s/帧，EQMod），130/145 帧（10.8 小时）drizzle 链路出片。单反头部无 `CCD-TEMP`/`GAIN`，母帧匹配按 profile 的 `calibration_optional_keys` 双侧缺失即跳过；flat 匹配不比 `EXPTIME`、要求 `FILTER` 一致。工具只消费母帧：bias/flat 需先用 Siril 合成 master，PixInsight 的 XISF master dark 需先转 FITS（其头常缺 `EXPTIME`，需人工确认曝光后注入）。
 - `--stack-engine=pws` 仅覆盖 debayer/RGB 链路：drizzle 链路写出的每帧画布尺寸互不相同（实测 218×176 / 205×156 / 200×150 混存），引擎要求统一 shape，故闸门结构性拒绝并在 report 说明理由。PWS 成品 FITS 头的 `STACKMODE` 因 FITS 8 字符键长截断为 `STACKMOD`，完整参数以 XISF 关键字与 `report.stacking` 为准。
 - **`seqapplyreg -drizzle` 的执行路径未被自检覆盖**：合成 CFA 夹具（3 帧 64×48）上报 `invalid arguments`，真实数据可用——drizzle 对序列另有隐含要求。当前 drizzle 的**脚本生成**有断言覆盖（含去拜耳时机不变量），**实际执行**只有真实数据验证过。

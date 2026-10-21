@@ -26,7 +26,7 @@ CFA (NAXIS=2 + BAYERPAT)
 
 ### 3.1.1 去拜耳发生在哪一步（1.4.4 实测）
 
-**默认两条链路**（drizzle / debayer）的最终产物**都是三通道 RGB**，`BAYERPAT` 不会保留；**mono 链路**是唯一例外，产物为 `NAXIS=2` 且 `BAYERPAT` 保留。三者的差别在转换时机：
+**默认两条链路**（drizzle / debayer）的最终产物**都是三通道 RGB**，`BAYERPAT` 不会保留；**mono 链路**是唯一例外，产物为 `NAXIS=2`——输入是有拜耳的机身（ASIAIR + 单反）时 `BAYERPAT` 原样保留，输入是纯单色传感器（无 `BAYERPAT`）时母版自然也没有该键。三者的差别在转换时机：
 
 | 阶段 | drizzle 链路 | debayer 链路 | mono 链路 |
 |---|---|---|---|

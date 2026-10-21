@@ -109,19 +109,26 @@ SMART_FILTERS = ["-filter-wfwhm=90%", "-filter-round=0.30",
 TRADITIONAL_FILTERS = ["-filter-wfwhm=90%"]
 
 
-def classify_input(header):
+def classify_input(header, device=None):
     """Classify a FITS header into the structural branches the pipeline knows.
 
     Args:
         header: Dict from :func:`fits_probe.read_fits_header`.
+        device: Optional output of :func:`device_signatures.identify_device`.
+            A monochrome sensor writes ``NAXIS=2`` with no ``BAYERPAT``, which
+            is the same shape a colour frame writes minus the mosaic. Only this
+            profile flag separates the two, so without it a bare ``NAXIS=2``
+            header keeps being refused instead of guessed.
 
     Returns:
-        Dict with ``naxis``, ``is_cfa``, ``is_rgb``, ``bayerpat``,
+        Dict with ``naxis``, ``is_cfa``, ``is_rgb``, ``is_mono``, ``bayerpat``,
         ``bitpix``, ``width``, ``height``, ``frame_kind`` and ``warnings``.
 
     Raises:
-        ValueError: when the structure is unsupported -- notably CFA data with no
-            ``BAYERPAT``, which would make debayering ambiguous.
+        ValueError: when the structure is unsupported -- notably a Bayer CFA
+            frame with no ``BAYERPAT`` (which would make debayering ambiguous)
+            or a ``NAXIS=2`` frame whose device profile does not claim a
+            monochrome sensor.
     """
     warnings = []
     naxis = _int(header.get("NAXIS"))
@@ -135,12 +142,26 @@ def classify_input(header):
 
     bayerpat = header.get("BAYERPAT")
     is_cfa = naxis == 2
+    is_mono = False
     if is_cfa and not bayerpat:
-        raise ValueError(
-            "NAXIS=2 indicates a Bayer CFA frame but BAYERPAT is absent; the "
-            "colour filter array pattern cannot be guessed safely. Re-save the "
-            "data with a BAYERPAT keyword."
-        )
+        profile = (device or {}).get("profile") or {}
+        if profile.get("mono_sensor_capable"):
+            # Nothing to demosaic: a monochrome sensor measures the same signal
+            # at every pixel, so the frame stays single-channel end to end.
+            is_mono = True
+            is_cfa = False
+            warnings.append(
+                "NAXIS=2 without BAYERPAT on a device profile that marks a "
+                "monochrome sensor: treated as single-channel, no demosaic"
+            )
+        else:
+            raise ValueError(
+                "NAXIS=2 indicates a Bayer CFA frame but BAYERPAT is absent; the "
+                "colour filter array pattern cannot be guessed safely. Re-save the "
+                "data with a BAYERPAT keyword, or point --device-profile at a "
+                "profile that marks a monochrome sensor if the camera really is "
+                "monochrome."
+            )
     if bayerpat:
         bayerpat = str(bayerpat).strip().upper()
         if bayerpat not in ("RGGB", "BGGR", "GRBG", "GBRG"):
@@ -153,11 +174,12 @@ def classify_input(header):
         "naxis": naxis,
         "is_cfa": is_cfa,
         "is_rgb": naxis == 3,
+        "is_mono": is_mono,
         "bayerpat": bayerpat,
         "bitpix": _int(header.get("BITPIX")),
         "width": _int(header.get("NAXIS1")),
         "height": _int(header.get("NAXIS2")),
-        "frame_kind": "cfa" if is_cfa else "rgb",
+        "frame_kind": "mono" if is_mono else ("cfa" if is_cfa else "rgb"),
         "warnings": warnings,
     }
 
@@ -186,6 +208,35 @@ def decide_chain(structure, transform_summary, device, force=None):
     degradations = []
 
     if not structure["is_cfa"]:
+        if structure.get("is_mono"):
+            # NAXIS=2 with no BAYERPAT on a monochrome profile: there is no
+            # mosaic to interpolate, so neither drizzle nor debayer applies.
+            # Drizzle rejects non-Bayer input outright ("Cannot use drizzle on
+            # non-bayer sensors") and -debayer would invent three planes.
+            reasons = [
+                "NAXIS=2 without BAYERPAT on a device profile that marks a "
+                "monochrome sensor: every pixel measures the same signal, so "
+                "there is nothing to demosaic and the master stays NAXIS=2"
+            ]
+            if force in ("drizzle", "debayer"):
+                reasons.append(
+                    "--force-chain %s ignored: it needs a Bayer mosaic, and "
+                    "this sensor has none. Pass --force-chain mono or drop the "
+                    "flag." % force
+                )
+            return {
+                "chain": MONO_CHAIN,
+                "reasons": reasons,
+                "mono_requested": True,
+                "mosaic": bool(transform_summary and transform_summary.get("mosaic")),
+                "rotation_max_deg": transform_summary.get("rotation_max_deg", 0.0)
+                if transform_summary else 0.0,
+                "scale_dev_max": transform_summary.get("scale_dev_max", 0.0)
+                if transform_summary else 0.0,
+                "span_px": transform_summary.get("span", 0.0)
+                if transform_summary else 0.0,
+                "degradations": degradations,
+            }
         # RGB data has already been demosaiced by the capture software or an
         # earlier step; drizzle is illegal on it (non-Bayer sensor).
         return {
@@ -395,11 +446,18 @@ def derive_registration(structure, chain, device, transform_summary):
             "(homography) and interpolation is deferred to drizzle"
         )
     elif chain == MONO_CHAIN:
-        reasons.append(
-            "mono chain selected, so the frames stay CFA end to end; star "
-            "detection still runs on the green pixels, which is what the "
-            "BAYERPAT layout puts at the sampled positions"
-        )
+        if structure["is_cfa"]:
+            reasons.append(
+                "mono chain selected, so the frames stay CFA end to end; star "
+                "detection still runs on the green pixels, which is what the "
+                "BAYERPAT layout puts at the sampled positions"
+            )
+        else:
+            reasons.append(
+                "mono chain selected on a single-channel sensor: no BAYERPAT "
+                "exists, so star detection runs on the whole frame at full "
+                "resolution"
+            )
     return {
         "probe_args": list(args) + ["-2pass"],
         "apply_args": list(args),
@@ -431,14 +489,22 @@ def derive_apply(structure, chain, device):
         args = ["-framing=current"]
         notes = ["framing=current: no mosaic re-framing requested"]
         if chain == MONO_CHAIN:
-            notes.append(
-                "Siril warns 'Applying interpolation on a sequence opened as "
-                "CFA is a bad idea'; that warning targets Bayer colour mosaics. "
-                "On a monochrome sensor every position measures the same "
-                "narrowband signal, so interpolation copies one signal into "
-                "three planes instead of mixing colours, and the master keeps "
-                "BAYERPAT"
-            )
+            if structure["is_cfa"]:
+                notes.append(
+                    "Siril warns 'Applying interpolation on a sequence opened as "
+                    "CFA is a bad idea'; that warning targets Bayer colour mosaics. "
+                    "On a monochrome sensor every position measures the same "
+                    "narrowband signal, so interpolation copies one signal into "
+                    "three planes instead of mixing colours, and the master keeps "
+                    "BAYERPAT"
+                )
+            else:
+                notes.append(
+                    "-framing=current on a single-channel sensor: registration "
+                    "still interpolates, but it moves one measured signal between "
+                    "pixels rather than mixing colour channels, and the master "
+                    "stays NAXIS=2"
+                )
     return {"args": args, "notes": notes}
 
 
@@ -558,7 +624,7 @@ def derive_pipeline(header, device, calibration_plan, transform_summary=None,
         Dict with ``structure``, ``chain``, ``calibrate``, ``register``,
         ``apply``, ``stack`` and ``notes``.
     """
-    structure = classify_input(header)
+    structure = classify_input(header, device)
     chain_info = decide_chain(
         structure, transform_summary, device, force=force_chain
     )

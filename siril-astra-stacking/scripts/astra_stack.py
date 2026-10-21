@@ -260,8 +260,12 @@ def stage_workdir(input_dir, out_dir, target_name, force=False):
     # truncated-safe sequence stem addresses them all in a stable order.
     stem = sequence_stem(target_name)
     for position, frame in enumerate(collect_frames(input_dir)):
-        suffix = os.path.splitext(frame)[1] or ".fit"
-        destination = os.path.join(work, "%s%04d%s" % (stem, position, suffix))
+        # Always ``.fit``, never the source suffix: Siril discovers a sequence
+        # by its configured FITS extension (``.fit`` by default) and reports
+        # "No sequence found" for ``.fits`` files, even though it reads them
+        # fine when named explicitly. Forcing one extension makes discovery
+        # independent of both the capture software and Siril's settings.
+        destination = os.path.join(work, "%s%04d.fit" % (stem, position))
         if not os.path.exists(destination):
             os.symlink(os.path.abspath(frame), destination)
 
@@ -991,7 +995,8 @@ def run_pipeline(args):
     report["warnings"].extend(header_warnings)
     _stage("probe", "%d frames, %sx%s, %s" % (
         len(frames), header.get("NAXIS1"), header.get("NAXIS2"),
-        "CFA" if report["input"]["bayerpat"] else "RGB"))
+        "CFA" if report["input"]["bayerpat"]
+        else ("mono" if header.get("NAXIS") == 2 else "RGB")))
     if len(frames) < 2:
         report["failed_stage"] = "probe"
         report["error"] = ("at least 2 light frames are required for stacking; "
@@ -1023,7 +1028,8 @@ def run_pipeline(args):
     # -- stage: plan --------------------------------------------------------
     try:
         calibration_plan = resolve_calibration_plan(
-            header, device, args.calibration_dir
+            header, device, args.calibration_dir,
+            allow_missing_dark=args.allow_missing_dark,
         )
     except CalibrationMissing as exc:
         report["failed_stage"] = "plan"
@@ -1060,10 +1066,13 @@ def run_pipeline(args):
     probe_summary = None
     initial_chain = args.force_chain
     if (not args.dry_run and initial_chain is None
-            and header.get("NAXIS") == 2 and not calibration_plan.get("flat")):
+            and header.get("NAXIS") == 2 and not calibration_plan.get("flat")
+            and not device["profile"].get("mono_sensor_capable")):
         # No early demosaic: drizzle rejects an already-debayered sequence
         # ("This sequence is not mono / CFA, cannot drizzle."), so the CFA
-        # frames have to survive calibration for the probe to measure.
+        # frames have to survive calibration for the probe to measure. A
+        # monochrome sensor is excluded: it has no mosaic to keep, and Siril
+        # refuses drizzle on non-Bayer data.
         initial_chain = "drizzle"
     pipeline = derive_pipeline(header, device, calibration_plan, None,
                                force_chain=initial_chain)
@@ -1957,7 +1966,8 @@ def _chain_disagreement_notes(pipeline, source_summary, header, device,
     # just the rotation having been taken out. That is not a contradiction.
     if pipeline["chain"] == "mono":
         return []
-    recommendation = decide_chain(classify_input(header), source_summary, device)
+    recommendation = decide_chain(classify_input(header, device), source_summary,
+                                  device)
     if recommendation["chain"] == "rgb" or pipeline["chain"] == recommendation["chain"]:
         return []
     return [
@@ -2073,6 +2083,11 @@ def build_parser():
                         help="explicit path to siril-cli")
     parser.add_argument("--calibration-dir", default=None,
                         help="directory containing master bias/dark/flat")
+    parser.add_argument("--allow-missing-dark", action="store_true",
+                        help="traditional equipment only: continue without a "
+                             "master dark instead of refusing. Thermal signal "
+                             "and hot pixels stay uncorrected, -cc=dark cannot "
+                             "run, and every artifact records the decision")
     parser.add_argument("--device-profile", default=None,
                         help="JSON file of device profile overrides")
     parser.add_argument("--channel-medians", default=None,

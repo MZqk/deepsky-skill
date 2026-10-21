@@ -494,6 +494,30 @@ def test_sequence_stem():
         check("stem(%r) is at most 8 chars" % target, len(stem) <= 8)
 
 
+def test_work_dir_sequence_extension(tmp):
+    """Siril finds a sequence by its configured extension, not by content.
+
+    Measured on siril-cli 1.4.4: a work directory holding ``<stem>NNNN.fits``
+    symlinks aborts with "No sequence found, verify working directory or
+    change FITS extension in settings (current is .fit)" before calibration
+    runs -- even though Siril reads the same bytes happily when the file is
+    named explicitly. The staged name is therefore fixed, not inherited.
+    """
+    section("work directory sequence extension")
+    from astra_stack import stage_workdir
+
+    source = Path(tmp, "fits_suffix_src")
+    source.mkdir(exist_ok=True)
+    for index in range(2):
+        (source / ("light_%d.fits" % index)).write_bytes(b"placeholder")
+    work, _state = stage_workdir(str(source), tmp, "fitsuffix", force=True)
+    staged = sorted(name for name in os.listdir(work)
+                    if name.endswith((".fit", ".fits", ".fts")))
+    check("every staged frame uses the .fit extension",
+          bool(staged) and all(name.endswith(".fit") for name in staged), staged)
+    check("all source frames were staged", len(staged) == 2, staged)
+
+
 def test_fits_roundtrip(tmp):
     section("FITS header round-trip (synthetic CFA)")
     written = write_cfa_sequence(tmp, 120, 90, 3)
@@ -912,6 +936,108 @@ def test_mono_chain_conflicts():
         check("--force-chain still rejects unknown values", False, "no SystemExit")
     except SystemExit:
         check("--force-chain still rejects unknown values", True)
+
+
+def test_mono_sensor_without_bayerpat():
+    """A monochrome camera writes NAXIS=2 with no BAYERPAT at all.
+
+    That is byte-for-byte the same geometry a colour frame writes minus the
+    mosaic, and Siril cannot tell them apart either. The device profile is the
+    only admissible evidence, so the refusal must survive every other path:
+    no device, a colour profile, and a forced drizzle request.
+    """
+    section("monochrome sensor with no BAYERPAT")
+    from param_derive import classify_input, derive_pipeline
+
+    bare = {"NAXIS": 2, "BITPIX": 16, "CCD-TEMP": 0.0, "GAIN": 100,
+            "EXPTIME": 300.0}
+
+    structure = classify_input(bare, MONO_DEVICE)
+    check("mono profile accepts NAXIS=2 without BAYERPAT",
+          structure["is_mono"] is True, structure)
+    check("such a frame is not treated as CFA",
+          structure["is_cfa"] is False, structure)
+    check("frame kind records mono", structure["frame_kind"] == "mono", structure)
+    check("the inference is recorded as a warning",
+          any("without BAYERPAT" in warning for warning in structure["warnings"]),
+          structure["warnings"])
+
+    for label, device in (("no device", None), ("colour profile", RGB_DEVICE)):
+        try:
+            classify_input(bare, device)
+            check("%s refuses an unmosaiced NAXIS=2 frame" % label, False,
+                  "no exception")
+        except ValueError as exc:
+            check("%s refuses an unmosaiced NAXIS=2 frame" % label,
+                  "BAYERPAT" in str(exc), str(exc))
+
+    pipeline = derive_pipeline(bare, MONO_DEVICE, MONO_CALIBRATION)
+    check("bare mono frame takes the mono chain",
+          pipeline["chain"] == "mono", pipeline["chain"])
+    check("bare mono frame is never debayered",
+          "-debayer" not in list(pipeline["calibrate"]),
+          list(pipeline["calibrate"]))
+    check("bare mono frame is not marked CFA",
+          "-cfa" not in list(pipeline["calibrate"]),
+          list(pipeline["calibrate"]))
+    check("bare mono frame does not drizzle",
+          pipeline["apply"]["args"] == ["-framing=current"],
+          pipeline["apply"]["args"])
+    check("bare mono frame keeps the canvas",
+          pipeline["stack"]["maximize"] is False, pipeline["stack"])
+
+    # Drizzle demosaics internally, so honouring it here would silently turn
+    # one measured signal into three invented planes.
+    forced = derive_pipeline(bare, MONO_DEVICE, MONO_CALIBRATION,
+                             force_chain="drizzle")
+    check("a drizzle request cannot demosaic a mono sensor",
+          forced["chain"] == "mono", forced["chain"])
+    check("the ignored request is reported, not swallowed",
+          any("ignored" in reason for reason in forced["chain_info"]["reasons"]),
+          forced["chain_info"]["reasons"])
+
+
+def test_missing_dark_override():
+    """--allow-missing-dark must downgrade the refusal, never hide it."""
+    section("explicit missing-dark override")
+    traditional = {"profile": {"flats_available": True, "dark_embedded": False}}
+    header = {"CCD-TEMP": 0.0, "GAIN": 100, "EXPTIME": 300.0}
+
+    try:
+        resolve_calibration_plan(header, traditional, None)
+        check("without the flag the run still refuses", False, "no exception")
+    except Exception as exc:  # noqa: BLE001 - CalibrationMissing expected
+        check("without the flag the run still refuses",
+              type(exc).__name__ == "CalibrationMissing", type(exc).__name__)
+
+    plan = resolve_calibration_plan(header, traditional, None,
+                                    allow_missing_dark=True)
+    check("the override continues without a dark", plan["dark"] is None, plan)
+    check("the override records why",
+          plan["dark_missing_reason"] == "explicit_override", plan)
+    check("bad-pixel correction is disabled with no dark",
+          plan["cc"]["enabled"] is False, plan["cc"])
+    check("the override states the consequence",
+          "NOT corrected" in " ".join(plan["warnings"]), plan["warnings"])
+
+    from param_derive import derive_calibration
+
+    commands = derive_calibration(plan, {"is_cfa": False}, "mono")
+    check("no -cc=dark without a master",
+          "-cc=dark" not in commands, commands)
+    check("no -dark= without a master",
+          not any(item.startswith("-dark=") for item in commands), commands)
+
+    # The CLI is the only way a user reaches this path.
+    import astra_stack as entry
+
+    parser = entry.build_parser()
+    args = parser.parse_args(["/data", "--out", "/out", "--allow-missing-dark"])
+    check("--allow-missing-dark is accepted",
+          args.allow_missing_dark is True, args.allow_missing_dark)
+    args = parser.parse_args(["/data", "--out", "/out"])
+    check("the override is off by default",
+          args.allow_missing_dark is False, args.allow_missing_dark)
 
 
 def test_cosmetic_parameters():
@@ -2582,6 +2708,7 @@ def main():
     try:
         test_composition_preparation()
         test_sequence_stem()
+        test_work_dir_sequence_extension(tmp)
         test_fits_roundtrip(tmp)
         test_rejected_inputs(tmp)
         test_transform_derivation()
@@ -2591,6 +2718,8 @@ def main():
         test_chain_demosaic_placement()
         test_mono_chain()
         test_mono_chain_conflicts()
+        test_mono_sensor_without_bayerpat()
+        test_missing_dark_override()
         test_mono_report_contract()
         test_mono_pipeline_end_to_end(tmp)
         test_cosmetic_parameters()

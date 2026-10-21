@@ -74,6 +74,25 @@ XPIXSZ   = 4.76999998092651     FOCALLEN = 747
 2. **`INSTRUME` 是 PTP 设备名**，把 DSLR 品牌名作为 `any_of` 判据可区分"ASIAIR+单反"与"ASIAIR+ZWO 相机"（后者写 `ZWO ASI...` 且有 GAIN/CCD-TEMP，需要独立条目）。
 3. ASIAIR 对单反**不写** `STACKCNT` 等智能望远镜标志，class 归 `traditional`。
 
+### ToupTek ATR585M + N.I.N.A. — IC 342 实测（单色，无 BAYERPAT）
+
+```
+INSTRUME = 'ATR585M'            ← 相机型号，M = 单色
+TELESCOP = '80'                 ← 望远镜名（80mm f/5），不是设备名
+SWCREATE = 'N.I.N.A. 3.2.0.9001 (x64)'   ← 采集软件；CREATOR 不存在
+FILTER   = 'HA' / 'L' / 'B' / 'R'        ← 外置滤镜轮
+NAXIS    = 2     BITPIX = 16    BZERO = 32768
+BAYERPAT = <缺失>               ← 单色传感器的正常形态
+CCD-TEMP = 0.0   GAIN = 100   OFFSET = 400
+OBJECT   = '???1???'            ← N.I.N.A. 未解析目标名，不可作判据
+```
+
+三个关键事实：
+
+1. **`NAXIS=2` 不等于 CFA。** 单色相机同样写 `NAXIS=2`，区别只在于没有 `BAYERPAT`。此前 `classify_input` 把两者等同，对单色数据直接抛错——等于把一整类合法设备判死。
+2. **判别只能来自 profile。** `mono_sensor_capable: true` 是唯一许可：`NAXIS=2` 且无 `BAYERPAT` 时走 mono 链路；没有该标记仍拒绝，因为「彩色帧缺 BAYERPAT」与「单色帧」在字节层无法区分，猜错就是丢色。
+3. **`TELESCOP` 是望远镜名。** `'80'` 描述的是 80mm 口径镜，与相机无关；设备识别必须落在 `INSTRUME` 上。
+
 ### 逐帧 sub 与内部 master 的差异
 
 | | 逐帧保存的 sub | 设备内部 master |
@@ -121,7 +140,7 @@ XPIXSZ   = 4.76999998092651     FOCALLEN = 747
 | `live_stacking` | 设备是否内部叠加 | true → 需先筛帧 |
 | `min_pairs` | `register -minpairs` | 4（Siril 默认 8 对小视场不足） |
 
-**未知 profile 字段一律报错，不填默认值。**`mono_sensor_capable` 用独立布尔键而非复用 `cfa_sensor` 字符串：后者是人类可读的型号串（`"IMX533"` / `"dslr (model from INSTRUME)"` / `"unknown"`），字符串匹配脆弱，且 `unknown` 会被误判成单色。当前只有 `zwo_asiair_dslr` 为 true（ASIAIR 驱动的单反，机身是单色传感器、靠外部滤镜轮分光）。**行为变更**：该 profile 的既有用户会发现原本三通道的窄带桶变为单通道，可用 `--device-profile` 覆盖 `{"zwo_asiair_dslr": {"mono_sensor_capable": false}}` 退回。
+**未知 profile 字段一律报错，不填默认值。**`mono_sensor_capable` 用独立布尔键而非复用 `cfa_sensor` 字符串：后者是人类可读的型号串（`"IMX533"` / `"dslr (model from INSTRUME)"` / `"unknown"`），字符串匹配脆弱，且 `unknown` 会被误判成单色。当前 `zwo_asiair_dslr` 与 `touptek_atr585m_mono` 为 true。该键同时是 `NAXIS=2` 无 `BAYERPAT` 帧的唯一放行条件：没有它，这类帧一律拒绝（见 1.2 节的 ATR585M 实测与 `param_derive.classify_input`）。**行为变更**：该 profile 的既有用户会发现原本三通道的窄带桶变为单通道，可用 `--device-profile` 覆盖 `{"zwo_asiair_dslr": {"mono_sensor_capable": false}}` 退回。
 
 ## 1.5 扩展新设备
 
