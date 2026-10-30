@@ -1,0 +1,125 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "agent_proposed_stretch_flow_v25",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2"
+  },
+  "implementation": {
+    "deep_sky_siril_stretch_v2.py": {
+      "sha256": "ca76b4fb9a73abde3e858252e9f35568c961555349f8241265aecfc239413127",
+      "size": 59627
+    },
+    "deep_sky_siril_stretch.py": {
+      "sha256": "cc750a8143d9c023e00a0270b5927eadb6651d88159b95ed31ccc61c75ac4256",
+      "size": 62787
+    },
+    "deep_sky_siril_stretch_profiles.py": {
+      "sha256": "0438905bdc4cb60a2de25c4886ab8df922f3a5b7b34aa2a5bd08f4a8a3eeb2f8",
+      "size": 21428
+    },
+    "deep_sky_siril_local_contrast.py": {
+      "sha256": "e60f3d6b99f8de065412068444e9f1be482de7584acd1411708102c0c77bebd2",
+      "size": 47215
+    },
+    "deep_sky_siril_processing.py": {
+      "sha256": "c915f8e34b685586d621ca1a60aef355b0be9cf5ebd1ffa416c212b39594eeec",
+      "size": 136713
+    },
+    "deep_sky_siril_hdr.py": {
+      "sha256": "cb04cb794abe750fa02deb5d6e7b9216400d6573b87fba969e82d195bc5eefe6",
+      "size": 18934
+    },
+    "deep_sky_siril_dualband.py": {
+      "sha256": "db7278f5a5ada8ca4823075be562f8412374ab549104ee95e5b51560830c0d40",
+      "size": 30116
+    },
+    "deep_sky_siril_core.py": {
+      "sha256": "a90f8498af8b19f10d986cdc2f415e9c498042ecc1f748d7a6eb26f0de11fdfb",
+      "size": 139142
+    },
+    "deep_sky_siril_visibility.py": {
+      "sha256": "2f45e019b39d42a5719d2dff0d6598d2dd21e84206e9c7443cb823bc01ffd052",
+      "size": 31804
+    }
+  },
+  "profiles": {
+    "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+    "size": 3844
+  },
+  "helper": {
+    "sha256": "e60f3d6b99f8de065412068444e9f1be482de7584acd1411708102c0c77bebd2",
+    "size": 47215
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "8cc1962b265fa09723dc9001e298e18660078935c97bc81ce2afa3abeb63e215",
+      "size": 22856
+    },
+    "CHANGELOG.md": {
+      "sha256": "853414f1de4e782827998cf0a17e08c428903ee48eff77262c606083cf87dcb6",
+      "size": 35337
+    },
+    "references/stages/stage-08-starless-enhance.md": {
+      "sha256": "b5c944f25742300f7ff31ad64779ef42290b30b3e3cf26bb2db68e39224335a8",
+      "size": 25027
+    },
+    "references/stages/stage-09-stars-recompose.md": {
+      "sha256": "b91cd98d3422082fffb0e89b92fb584955e1e6e6400f322f496f8526623e720e",
+      "size": 22445
+    },
+    "references/shared-protocols/tone-adjust.md": {
+      "sha256": "b44b499e3de48459eb867a455ae00031ea1f666c554dfee8025007672cdedfa7",
+      "size": 7120
+    },
+    "references/shared-protocols/color-finish.md": {
+      "sha256": "9d48c38668ae726b226768f46383142695a124e554524a926a6ee689bc400bd8",
+      "size": 15037
+    },
+    "references/cli-contract.md": {
+      "sha256": "db37a10da4477e83f3771f9d023202fbdbba5cbf841aa1468b9533fc88376f4e",
+      "size": 54030
+    },
+    "references/session-contract.md": {
+      "sha256": "52b03bd03161ccf3be84a93dc254a9c5d5fdd4d304160c4c0c1920b75ffef6a4",
+      "size": 37140
+    },
+    "references/delivery.md": {
+      "sha256": "986553dabb449a01f0e59c1f6bc74a262ec80d664beeed8b661df16e2228906b",
+      "size": 11678
+    },
+    "references/command-policy.json": {
+      "sha256": "35809c1c33305a2aa6e9e5d47a3d5c984bbffa8cf6c58361d870656c4cf44944",
+      "size": 4191
+    },
+    "references/review.schema.json": {
+      "sha256": "48d08b17e923a10aa74ac745bf570a8f07ef5c7198773ecd963eef48dc8c3bf6",
+      "size": 10105
+    }
+  },
+  "command_policy": "{\n  \"schema\": \"starun-siril.command-policy.v1\",\n  \"contract_version\": \"1\",\n  \"required_prefix\": [\n    \"requires 1.4.4 1.5.0\",\n    \"set32bits\"\n  ],\n  \"max_script_bytes\": 131072,\n  \"max_effective_lines\": 256,\n  \"protocol_commands\": {\n    \"input.inspect\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"stat\",\n      \"savejpg\",\n      \"close\",\n      \"autostretch\"\n    ],\n    \"geometry.crop-near-black\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"crop\",\n      \"stat\",\n      \"save\",\n      \"autostretch\",\n      \"savejpg\",\n      \"close\"\n    ],\n    \"background.subtract\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"fmul\",\n      \"boxselect\",\n      \"stat\",\n      \"pyscript\",\n      \"subsky\",\n      \"save\",\n      \"mtf\",\n      \"autostretch\",\n      \"savejpg\",\n      \"close\"\n    ],\n    \"color.calibrate\": [\n      \"requires\",\n      \"set32bits\",\n      \"set\",\n      \"load\",\n      \"fmul\",\n      \"pcc\",\n      \"spcc\",\n      \"stat\",\n      \"save\",\n      \"autostretch\",\n      \"mtf\",\n      \"savejpg\",\n      \"close\",\n      \"spcc_list\",\n      \"split\",\n      \"pm\",\n      \"rgbcomp\"\n    ],\n    \"color.map\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"split\",\n      \"close\",\n      \"pm\",\n      \"save\",\n      \"rgbcomp\",\n      \"stat\",\n      \"autostretch\",\n      \"savejpg\"\n    ],\n    \"restoration.denoise\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"fmul\",\n      \"denoise\",\n      \"stat\",\n      \"save\",\n      \"autostretch\",\n      \"mtf\",\n      \"savejpg\",\n      \"close\"\n    ],\n    \"restoration.deconvolve\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"fmul\",\n      \"setfindstar\",\n      \"pyscript\",\n      \"findstar\",\n      \"makepsf\",\n      \"rl\",\n      \"stat\",\n      \"save\",\n      \"autostretch\",\n      \"mtf\",\n      \"savejpg\",\n      \"close\"\n    ],\n    \"stars.separate\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"fmul\",\n      \"stat\",\n      \"save\",\n      \"autostretch\",\n      \"mtf\",\n      \"savejpg\",\n      \"close\",\n      \"pm\",\n      \"pyscript\"\n    ],\n    \"stretch\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"asinh\",\n      \"autostretch\",\n      \"mtf\",\n      \"icc_assign\",\n      \"stat\",\n      \"save\",\n      \"savejpg\",\n      \"close\",\n      \"ght\",\n      \"split\",\n      \"pm\",\n      \"gauss\",\n      \"rgbcomp\",\n      \"fmul\",\n      \"denoise\",\n      \"crop\"\n    ],\n    \"stars.recompose\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"mtf\",\n      \"save\",\n      \"close\",\n      \"pm\",\n      \"stat\",\n      \"savejpg\",\n      \"asinh\",\n      \"ght\"\n    ],\n    \"tone.adjust\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"mtf\",\n      \"ght\",\n      \"icc_assign\",\n      \"stat\",\n      \"save\",\n      \"savejpg\",\n      \"close\"\n    ],\n    \"color.finish\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"ght\",\n      \"satu\",\n      \"rmgreen\",\n      \"icc_assign\",\n      \"stat\",\n      \"save\",\n      \"savejpg\",\n      \"close\",\n      \"split\",\n      \"pm\",\n      \"gauss\",\n      \"rgbcomp\"\n    ],\n    \"delivery.render\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"fmul\",\n      \"icc_assign\",\n      \"stat\",\n      \"save\",\n      \"savejpg\",\n      \"close\"\n    ],\n    \"astrometry.solve\": [\n      \"requires\",\n      \"set32bits\",\n      \"set\",\n      \"load\",\n      \"platesolve\",\n      \"save\",\n      \"stat\",\n      \"savejpg\",\n      \"close\"\n    ],\n    \"structure.local-contrast\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"split\",\n      \"pm\",\n      \"save\",\n      \"clahe\",\n      \"gauss\",\n      \"rgbcomp\",\n      \"stat\",\n      \"savejpg\",\n      \"close\",\n      \"wavelet\",\n      \"wrecons\"\n    ],\n    \"restoration.denoise-nonlinear\": [\n      \"requires\",\n      \"set32bits\",\n      \"load\",\n      \"denoise\",\n      \"stat\",\n      \"save\",\n      \"savejpg\",\n      \"close\"\n    ]\n  },\n  \"write_commands\": [\n    \"save\",\n    \"savejpg\",\n    \"savetif32\",\n    \"split\",\n    \"rgbcomp\",\n    \"findstar\",\n    \"makepsf\"\n  ],\n  \"pyscript_protocols\": {\n    \"background.subtract\": [\n      \"siril_background_samples.py\",\n      \"siril_background_samples_scientific.py\"\n    ],\n    \"stars.separate\": [\n      \"siril_starnet.py\",\n      \"siril_starnet_linear.py\"\n    ],\n    \"restoration.deconvolve\": \"siril_psf_samples.py\"\n  }\n}\n",
+  "color_helper": {
+    "sha256": "989a0696a9aac28bd454f7533990134b4e2669c481ef626ee9191cad0c5a2cf2",
+    "size": 21964
+  }
+}

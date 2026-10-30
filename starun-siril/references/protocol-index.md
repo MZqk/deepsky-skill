@@ -1,53 +1,35 @@
 # Protocol Index
 
-每次只读取并执行一个协议。完整后期任务按 [默认阶段顺序](stage-sequence.md) 评估；输入证据与用户目标
-决定某个协议执行或跳过以及参数选择，但不得倒置图像域顺序。定向模式仍可只执行一个满足前置条件的协议。
+拉伸协议默认使用 [主体优先多节入口](stages/stage-07-stretch.md#subject-priority-stretch-v27)，参考 [五类形态起始链](stages/stage-07-stretch.md#morphology-starting-chains)，复用 [ROI 保护](stages/stage-07-stretch.md#roi-protected-stretch-v22)与显式 v4 因子提案。独立单链比较只在显式选择时执行；不增加协议或自动优化器。
 
-## SSF 知识层级
 
-每份 SSF 都由 Agent 在当前任务中参数化生成，不由 Python、Recipe 或固定流水线生成：
+用于按用户请求定位单个协议正文，不规定阶段顺序。正文文件是唯一 primary，锚点只用于定位，SHA-256 绑定整个文件。tone.adjust 与 color.finish（全局及局部饱和度）分别唯一维护在 shared-protocols；其他协议由所属阶段维护。完整处理按 [阶段顺序](stage-sequence.md) 编排，任务模式见 [入口](../SKILL.md#定向模式)。新绑定不要求 Stage 10 primary 或 Stage 8 supporting；历史绑定按 [兼容说明](session-contract.md#文档指导版本) 原样复核。
 
-1. 当前 session、用户目标、采集来源和实际像素证据决定协议适用性与参数；未知信息保持 `unknown`。
-2. `stage-sequence.md` 规定完整任务的默认宏观顺序；实际用于排序时可作为 supporting reference。
-3. 被选中的 protocol reference 是 SSF 的 primary reference，规定科学边界、参数范围、参数化骨架、
-   预期产物和审查要求。
-4. 固定到 Siril 1.4.4 的离线手册是命令语法与语义来源；只有骨架未展开、语法/参数有歧义、结果与预期
-   矛盾或用户询问功能时才按需查询，不逐命令机械重复查询。
-5. `command-policy.json` 是独立执行授权边界；手册收录或标为 scriptable 不等于允许执行。
+| 协议 | 何时读取 |
+|---|---|
+| [input.inspect](stages/stage-01-input-inspect.md#input-inspect) | 新 session 实际执行前建立可读输入证据；已有同图且已接受检查可复用 |
+| [geometry.crop-near-black](stages/stage-02-geometry.md#geometry-crop-near-black) | 可见近黑边、堆栈边或构图边界需要保守裁切 |
+| [background.subtract](stages/stage-03-background.md#background-subtract) | 完整处理的线性图必须完成控制区与采样评估；条件合格时实际试跑一至四阶多项式或 RBF，独立验证后采用或保留父源 |
+| [astrometry.solve](stages/stage-04-astrometry-color.md#astrometry-solve) | 保留有效 WCS，或按在线/离线边界解析缺失的 WCS |
+| [color.calibrate](stages/stage-04-astrometry-color.md#color-calibrate) | 已确认线性通道和响应/滤镜证据；先完成路线、实际父源、适用区域和显示参数准备，统一路径并静态校验后执行 |
+| [restoration.denoise](stages/stage-05-linear-restoration.md#restoration-denoise) | 线性背景噪声影响后续拉伸 |
+| [restoration.deconvolve](stages/stage-05-linear-restoration.md#restoration-deconvolve) | 已接受线性父源需要恢复细节，并有足够可靠星点支持 PSF |
+| [stars.separate](stages/stage-06-stars-separation.md#stars-separate) | 按目标类型、用户目标和运行能力评估线性分星 |
+| [stretch](stages/stage-07-stretch.md#stretch) | 线性科学父源需要转为非线性显示图 |
+| [structure.local-contrast](stages/stage-08-starless-enhance.md#structure-local-contrast) | 已审查的非线性 starless 主体需要局部亮度对比增强 |
+| [color.map](stages/stage-08-starless-enhance.md#color-map) | 已接受非线性 starless 父源具有可靠窄带角色，需要 palette 映射 |
+| [tone.adjust](shared-protocols/tone-adjust.md#tone-adjust) | 已接受非线性主体或最终图需要背景、中间调或亮核整形 |
+| [stars.recompose](stages/stage-09-stars-recompose.md#stars-recompose) | 已接受 starless 分支需要按冻结传递链合星 |
+| [restoration.denoise-nonlinear](shared-protocols/denoise-nonlinear.md#restoration-denoise-nonlinear) | 非线性父源需要保守原生降噪 |
+| [color.finish](shared-protocols/color-finish.md#color-finish) | Stage 8 可信非线性 RGB FITS 无星主体需要局部饱和度，或 Stage 10 最终三通道父源需要轻量显示调色 |
+| [delivery.render](stages/stage-10-delivery-finishing.md#delivery-render) | 已接受最终非线性父源需要生成 JPEG 交付候选 |
 
-交给 `run` 或 `run --validate-only` 的每个 `scripts/<run-id>.ssf` 都必须有同 stem 的
-`scripts/<run-id>.provenance.json`。sidecar 遵循 [SSF provenance Schema](ssf-provenance.schema.json)，绑定
-脚本、唯一 primary protocol reference、可选 supporting references、policy、实际 manual command/read 查询
-envelope 及参数理由。只做 Bundle 验证或逐字实例化完整骨架时不得伪造 manual query evidence。
-`run` 仍会把 SSF 中每个命令映射到 session 冻结的 1.4.4 command index，核对 scriptable 与 policy 并写入
-receipt 的 `command_knowledge`；这是机器知识闭包校验，不等同于 Agent 执行过 `--command`/`--read`。
 
-| Stage | 协议 | 何时读取 |
-|---|---|---|
-| 1 | [input.inspect](protocols/input-inspect.md) | 所有执行模式的第一步；建立可读输入预览 |
-| 2 | [geometry.crop-near-black](protocols/geometry-crop-near-black.md) | 可见近黑边、堆栈边或构图边界需要保守裁切 |
-| 3 | [background.subtract](protocols/background-subtract.md) | 线性图存在可分离的大尺度渐变 |
-| 4a | [astrometry.solve](protocols/astrometry-solve.md) | Native local Gaia or preserve existing WCS |
-| 4b | [color.calibrate](protocols/color-calibrate.md) | 线性 broadband/dualband 具备所选校准方法需要的证据 |
-| 5a | [restoration.deconvolve](protocols/restoration-deconvolve.md) | 线性图有足够星点生成可靠 PSF |
-| 5b | [restoration.denoise](protocols/restoration-denoise.md) | 反卷积之后仍有影响后续拉伸的线性背景噪声 |
-| 6 | [stars.separate](protocols/stars-separate.md) | 明确需要 starless 分支且 StarNet2 可用 |
-| 7 | [stretch](protocols/stretch.md) | 线性父源需要变为非线性显示图 |
-| 8a | [structure.local-contrast](protocols/structure-local-contrast.md) | Reviewed nonlinear starless luminance enhancement |
-| 8b | [color.map](protocols/color-map.md) | 已接受 starless 非线性父源且有可靠窄带来源角色 |
-| 9 | [stars.recompose](protocols/stars-recompose.md) | 已接受 starless 分支，需要匹配传递合星 |
-| 10a | [restoration.denoise-nonlinear](protocols/restoration-denoise-nonlinear.md) | Optional native nonlinear denoise before color |
-| 10b | [color.finish](protocols/color-finish.md) | 最终非线性三通道父源需要轻量显示调色 |
-| 10c | [delivery.render](protocols/delivery-render.md) | 已选定并接受最终非线性父源，需要最终 JPEG |
+双窄带独立提取/拉伸使用 [stretch 的严格 HOO 变体](stages/stage-07-stretch.md)，仍绑定 Stage 7 为唯一 primary；不新增 public protocol，不借用 color.map 宣称物理解混。
 
-## 组合规则
 
-- 完整处理默认采用 Stage 1 → 10；同一阶段的多个协议也分别运行、分别审查。
-- 线性输入必须先完成需要在线性域执行的协议，再执行 `stretch`；Stage 5 同时适用时先
-  `restoration.deconvolve`，再 `restoration.denoise`。
-- nonlinear 输入不得执行只接受 linear 的协议。
-- unknown 输入只执行 Stage 1 的 `input.inspect`，之后停止。获得可靠状态证据后创建新 session；诊断预览
-  不是科学父源或交付父源。
-- `stars.recompose` 只接受同一 StarNet 分支和 stretch 记录的完整显式传递链。
-- 任意可选协议失败时保留父源；`stretch` 或 `delivery.render` 失败时停止。
-- 不执行没有可见证据或用户目标支持的协议。
+Stage 7 按需附文：[HDR](stage7-hdr.md)、[HOO](stage7-hoo.md)、[诊断示例](stage7-diagnostics.md)、[历史与兼容](stage7-legacy.md)。普通拉伸只读当前主文档；变体与诊断材料按实际使用绑定 supporting，历史材料不授权新执行。
+
+## Multiscale local contrast v21
+
+structure.local-contrast 的小波与 CLAHE 为同一协议的变体，详见 [Stage 8 多尺度导引](stages/stage-08-starless-enhance.md)。不新增协议或流程编排器。

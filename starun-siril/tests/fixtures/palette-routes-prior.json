@@ -1,0 +1,78 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "agent_proposed_stretch_flow_v25",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2"
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "b7afd18283ae7fde31a6d2d2af8dae9c2c87f8f5fa505eb9579a1cb7d6bd9825",
+      "size": 20992
+    },
+    "CHANGELOG.md": {
+      "sha256": "6383e7974155be4791e6602b35a59e9adbc1de8d202363301b9fe1a4a134203d",
+      "size": 32403
+    },
+    "references/stage-sequence.md": {
+      "sha256": "1e37067bacf826cd7c28d5336322e6c38394726eec3a86656d80cd62df702638",
+      "size": 11680
+    },
+    "references/cli-contract.md": {
+      "sha256": "26e1bca254c2575e75ecf7a46e6ce8f0c3f4853cefb6f10f6aabc9f736f7e716",
+      "size": 52790
+    },
+    "references/session-contract.md": {
+      "sha256": "6755a7545c8712ccafdbdee0f695cd93547aeb4fb3331d9a9b8607f006847a6e",
+      "size": 35260
+    },
+    "references/delivery.md": {
+      "sha256": "c6d2a3f2a1244bbed23df4430e5125a88cec312a64b25d693140b8c55c60ced0",
+      "size": 9966
+    },
+    "references/stages/stage-01-input-inspect.md": {
+      "sha256": "ebef01b704f4df4067639374e7dadd6e583f2de401f771a202e1da78d62a0b10",
+      "size": 8598
+    },
+    "references/stages/stage-04-astrometry-color.md": {
+      "sha256": "cfe8c1eec857e0103e53f1188690e47e62db6b3cad85346381eff77e4a9178b6",
+      "size": 37243
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "5286c1ee44327ea2b2545da2601d192f846276c389eb62ad784f8edd31c61ac6",
+      "size": 57585
+    },
+    "references/stages/stage-08-starless-enhance.md": {
+      "sha256": "1740191fcbe317bd44530d3a4d419219ff6e1aeeafe7482c6a4099558a5000af",
+      "size": 23907
+    },
+    "references/stages/stage-09-stars-recompose.md": {
+      "sha256": "dc5721213215bda8c8fced92663b6e2d95f80f8a032c54e83cf5c4b8438aba66",
+      "size": 22025
+    },
+    "references/stages/stage-10-delivery-finishing.md": {
+      "sha256": "4695ed2320df3694fe1eb45a07cab9c1dd299f9439b0768851dc6f6150da017d",
+      "size": 9164
+    }
+  }
+}

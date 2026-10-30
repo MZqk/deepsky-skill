@@ -1,0 +1,322 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "morphology_default_stretch_flow_v26",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2",
+    "local_contrast_hdr": "wavelet_only_v1",
+    "subject_enhancement": "benefit_first_v1",
+    "linear_denoise": "agent_proposal_v1",
+    "recomposition_parameters": "agent_proposal_v1",
+    "tone_adjustment": "remaining_goal_v1",
+    "color_evaluation": "unmasked_first_v1"
+  },
+  "references": {
+    "LICENSE.md": {
+      "sha256": "88ce538e753ff222f3b66f7d457b3c628a92786c44e78370f4de5fc0dffcf2c7",
+      "size": 621
+    },
+    "RELEASING.md": {
+      "sha256": "b7c3b08e111fb23cbdd2c28772f8374eb0a04c18eea35d96281ea800510a9f2a",
+      "size": 19842
+    },
+    "CHANGELOG.md": {
+      "sha256": "cb02b730598392bd71fd6fdf102567a282454e8b000c2b257451f64da6e3bb7e",
+      "size": 38295
+    },
+    "release-files.txt": {
+      "sha256": "e81ce37da49a5ac35d056c26231e5e15e4ea8e2cbc970fbf386927dad24f0770",
+      "size": 2447
+    },
+    "THIRD_PARTY_NOTICES.md": {
+      "sha256": "486f26f773946b268254f9304a3de1a5010f44af68c296560c8fe9f5df306f11",
+      "size": 2669
+    },
+    "requirements-dev.txt": {
+      "sha256": "7b7130b11b22e4a3996dedeb8e9c3aa6f4f1c93bf03c0aa0abd75e98938d5d3f",
+      "size": 27
+    },
+    "SKILL.md": {
+      "sha256": "577492b0cba01a1ffebf5245948e67f3d6d3eba101a8067e1bb6365d2f0cb816",
+      "size": 25497
+    },
+    "references/session-contract.md": {
+      "sha256": "22a1826b16fff1ca981eba8fa822b8cb0c34d24fc7856e56fc366cd13d7fb00d",
+      "size": 43895
+    },
+    "references/review.schema.json": {
+      "sha256": "14322d66c83748b5fb916a511bd352e8b78a519c8a57dec9b55c7a40a872884b",
+      "size": 15581
+    },
+    "references/LICENSE.StarNet-GPL-3.0.txt": {
+      "sha256": "43e0a03410d5863a435c32f42deaa92bbf22fd5bd662e10bb0ce87727ba71e60",
+      "size": 35057
+    },
+    "references/troubleshooting.md": {
+      "sha256": "09de1413a5871d9979a76781528fd1ced366177893cb47dc7c10109fc824481d",
+      "size": 7866
+    },
+    "references/command-policy.json": {
+      "sha256": "6af8a154c4eaff0b4fed82c9a964b00bafc29da74b89d6b694db625affd6ce8a",
+      "size": 4250
+    },
+    "references/manual-query.md": {
+      "sha256": "9900294086fda831a226976c2644f8a20d562cf30068c9c39db871310a5f4124",
+      "size": 5237
+    },
+    "references/final-selection.schema.json": {
+      "sha256": "4e0e05daefb63f1d621612f355b911d2e8d52755ba51559c2407d8e73daacefb",
+      "size": 2923
+    },
+    "references/siril-safety.md": {
+      "sha256": "864464c63d870fe4646b4661aa87ddfe14d0d49bb7cb5853329152101c9dd00b",
+      "size": 7624
+    },
+    "references/starnet-linear-source.json": {
+      "sha256": "fb8c541b45ba2278de030c32f581ff036ea13626e64088b4cb7aa193f2540a8c",
+      "size": 1273
+    },
+    "references/starnet-source.json": {
+      "sha256": "42d4ba5d326cad67fff2f60766ed82b445d4e2eec14023a6aee46677232c7cb4",
+      "size": 1213
+    },
+    "references/quality.md": {
+      "sha256": "2861e19009b839b30ae5015d333f448bef9cd1b4a7579777b1e1bfec2c21908a",
+      "size": 35171
+    },
+    "references/background-sample-contract.schema.json": {
+      "sha256": "b090979acb0b44d299ab52a663dce23297e404fbba99b83b077ac25d32ff2d9b",
+      "size": 1486
+    },
+    "references/cli-contract.md": {
+      "sha256": "8865b75d11d0feba0ad55f8cc8c3d3d5d8bde6da4d38669949700f132b157348",
+      "size": 60057
+    },
+    "references/ssf-provenance.schema.json": {
+      "sha256": "140e75985446567e15a0b96c1fe2da70fc2678ffe3ebaeb3a3e321b6113341e3",
+      "size": 4069
+    },
+    "references/astrometry-source-preservation.md": {
+      "sha256": "6104b3f068e896f37730144bd23891ebf93362cf653061cbb54878d1a9b403f7",
+      "size": 5736
+    },
+    "references/protocol-index.md": {
+      "sha256": "3a8ae78a842af50a0ee1292ffddb200ccfdfd524f1528430e33ca86aaabdc018",
+      "size": 3890
+    },
+    "references/delivery.md": {
+      "sha256": "795b8035b6507b0df4e4c0abf3984ce9b96e10f11b0bb94626ed6bd8f8b3f877",
+      "size": 12462
+    },
+    "references/stage-sequence.md": {
+      "sha256": "f00ff891ab50a4cb513512764756f62aa96c007cce1844363dfd9e10323d9f0c",
+      "size": 14899
+    },
+    "references/stretch-profiles.json": {
+      "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+      "size": 3844
+    },
+    "references/target-morphology-review.md": {
+      "sha256": "9816eb278b6f7ea2c8ab1ecadf3e7fa1fab65123ee962cf92264c5c96513af2d",
+      "size": 9106
+    },
+    "agents/openai.yaml": {
+      "sha256": "179ed096389a5c36003494c7cee9d11643b873cf342e1403fc38ee84e36804d5",
+      "size": 345
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "2dcd0553e7c27405b654e997fffc9244bbd60d309c2aeafe50ef2d901324cfa8",
+      "size": 73367
+    },
+    "references/stages/stage-01-input-inspect.md": {
+      "sha256": "ff0a99326be4b41a13faf7e15c178e28739753ef1ad6716531f71847202a09aa",
+      "size": 10925
+    },
+    "references/stages/stage-09-stars-recompose.md": {
+      "sha256": "5154de27fbeaef494975d3a42eca74ca25b3c6c21a2b96b361c7b1edab58391c",
+      "size": 28161
+    },
+    "references/stages/stage-05-linear-restoration.md": {
+      "sha256": "c4d716da58371292c19f532a08f3e1eb68ff9003e470d3404aa92065b13cd5b7",
+      "size": 23630
+    },
+    "references/stages/stage-04-astrometry-color.md": {
+      "sha256": "b5a32eb666939b02a1dd2a57150c750fc5f5f423323a9dcc8a9b5d36ca11595c",
+      "size": 39565
+    },
+    "references/stages/stage-10-delivery-finishing.md": {
+      "sha256": "2b0e4a60e9a2592d0ac7563526dcf04ec91c74b69113f4380df11ab627a701df",
+      "size": 9777
+    },
+    "references/stages/stage-06-stars-separation.md": {
+      "sha256": "378f2c38ea22dd4a8d43b2bf3b30b24fe2c9ad443104189879530676f6cf50dc",
+      "size": 18581
+    },
+    "references/stages/stage-08-starless-enhance.md": {
+      "sha256": "debaccf041ba746bb59e9da2828bc7b0dc6c8f314d8474cda392f91b8f9f5656",
+      "size": 28526
+    },
+    "references/stages/stage-03-background.md": {
+      "sha256": "f24a76ea09fd9d49bee9d30d5d161825fb1e7b8fde6a175ecdb602c77a28b119",
+      "size": 28357
+    },
+    "references/stages/stage-02-geometry.md": {
+      "sha256": "a9700083f74e0bd206481351ce6b72d5549284afa95466f05e4eb6fea2e0d97e",
+      "size": 4024
+    },
+    "references/siril-manual/LICENSE.GPL-3.0.txt": {
+      "sha256": "43e0a03410d5863a435c32f42deaa92bbf22fd5bd662e10bb0ce87727ba71e60",
+      "size": 35057
+    },
+    "references/siril-manual/aliases.zh-en.json": {
+      "sha256": "191f702716ef2296f5a0d0fcbd20d23c1532bd178e708cb63eab36099f1365fd",
+      "size": 10091
+    },
+    "references/siril-manual/commands.json": {
+      "sha256": "c025149d2d68868d3312f9d22d128d28cbc45845bbbc89e60d6d1f63e8fbcbd4",
+      "size": 225462
+    },
+    "references/siril-manual/files.json": {
+      "sha256": "fc50a4eabf1579e931a16dac5adbd860096505d4f04e8f36e5b3083abbd39bce",
+      "size": 185274
+    },
+    "references/siril-manual/manifest.json": {
+      "sha256": "5208e09b9779ec1945bfba96d3345a74ae3b50cac57a5b914cc0edae516e356d",
+      "size": 3063
+    },
+    "references/siril-manual/LICENSE.GFDL-1.2.txt": {
+      "sha256": "2652c22ba086f92e55ae4a9f9c890ad4766ffd7814a73d318e22a597edf857a4",
+      "size": 20394
+    },
+    "references/siril-manual/catalog.json": {
+      "sha256": "a509e581fa841a7f15ab291832414648f4ffe9b150166e0ceb0c2f5beb3fa21c",
+      "size": 1405328
+    },
+    "references/siril-manual/image-selection.json": {
+      "sha256": "6bc7d65f4198fec7fe76f23c2aab7e20a48e4584fc30fc4e052e97d59945b878",
+      "size": 93948
+    },
+    "references/siril-manual/MODIFICATIONS.md": {
+      "sha256": "7be34c8f36e6d650e9b90d9dba820568522cc1184e8d47c035f736fd6da6cb1c",
+      "size": 1497
+    },
+    "references/siril-manual/NOTICE.md": {
+      "sha256": "431b458f16d46f787d0b07fe21a789eb072dcaa45be234b65d5f77955f86b513",
+      "size": 1293
+    },
+    "references/shared-protocols/tone-adjust.md": {
+      "sha256": "93ad18e5e02819ea55f95d612eafc6837bede0baa4b72ed19186892a26ee253e",
+      "size": 12844
+    },
+    "references/shared-protocols/color-finish.md": {
+      "sha256": "74aed0ce73c7fc99ec48465674d6a3126c35c3bd1c175ac5f46108babe0e8ab4",
+      "size": 18736
+    },
+    "references/siril-manual/source/doc/astrometry/cats.txt": {
+      "sha256": "f6b5dd45cbe6bdf42b686719ec510292b18c325a12824088b009edd7bccd6fbe",
+      "size": 958
+    },
+    "references/siril-manual/source/doc/preferences/getA.txt": {
+      "sha256": "0b204412feaf7a276333b2b5b2bf641ed3cb046066f096c0a15ed1b0c425a7dc",
+      "size": 14586
+    },
+    "references/siril-manual/source/doc/processing/pm_im_functions.txt": {
+      "sha256": "e77dc8eb51976d527770551ddd46154f8abb70b1994fad182e457233e74672b8",
+      "size": 688
+    },
+    "references/siril-manual/source/doc/processing/pm_operators.txt": {
+      "sha256": "bbd2cc7ef958df8a1c3e4adc30d3d44eeac1842b6b306a1f6b7bb5bf74942a88",
+      "size": 666
+    },
+    "references/siril-manual/source/doc/processing/pm_px_functions.txt": {
+      "sha256": "6f492eec24103e52d6e619cf5258efeb601ae9e72abad7a3c827e87aece8dd9d",
+      "size": 1647
+    },
+    "references/siril-manual/source/doc/installation/build_options.txt": {
+      "sha256": "38900aaee0e89dad489e1d1357b18c87ac8a68bc99301aedc5b291e1a790c6ac",
+      "size": 954
+    }
+  },
+  "helper": {
+    "sha256": "5d0efd3786d7f929bf35415ebbb529aaa2d333498e92da229d10ff53d24bc626",
+    "size": 49759
+  },
+  "profiles": {
+    "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+    "size": 3844
+  },
+  "implementation": {
+    "deep_sky_siril_stretch_v2.py": {
+      "sha256": "33b9b371943e23db61e0006541c1d137d2f4ac9bf7dd252f958303abc5840fa0",
+      "size": 91344
+    },
+    "deep_sky_siril_stretch.py": {
+      "sha256": "cc750a8143d9c023e00a0270b5927eadb6651d88159b95ed31ccc61c75ac4256",
+      "size": 62787
+    },
+    "deep_sky_siril_stretch_profiles.py": {
+      "sha256": "0438905bdc4cb60a2de25c4886ab8df922f3a5b7b34aa2a5bd08f4a8a3eeb2f8",
+      "size": 21428
+    },
+    "deep_sky_siril_local_contrast.py": {
+      "sha256": "9b0540240ef697ca6d62cb8a73f74002809465187e83c14dda673792e625c8fa",
+      "size": 53758
+    },
+    "deep_sky_siril_processing.py": {
+      "sha256": "cd838b8c5b21eecd4d02921f58f6fbc9049300d30e439d244433e39b46c885aa",
+      "size": 143157
+    },
+    "deep_sky_siril_hdr.py": {
+      "sha256": "cb04cb794abe750fa02deb5d6e7b9216400d6573b87fba969e82d195bc5eefe6",
+      "size": 18934
+    },
+    "deep_sky_siril_dualband.py": {
+      "sha256": "a6b566b4c2eafc74304291acbb5846ef19becafdfcf7574bb4ef5903219c09a8",
+      "size": 42748
+    },
+    "deep_sky_siril_core.py": {
+      "sha256": "cd37e16d927e373985c10fbae4df4c7c9cd6cf67ec8098f8e89b05feb5149af8",
+      "size": 143092
+    },
+    "deep_sky_siril_visibility.py": {
+      "sha256": "2f45e019b39d42a5719d2dff0d6598d2dd21e84206e9c7443cb823bc01ffd052",
+      "size": 31804
+    },
+    "deep_sky_siril_denoise.py": {
+      "sha256": "2f683ed60b2eb9e994cbf21559c366dbf1694dda7b2e0454f294b185a07c73a8",
+      "size": 27422
+    },
+    "deep_sky_siril_tone.py": {
+      "sha256": "ff88711dbb03c4517150fdd88bc9c702ab0abd6acf77b39847a7c053fc0fb622",
+      "size": 13176
+    },
+    "deep_sky_siril_color.py": {
+      "sha256": "5639da7745af5e73d4bdbf46e8f3d018f6cdf5667ff4c3965ca0e9aff890770f",
+      "size": 54506
+    },
+    "deep_sky_star_reduction.py": {
+      "sha256": "5d0efd3786d7f929bf35415ebbb529aaa2d333498e92da229d10ff53d24bc626",
+      "size": 49759
+    }
+  }
+}

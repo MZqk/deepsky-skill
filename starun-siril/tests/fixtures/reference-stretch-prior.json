@@ -1,0 +1,104 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "agent_proposed_stretch_flow_v25",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2"
+  },
+  "implementation": {
+    "deep_sky_siril_stretch_v2.py": {
+      "sha256": "29d8bb55536f87b13d0a8827f15fa7547d5ceb3cd22c9928c7786f8a346f14d9",
+      "size": 53681
+    },
+    "deep_sky_siril_stretch.py": {
+      "sha256": "ea4a97daa122d2b08ac490c0a6a5c8dde9922afe513c21c747c14ba7861517c6",
+      "size": 61557
+    },
+    "deep_sky_siril_stretch_profiles.py": {
+      "sha256": "52a9af295f53582699309190f36bf5f1c31b6ad4e14d230bd2807f7a8f09b42c",
+      "size": 21345
+    },
+    "deep_sky_siril_local_contrast.py": {
+      "sha256": "e60f3d6b99f8de065412068444e9f1be482de7584acd1411708102c0c77bebd2",
+      "size": 47215
+    },
+    "deep_sky_siril_processing.py": {
+      "sha256": "c915f8e34b685586d621ca1a60aef355b0be9cf5ebd1ffa416c212b39594eeec",
+      "size": 136713
+    },
+    "deep_sky_siril_hdr.py": {
+      "sha256": "cb04cb794abe750fa02deb5d6e7b9216400d6573b87fba969e82d195bc5eefe6",
+      "size": 18934
+    },
+    "deep_sky_siril_dualband.py": {
+      "sha256": "db7278f5a5ada8ca4823075be562f8412374ab549104ee95e5b51560830c0d40",
+      "size": 30116
+    },
+    "deep_sky_siril_core.py": {
+      "sha256": "ebe0571d88faed060e5880f4b66dc2a7755957c2051c691fefe8d0e2d611a884",
+      "size": 137623
+    }
+  },
+  "profiles": {
+    "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+    "size": 3844
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "fd22314d9753ae76b206c6852711af5e83aa598dac480ca208d1015784ca09ae",
+      "size": 21985
+    },
+    "CHANGELOG.md": {
+      "sha256": "aa04dcf6dba24dbff3fc91b709a5e5ffa343df782548e38536dc092b8f19d65d",
+      "size": 33892
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "74e846643e5845370347b9761637b825f7bb0939eb8592a85062b05aed24c4fd",
+      "size": 61971
+    },
+    "references/stages/stage-06-stars-separation.md": {
+      "sha256": "1fb68e4e3639154b24f92692989fed4d12a0a958e57bdfdd5eab1cb507307b66",
+      "size": 18270
+    },
+    "references/target-morphology-review.md": {
+      "sha256": "f680153069bb43e88d779d1c947a5d4f14ec4044593c9514054539876e882565",
+      "size": 8769
+    },
+    "references/session-contract.md": {
+      "sha256": "4723566b7e4f775570e2f802275d16ca6f80b167f36687f3657b5efdfb1445a3",
+      "size": 35919
+    },
+    "references/cli-contract.md": {
+      "sha256": "7030cb1e85c39efb8c632006490804be636528e09db844462704252e4179681e",
+      "size": 53056
+    },
+    "references/stage-sequence.md": {
+      "sha256": "04bd98a1b11def9a619ac7da649fbc6c83612f623c1309dd8d3209ac2323001e",
+      "size": 12066
+    },
+    "references/delivery.md": {
+      "sha256": "9263ced212624d78d9826490e270017081491ec1869d4d1b8630b03cc5fb6219",
+      "size": 10804
+    }
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "masked_dual_v1",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "stage_ai_morphology_measurement_v13",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1"
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "9e2a5901ef45fe8f1de491f2c6d7d4bd42b693bde16fede97bac04a583b7fc27",
+      "size": 13545,
+      "code_blocks": []
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "a1e334751d0c22f705c550e4569f86143117763e1cb341d3016e5c2b553538a3",
+      "size": 22547,
+      "code_blocks": [
+        "```\nm = 1 / (D + 2)\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nautostretch -linked -4.50 0.120\nicc_assign sRGB\nstat main\nsave \"/abs/session/artifacts/070-stretch\" -chksum\nsavejpg \"/abs/session/previews/070-stretch\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.01 1\nasinh -human 2 0 -clipmode=rgbblend\nght -D=0.2 -B=0 -LP=0 -SP=0.2 -HP=1 -human -clipmode=rgbblend\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-explicit-stretch\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-explicit-stretch\" 95\nclose\n```",
+        "```json\n{\n  \"schema\": \"starun-siril.stretch-request.v1\",\n  \"source\": {\"path\": \"artifacts/060-starless.fit\", \"sha256\": \"<source-sha256>\"},\n  \"regions\": {\"path\": \"reports/070-stretch/regions.json\", \"sha256\": \"<regions-sha256>\"},\n  \"operators\": [{\n    \"method\": \"ght\",\n    \"purpose\": \"Reveal faint structure while retaining core hierarchy\",\n    \"landmarks\": {\n      \"LP\": {\"region\": \"background-a\", \"statistic\": \"p99\"},\n      \"SP\": {\"region\": \"faint-a\", \"statistic\": \"median\"},\n      \"HP\": {\"region\": \"core-a\", \"statistic\": \"p01\"}\n    },\n    \"constraints\": [\n      {\"region\": \"background-a\", \"statistic\": \"median\", \"min\": 0.05, \"max\": 0.12},\n      {\"region\": \"faint-a\", \"statistic\": \"median\", \"min\": 0.18, \"max\": 0.35},\n      {\"region\": \"core-a\", \"statistic\": \"span\", \"min\": 0.05, \"max\": 0.5}\n    ]\n  }],\n  \"manual_lookup\": {\n    \"status\": \"performed\",\n    \"reason\": \"Read the pinned GHS command semantics\",\n    \"evidence\": [{\"path\": \"reports/manual-evidence/070-ght.command.json\", \"sha256\": \"<evidence-sha256>\"}]\n  }\n}\n```",
+        "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py solve \\\n  --session /abs/session --request /abs/session/reports/070-stretch/request.json \\\n  --run-id 070-stretch --timeout 1800\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py generate \\\n  --session /abs/session --parameters /abs/session/reports/070-stretch/stretch-parameters.json\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nsplit \"/abs/session/artifacts/070-gentle-r\" \"/abs/session/artifacts/070-gentle-g\" \"/abs/session/artifacts/070-gentle-b\"\npm \"0.2126 * $artifacts/070-gentle-r$ + 0.7152 * $artifacts/070-gentle-g$ + 0.0722 * $artifacts/070-gentle-b$\" -nosum\nsave \"/abs/session/artifacts/070-luminance\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\nrgbcomp \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"-out=/abs/session/artifacts/070-mask-rgb\" -nosum\npm \"$artifacts/070-gentle$ * $artifacts/070-mask-rgb$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nclose\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\npm \"$artifacts/070-gentle$ * $artifacts/070-mask$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```"
+      ]
+    },
+    "references/stages/stage-08-starless-enhance.md": {
+      "sha256": "1a39b3f796b2607b31acf11447aa62901bb8cc1697b55555ffd5b252a8c54b9a",
+      "size": 13047,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# local-contrast: {\"low_start\": 0.03, \"low_end\": 0.08, \"high_start\": 0.65, \"high_end\": 0.90, \"cliplimit\": 1.5, \"grid\": 8, \"strength\": 0.20, \"sigma\": 2}\nload \"/abs/current-starless.fit\"\nsplit \"/abs/session/artifacts/080-r\" \"/abs/session/artifacts/080-g\" \"/abs/session/artifacts/080-b\"\npm \"0.2126 * $artifacts/080-r$ + 0.7152 * $artifacts/080-g$ + 0.0722 * $artifacts/080-b$\"\nsave \"/abs/session/artifacts/080-l\" -chksum\nclahe 1.5 8\nsave \"/abs/session/artifacts/080-l-enhanced\" -chksum\npm \"(min(1, max(0, ($artifacts/080-l$ - 0.03) / 0.05))^2 * (3 - 2 * min(1, max(0, ($artifacts/080-l$ - 0.03) / 0.05)))) * (1 - min(1, max(0, ($artifacts/080-l$ - 0.65) / 0.25))^2 * (3 - 2 * min(1, max(0, ($artifacts/080-l$ - 0.65) / 0.25))))\"\ngauss 2\nsave \"/abs/session/artifacts/080-mask\" -chksum\nsavejpg \"/abs/session/previews/080-mask\" 95\npm \"1 + 0.20 * $artifacts/080-mask$ * ($artifacts/080-l-enhanced$ - $artifacts/080-l$) / max($artifacts/080-l$, 0.000001)\"\nsave \"/abs/session/artifacts/080-gain\" -chksum\npm \"$artifacts/080-r$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-r-enhanced\" -chksum\npm \"$artifacts/080-g$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-g-enhanced\" -chksum\npm \"$artifacts/080-b$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-b-enhanced\" -chksum\nrgbcomp \"/abs/session/artifacts/080-r-enhanced.fit\" \"/abs/session/artifacts/080-g-enhanced.fit\" \"/abs/session/artifacts/080-b-enhanced.fit\" -out=/abs/session/artifacts/080-local-contrast\nload \"/abs/session/artifacts/080-local-contrast.fit\"\nstat main\nsavejpg \"/abs/session/previews/080-local-contrast\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nsplit \"/abs/session/artifacts/080-red\" \"/abs/session/artifacts/080-green\" \"/abs/session/artifacts/080-blue\"\nclose\nrgbcomp \"/abs/session/artifacts/080-red.fit\" \"/abs/session/artifacts/080-green.fit\" \"/abs/session/artifacts/080-green.fit\" \"-out=/abs/session/artifacts/080-hoo.fit\" -nosum\nload \"/abs/session/artifacts/080-hoo.fit\"\nstat main\nsavejpg \"/abs/session/previews/080-hoo\" 95\nclose\n```"
+      ]
+    },
+    "references/quality.md": {
+      "sha256": "22cd2bc808599c1015031ed8745cab27057834e4c0e24d8b25e85ccabae4b05c",
+      "size": 24472,
+      "code_blocks": [
+        "```json\n{\n  \"schema\": \"starun-siril.regions.v1\",\n  \"reference\": {\"sha256\": \"<parent-scientific-sha256>\", \"width\": 1024, \"height\": 768},\n  \"regions\": [{\"id\": \"background-a\", \"role\": \"background\", \"rect\": [20, 30, 100, 110]}]\n}\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/deep_sky_siril_metrics.py \\\n  --run-id 070-stretch --protocol stretch \\\n  --parent /abs/current-parent.fit --candidate /abs/session/artifacts/070-stretch.fit \\\n  --regions /abs/session/reports/070-stretch/regions.json \\\n  --output /abs/session/reports/070-stretch/region-metrics.json\n```"
+      ]
+    },
+    "references/cli-contract.md": {
+      "sha256": "e0b3a7a0506d6513341f40f2a71ace50124057c00d4c68b5c998b9e75c62b76b",
+      "size": 51074,
+      "code_blocks": [
+        "```bash\nSTARUN_PYTHON=/opt/homebrew/bin/python3\n\"$STARUN_PYTHON\" -B -c 'import sys; from pathlib import Path; print(Path(sys.executable).resolve()); print(sys.base_prefix)'\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py probe [--offline] [--output /abs/probe.json]\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py init INPUT --session SESSION \\\n  [context options] [--container-validation siril|strict]\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py confirm-input \\\n  --session SESSION --run-id 010-inspect \\\n  --input-state linear --channel-mode broadband \\\n  --state-evidence 'user confirmed input_state=linear; channel_mode=broadband; stacked, unstretched master'\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py run \\\n  --session SESSION --protocol PROTOCOL_ID --script SESSION/scripts/NNN-name.ssf \\\n  --source CURRENT_PARENT --expect SESSION/artifacts/result.fit \\\n  --expect SESSION/previews/result.jpg [--timeout 1800] [--validate-only]\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/deep_sky_siril_metrics.py \\\n  --session /abs/session --run-id 010-input\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py review-check \\\n  --session SESSION --run-id RUN_ID [--review SESSION/reviews/RUN_ID.json]\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py finalize \\\n  --session SESSION --selection SESSION/final-selection.json [--keep-intermediates]\n```",
+        "```json\n{\n  \"schema\": \"starun-siril.color-decision.v1\",\n  \"session_sha256\": \"SESSION_SHA256\",\n  \"source\": {\"path\": \"@input\", \"sha256\": \"PARENT_SHA256\", \"size\": 123456},\n  \"action\": \"skip\",\n  \"reason\": \"No independently verified sky is available; retain the current parent.\"\n}\n```",
+        "```json\n{\n  \"schema\": \"starun-siril.restoration-decision.v1\",\n  \"session_sha256\": \"SESSION_SHA256\",\n  \"source\": {\"path\": \"@input\", \"sha256\": \"PARENT_SHA256\", \"size\": 123456},\n  \"denoise\": {\"action\": \"skip\", \"reason\": \"Reviewed noise does not justify denoising.\"},\n  \"deconvolve\": {\"action\": \"skip\", \"reason\": \"No reliable PSF is available; retain the parent.\"}\n}\n```"
+      ]
+    },
+    "references/session-contract.md": {
+      "sha256": "a17d098c08b42f7eaf097bd70ad93edc5c4939a436499dbe77155507cc36eedf",
+      "size": 28398,
+      "code_blocks": [
+        "```text\nsession/\n├── session.json\n├── manifest.json\n├── final-selection.json\n├── scripts/\n│   ├── <run-id>.ssf\n│   └── <run-id>.provenance.json\n├── runs/\n├── reviews/\n├── artifacts/\n├── previews/\n├── reports/\n│   └── manual-evidence/\n│       └── bundle-verification.json\n├── logs/\n├── runtime/decode-validation/\n├── runtime/siril-configs/\n└── outputs/\n    ├── reference.jpg\n    └── final.jpg\n```"
+      ]
+    },
+    "references/delivery.md": {
+      "sha256": "0d80651840a0b7916de77723afab181470c4dfa12efb5d38dca587a7a19c1a9b",
+      "size": 7054,
+      "code_blocks": []
+    },
+    "RELEASING.md": {
+      "sha256": "83a43e71e477c32c13d907e6879b2ebb0f1de72ada31701b3683113631840295",
+      "size": 13296,
+      "code_blocks": [
+        "```bash\n\"$STARUN_PYTHON\" -m venv starun-siril/.venv\nSTARUN_PYTHON=\"$PWD/starun-siril/.venv/bin/python\"\n\"$STARUN_PYTHON\" -m pip install -r starun-siril/requirements-dev.txt\n\"$STARUN_PYTHON\" scripts/validate_repository.py --skill starun-siril\n\"$STARUN_PYTHON\" -B -m pytest -p no:cacheprovider starun-siril/tests\n\"$STARUN_PYTHON\" starun-siril/scripts/query_siril_manual.py --verify-bundle\n\"$STARUN_PYTHON\" starun-siril/scripts/package_release.py --check\nRELEASE_DIR=\"$(\"$STARUN_PYTHON\" -c 'import tempfile; from pathlib import Path; print(Path(tempfile.mkdtemp(prefix=\"starun-siril-release-\")).resolve())')\"\n\"$STARUN_PYTHON\" starun-siril/scripts/package_release.py \\\n  --output \"$RELEASE_DIR/starun-siril-0.3.3.zip\"\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B -m pytest -q -p no:cacheprovider \\\n  starun-siril/tests/test_knowledge_contract.py \\\n  starun-siril/tests/test_native_processing.py \\\n  starun-siril/tests/test_tone_adjust.py \\\n  -k \"knowledge_contract or recompos or shadow_threshold or real_siril_mtf_asinh_ghs_closure\"\n```"
+      ]
+    },
+    "CHANGELOG.md": {
+      "sha256": "491b952e9e123aeb759d2c736baf808e94e6daf15a498ed39b7ad96f73ced0fe",
+      "size": 23431,
+      "code_blocks": []
+    },
+    "references/command-policy.json": {
+      "sha256": "d45f36055617e5c992eb8d3d8b7b52b738cc2ccf439091898f077ec49d4b3184",
+      "size": 4099,
+      "code_blocks": []
+    }
+  },
+  "prior_runtime": {
+    "scripts/deep_sky_siril_core.py": {
+      "sha256": "1002fa31064232127740897b4de9a576ad00c7ad104e49abe48442b7dce637c6",
+      "size": 131742
+    },
+    "scripts/deep_sky_siril_contract.py": {
+      "sha256": "d33c9cdf6af88b956edb059985c266a593391a0c2d03fc7c2d7b266dbdbe67a9",
+      "size": 17091
+    },
+    "scripts/deep_sky_siril_session.py": {
+      "sha256": "7de90c65f15858bb4da2d36f779463c3c9eb131d7623bd928b19bf3b32bf743a",
+      "size": 137218
+    },
+    "scripts/deep_sky_siril_processing.py": {
+      "sha256": "f4258e2e93a770531823fd14cb14d8a084a9b9bd3fcaa53444dfa418b89040f7",
+      "size": 130009
+    }
+  }
+}

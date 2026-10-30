@@ -1,0 +1,42 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "subject_priority_stretch_flow_v27",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2",
+    "local_contrast_hdr": "wavelet_only_v1",
+    "subject_enhancement": "benefit_first_v1",
+    "linear_denoise": "agent_proposal_v1",
+    "linear_denoise_backend": "deepsnr_primary_v1",
+    "recomposition_parameters": "agent_proposal_v1",
+    "recomposition_geometry": "fixed_catalog_profiles_v1",
+    "tone_adjustment": "remaining_goal_v1",
+    "color_evaluation": "unmasked_first_v1"
+  },
+  "documents": {
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "7c03faa7ce72f85bbb1ab610ee004b5c8f5e89e5da9fbfde532bf6e57220533b",
+      "size": 86906
+    }
+  }
+}

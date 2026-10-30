@@ -1,0 +1,149 @@
+{
+  "custom": {
+    "inspect": [
+      "trusted sky",
+      "faint subject",
+      "visible highlights",
+      "stars when recomposing"
+    ],
+    "operators": [
+      "mtf",
+      "asinh",
+      "ght"
+    ],
+    "guidance": "Choose operators and numerical constraints from the current accepted pixels."
+  },
+  "emission_nebula": {
+    "inspect": [
+      "diffuse outer emission",
+      "filaments",
+      "dark transitions",
+      "embedded stars"
+    ],
+    "operators": [
+      "ght",
+      "asinh",
+      "mtf"
+    ],
+    "guidance": "Locate the intended brightness interval in the current domain; do not substitute the global median for sky.",
+    "baseline": "mtf",
+    "preferred_chain": [
+      {
+        "method": "ght",
+        "purpose": "Reveal the broad emission interval."
+      },
+      {
+        "method": "ght",
+        "purpose": "Separate faint filaments and dark transitions in the current domain."
+      },
+      {
+        "method": "mtf",
+        "purpose": "Set the final display level within the shared protection budgets."
+      }
+    ]
+  },
+  "high_dynamic_range": {
+    "inspect": [
+      "compact bright core",
+      "core transition",
+      "faint envelope",
+      "stellar halos"
+    ],
+    "operators": [
+      "asinh",
+      "ght",
+      "mtf"
+    ],
+    "guidance": "The Agent may select masked dual HDR in the initial proposal from the actual morphology and dynamic range. Protect the final blend.",
+    "baseline": "asinh",
+    "preferred_chain": [
+      {
+        "method": "asinh",
+        "purpose": "Distribute the initial dynamic range while checking core and stellar color."
+      },
+      {
+        "method": "ght",
+        "purpose": "Increase envelope separation with explicit current-domain highlight protection."
+      }
+    ]
+  },
+  "galaxy_halo": {
+    "inspect": [
+      "nucleus",
+      "arms and dust lanes",
+      "outer halo",
+      "compact companions"
+    ],
+    "operators": [
+      "asinh",
+      "ght",
+      "mtf"
+    ],
+    "guidance": "Protect the nucleus separately from the full-frame histogram and retain faint companions.",
+    "baseline": "asinh",
+    "preferred_chain": [
+      {
+        "method": "asinh",
+        "purpose": "Reveal disk color while protecting the compact nucleus."
+      },
+      {
+        "method": "ght",
+        "purpose": "Separate the outer halo and dust lanes in the current domain."
+      },
+      {
+        "method": "mtf",
+        "purpose": "Set the final display level without hiding faint outer structure."
+      }
+    ]
+  },
+  "dust_reflection": {
+    "inspect": [
+      "smooth dust transitions",
+      "dark lanes",
+      "reflection color",
+      "bright-star surroundings"
+    ],
+    "operators": [
+      "asinh",
+      "ght",
+      "mtf"
+    ],
+    "guidance": "Declare bright or dark contrast directions and explicit texture budgets; inspect smooth transitions.",
+    "baseline": "asinh",
+    "preferred_chain": [
+      {
+        "method": "asinh",
+        "purpose": "Reveal reflection and dust gradients within explicit sky texture budgets."
+      },
+      {
+        "method": "ght",
+        "purpose": "Separate the measured dust interval while preserving smooth transitions."
+      }
+    ]
+  },
+  "star_cluster": {
+    "inspect": [
+      "crowded center",
+      "colored stellar cores",
+      "faint peripheral stars",
+      "trusted sky"
+    ],
+    "operators": [
+      "asinh",
+      "mtf",
+      "ght"
+    ],
+    "guidance": "Prefer a full-stars path unless separation has an evidenced benefit; retain the strict shadow limit.",
+    "baseline": "asinh",
+    "preferred_chain": [
+      {
+        "method": "asinh",
+        "purpose": "Reveal stellar color and the crowded center on the full-stars route."
+      },
+      {
+        "method": "mtf",
+        "purpose": "Set the final display level while retaining peripheral stars and core separation."
+      }
+    ]
+  }
+}

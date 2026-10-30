@@ -23,12 +23,93 @@ SKILL_ROOT = SCRIPTS_ROOT.parent
 
 CONTRACT_VERSION = "1"
 SCHEMA_PREFIX = "starun-siril"
-LOG_DIAGNOSTICS_POLICY = "fail_closed_v1"
-NETWORK_POLICY = "offline_default_explicit_gaia_v1"
+LOG_DIAGNOSTICS_POLICY = "fail_closed_v3"
+# Online by default. V1/v2 sessions kept the offline-first rule; their receipts stay
+# replayable because the classifier branches on the policy a session froze.
+NETWORK_POLICY = "online_default_gaia_catalog_explicit_v3"
+LEGACY_NETWORK_POLICIES = frozenset({
+    "offline_default_explicit_gaia_v1",
+    "offline_default_explicit_gaia_v2",
+})
+STAR_DIAGNOSTICS_POLICY = "subject_roi_residual_v2"
+PAIRED_DELIVERY_POLICIES = frozenset({"paired_fits_jpeg_v1", "paired_fits_jpeg_v2"})
 EXECUTION_POLICY = {
+    "artifact_review": "structured_focus_v1",
+    "stretch_execution": "stepwise_default_v2",
+    "evidence_admission": "source_bound_v1",
+    "stretch_optimization": "highlight_budget_mtf_v2",
     "log_diagnostics": LOG_DIAGNOSTICS_POLICY,
     "network": NETWORK_POLICY,
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_review_gate_v5",
+    "star_diagnostics": STAR_DIAGNOSTICS_POLICY,
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "evidence_bound_stretch_flow_v29",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "stretch_routing": "morphology_multistage_v1",
+    "stretch_hdr": "morphology_selected_v1",
+    "stretch_trial_artifacts": "retained_artifacts_v1",
+    "stretch_constraint_preflight": "curve_effect_review_v3",
+    "stretch_morphology": "roi_declared_v1",
+    "stretch_tail_comparison": "verified_negative_control_v1",
+    "recovery_summary": "explicit_stage_decisions_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "color_curve_variants": "inverse_saturation_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "stellar_color_assessment_v2",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2",
+    "local_contrast_mask": "minimum_source_support_v1",
+    "local_contrast_hdr": "wavelet_only_v1",
+    "subject_enhancement": "benefit_first_v1",
+    "linear_denoise": "agent_proposal_v1",
+    "linear_denoise_backend": "deepsnr_primary_v1",
+    "recomposition_parameters": "agent_proposal_v1",
+    "recomposition_geometry": "fixed_catalog_profiles_v1",
+    "recomposition_contour": "local_peak_mtf_v1",
+    "tone_adjustment": "remaining_goal_v1",
+    "color_evaluation": "unmasked_first_v1",
+    "color_region_goals": "explicit_targets_v1",
+    "color_preservation": "vivid_preservation_v1",
+    "chroma_denoise": "chroma_bilateral_v1",
+    "subject_mask": "reviewed_polygons_v1",
+    "stage7_references": "split_variants_v1",
 }
+PROTOCOL_STAGE_REFERENCES = {
+    'input.inspect': ('references/stages/stage-01-input-inspect.md',),
+    'geometry.crop-near-black': ('references/stages/stage-02-geometry.md',),
+    'background.subtract': ('references/stages/stage-03-background.md',),
+    'astrometry.solve': ('references/stages/stage-04-astrometry-color.md',),
+    'color.calibrate': ('references/stages/stage-04-astrometry-color.md',),
+    'restoration.denoise': ('references/stages/stage-05-linear-restoration.md',),
+    'restoration.deconvolve': ('references/stages/stage-05-linear-restoration.md',),
+    'stars.separate': ('references/stages/stage-06-stars-separation.md',),
+    'stretch': ('references/stages/stage-07-stretch.md',),
+    'structure.local-contrast': ('references/stages/stage-08-starless-enhance.md',),
+    'color.map': ('references/stages/stage-08-starless-enhance.md',),
+    'color.finish': ('references/shared-protocols/color-finish.md',),
+    'stars.recompose': ('references/stages/stage-09-stars-recompose.md',),
+    'restoration.denoise-nonlinear': ('references/shared-protocols/denoise-nonlinear.md',),
+    'tone.adjust': ('references/shared-protocols/tone-adjust.md',),
+    'delivery.render': ('references/stages/stage-10-delivery-finishing.md',),
+}
+
+PROTOCOL_VARIANT_REFERENCES = {
+    ('stretch', 'hdr'): 'references/stage7-hdr.md',
+    ('stretch', 'hoo'): 'references/stage7-hoo.md',
+}
+
 SIRIL_MINIMUM = (1, 4, 4)
 SIRIL_OBSOLETE = (1, 5, 0)
 DEFAULT_TIMEOUT = 1800
@@ -55,6 +136,18 @@ IMAGE_SUFFIXES = frozenset(
 DISPLAY_IMAGE_SUFFIXES = frozenset({".tif", ".tiff", ".jpg", ".jpeg", ".png"})
 
 
+def protocol_reference_bindings(protocol: str, *, variant: str | None = None) -> list[dict[str, str]]:
+    """Bind the canonical protocol body and any required supporting references."""
+    paths = PROTOCOL_STAGE_REFERENCES[protocol]
+    if variant is not None:
+        paths += (PROTOCOL_VARIANT_REFERENCES[protocol, variant],)
+    return [
+        {"path": path, "sha256": sha256_file(SKILL_ROOT / path),
+         "role": "primary" if index == 0 else "supporting"}
+        for index, path in enumerate(paths)
+    ]
+
+
 class ContractError(RuntimeError):
     """Stable public error with a machine-readable code."""
 
@@ -75,8 +168,17 @@ def classify_siril_network(
     *,
     protocol: str,
     session_offline: bool,
+    policy: str = NETWORK_POLICY,
 ) -> dict[str, Any]:
-    """Return the frozen effective network mode for one validated SSF."""
+    """Return the frozen effective network mode for one validated SSF.
+
+    ``policy`` selects the rule set. The current policy starts Siril online and only
+    honours an explicit ``--offline`` session. Historical policies keep the
+    offline-first rule so their committed receipts still replay unchanged.
+    """
+
+    if policy not in LEGACY_NETWORK_POLICIES and policy != NETWORK_POLICY:
+        raise ContractError("unsafe_siril_script", f"Unknown network policy: {policy}")
 
     catalogues: set[str] = set()
     for raw_line in script_text.splitlines():
@@ -100,16 +202,16 @@ def classify_siril_network(
         if len(values) != 1 or values[0] not in {"gaia", "localgaia"}:
             raise ContractError(
                 "unsafe_siril_script",
-                "pcc/spcc requires exactly one -catalog=gaia|localgaia option",
+                "platesolve/pcc/spcc requires exactly one -catalog=gaia|localgaia option",
             )
-        if tokens[0].lower() == "platesolve" and (protocol != "astrometry.solve" or values[0] != "localgaia"):
-            raise ContractError("network_forbidden", "Astrometry permits only native local Gaia")
+        if tokens[0].lower() == "platesolve" and protocol != "astrometry.solve":
+            raise ContractError("network_forbidden", "Plate solving is restricted to astrometry.solve")
         catalogues.add(values[0])
 
     if catalogues and protocol not in {"color.calibrate", "astrometry.solve"}:
         raise ContractError(
             "unsafe_siril_script",
-            "Remote or local catalogue access is restricted to color.calibrate",
+            "Catalogue access is restricted to astrometry.solve and color.calibrate",
         )
     if len(catalogues) > 1:
         raise ContractError(
@@ -122,18 +224,25 @@ def classify_siril_network(
             "network_forbidden",
             "Offline session forbids the explicitly requested remote Gaia catalogue",
         )
-    if session_offline:
-        reason = "session_offline"
-    elif remote_gaia:
-        reason = "remote_gaia_explicit"
-    elif "localgaia" in catalogues:
-        reason = "local_gaia"
+    if policy in LEGACY_NETWORK_POLICIES:
+        effective_offline = not remote_gaia
+        if session_offline:
+            reason = "session_offline"
+        elif remote_gaia:
+            reason = "remote_gaia_explicit"
+        elif "localgaia" in catalogues:
+            reason = "local_gaia"
+        else:
+            reason = "protocol_offline"
     else:
-        reason = "protocol_offline"
+        # Online by default: the catalogue choice stays an explicit, recorded fact, but
+        # it no longer decides whether Siril may reach the network.
+        effective_offline = bool(session_offline)
+        reason = "session_offline" if session_offline else "session_online"
     return {
-        "policy": NETWORK_POLICY,
+        "policy": policy,
         "session_offline": bool(session_offline),
-        "effective_offline": not remote_gaia,
+        "effective_offline": effective_offline,
         "reason": reason,
         "catalogues": sorted(catalogues),
     }
@@ -373,6 +482,7 @@ __all__ = (
     "HASH_PATTERN",
     "IMAGE_SUFFIXES",
     "INPUT_EXTENSIONS",
+    "LEGACY_NETWORK_POLICIES",
     "LIMITATION_CODE_PATTERN",
     "LOG_DIAGNOSTICS_POLICY",
     "NETWORK_POLICY",

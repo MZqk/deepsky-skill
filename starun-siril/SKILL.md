@@ -1,148 +1,115 @@
 ---
+
 name: starun-siril
 description: |
-  Processes a single calibrated and stacked deep-sky master using headless Siril 1.4 CLI sessions and audited .ssf scripts based on the offline Siril 1.4.4 manual. Use when the user requests Siril command execution/script generation, background extraction, offline local Gaia astrometry, luminance CLAHE, nonlinear denoising, photometric color calibration, deconvolution, StarNet star removal/recomposition, stretching, or narrowband color mapping. Do not use for RAW light frame stacking, GUI automation, or general photo retouching.
-  使用 Siril 1.4 CLI 独立会话与可审计脚本处理单个已堆栈深空 master。用于背景扣除、光度校色与窄带映射、小波反卷积、StarNet 分星、拉伸、合星与调色交付。不用于原始帧堆栈或通用修图。
+  Process calibrated, stacked deep-sky masters with Siril 1.4.4 CLI: background extraction, astrometry/color calibration, denoising/deconvolution, StarNet, stretching, star reduction and delivery. Use for processing, session-bound SSF generation or offline manual queries. Excludes RAW calibration/registration/stacking, GUI automation and general retouching.
 license: Proprietary
 metadata:
   slug: starun-siril
-  version: "0.2.0"
+  version: "0.3.3"
   displayName: Starun-siril
-  summary: 以独立、可审计的 Siril CLI 会话处理已堆栈深空 master，并由真实像素审查控制正式交付。
-  tags: [astronomy, siril, deep-sky, image-processing]
+  summary: 以独立、可审计的 Siril CLI 会话处理已完成暗场/平场校准与对齐叠加的深空 master，支持自适应缩星合星，并由真实像素审查控制正式交付。
+  tags: "astronomy, siril, deep-sky, image-processing, star-reduction"
   homepage: https://github.com/MZqk/deepsky-skill
 ---
 
 # Starun-siril
 
+## 输入前置边界（Design Scope）
+
+只处理已完成暗场、平场校准及配准叠加的单个深空 master；支持 FITS 与现有 XISF/TIFF 兼容。不处理原始 Light 帧的校准、配准、叠加、GUI 自动化或通用修图。
+
+进入依赖处理前分别确认暗场、平场及配准叠加来源，复用当前用户确认、同图可信记录或明确 Header 证据；文件名、设备名和预览不能证明前置完成。缺项时停止依赖处理。校准叠加与线性状态分别判断，不从外观推断未知状态或通道来源。
+
 ## 合同
 
-使用 standalone contract `1` 和 `siril-cli >=1.4.4,<1.5`。只处理一个已堆栈 master；永不覆盖输入。
+使用 standalone contract `1`、`siril-cli >=1.4.4,<1.5`。保留原输入与既有脚本、审查及产物，不覆盖证据。Agent 选协议与参数、编写 SSF 并实际审查；Python 执行和验证确定性基础设施，科学像素由 Siril 写入，不自动接受候选。
 
-Agent 负责根据证据选择协议、编写编号 `.ssf` 及其来源 sidecar、逐个运行并审查真实产物。Python 只负责 CLI 执行、
-路径隔离、哈希、日志、容器验证、产物验证和最终提交，不增强像素。Siril 默认离线；只有非 offline session
-中 `color.calibrate` 明确使用远程 Gaia catalog 时才联网。本 Skill 不下载或安装工具。
-
-SSF 的知识链分五层：当前 session、用户目标与实际像素证据决定是否适用及参数；
-[默认阶段顺序](references/stage-sequence.md) 规定完整后期任务的宏观处理域；对应 protocol reference
-提供科学边界、参数化骨架、预期产物和审查要求；冻结的 Siril 1.4.4 手册提供命令语法与语义；
-`command-policy.json` 单独提供执行授权。默认顺序不是 Recipe，协议骨架也不是固定参数流水线，Python
-不生成、选择或拼装 `.ssf`。手册完整随包分发，但只在功能相关、骨架未展开、语法有歧义或参数需要
-确认时读取原文。
-
-## 开始
-
-1. 读取 [CLI 合同](references/cli-contract.md)、[默认阶段顺序](references/stage-sequence.md) 和
-   [协议索引](references/protocol-index.md)。
-2. 执行任务由 `init` 自动完整验证并在 session 冻结一次离线手册 Bundle，不要在此前手动重复验证。
-   只有纯知识查询、没有 session 的任务才显式执行：
-
-   ```bash
-   python3 -B /abs/starun-siril/scripts/query_siril_manual.py --verify-bundle
-   ```
-
-3. 从本文件所在目录解析 `scripts/deep_sky_siril.py`，始终使用绝对路径。
-4. 探测运行时：
-
-   ```bash
-   python3 /abs/starun-siril/scripts/deep_sky_siril.py probe
-   ```
-
-5. 创建空 session；此步自动验证并冻结 Bundle。已知线性状态必须附具体证据；扩展名或直方图外观不是证据：
-
-   ```bash
-   python3 /abs/starun-siril/scripts/deep_sky_siril.py init /abs/master.fit \
-     --session /abs/session --input-state linear \
-     --state-evidence "user supplied a linear stacked master" \
-     --channel-mode unknown --target-name M81 --target-type galaxy \
-     --container-validation siril
-   ```
-
-`--container-validation siril` 是默认模式：每个 FITS/XISF 科学产物都必须由新的 Siril 进程重新打开并
-取得有限统计。高保证场景使用 `strict`，在 Siril 重开之外再执行标准库全容器检查并核对格式与几何。
-该模式由 `init` 冻结，后续 `run` 不可覆盖。
-
-`init` 将 fail-closed 日志诊断与默认离线网络策略冻结进 session。`--offline` 进一步禁止显式远程 Gaia；
-不传该参数也不会让其他协议联网。只有用户明确要求保留阶段内容时传 `--keep-intermediates`。
-
-## Agent 循环
-
-1. 按 [默认阶段顺序](references/stage-sequence.md) 从 Stage 1 开始评估。使用 `input.inspect` 生成输入
-   direct/autostretch 预览，并实际打开预览。输入状态或通道角色没有可靠来源时保持 `unknown`，不得从
-   文件名、色调或设备型号补推；unknown 在本阶段后停止，获得可靠状态证据后创建新 session。
-2. 按 Stage 2 → 10 依次评估当前阶段；没有图像证据、用户目标或运行能力支持时明确跳过。一个阶段含
-   多个协议时也必须逐个执行，不能把它们合并进同一 SSF，也不能在审查前进入下一协议。
-3. 打开协议原文，从参数化骨架生成一份 `scripts/NNN-name.ssf`。session 已冻结 Bundle 验证且逐字采用
-   完整骨架时，不机械地逐命令重复查询；骨架未展开的变体、语法或参数歧义、运行结果与预期矛盾时，按
-   [手册查询协议](references/manual-query.md) 查询并保存原始 command/read envelope。
-4. 为每份交给 `run`（包括 `--validate-only`）的 SSF 创建同目录、同 stem 的
-   `scripts/NNN-name.provenance.json`，遵循
-   [SSF provenance Schema](references/ssf-provenance.schema.json)。它必须绑定脚本哈希、唯一 primary protocol
-   reference、policy 哈希、实际手册查询证据和参数选择理由；没有查询时明确写 `manual_lookup.status=not_needed`
-   及原因。不同协议不得合并到同一脚本。
-5. 调用 `run`，显式传入协议、脚本、当前父源和每个预期产物：
-
-   ```bash
-   python3 /abs/starun-siril/scripts/deep_sky_siril.py run \
-     --session /abs/session --protocol restoration.denoise \
-     --script /abs/session/scripts/055-denoise.ssf \
-     --source /abs/session/artifacts/050-deconvolve.fit \
-     --primary-output /abs/session/artifacts/055-denoise.fit \
-     --expect /abs/session/artifacts/055-denoise.fit \
-     --expect /abs/session/previews/055-denoise.jpg
-   ```
-
-   run receipt 的 `log_diagnostics` 为 failed 时不得审查或采用其产物；保留上一成功且已接受的父源，并记录
-   该阶段限制。退出码 0 和可解码输出不能覆盖未知 Siril error/exception。
-
-6. 打开协议要求的候选、父源预览、差分或报告。按 [质量协议](references/quality.md) 写
-   `reviews/NNN-name.json`；内容符合 [review Schema](references/review.schema.json)，并绑定 run receipt
-   与被检查材料的 SHA-256。
-7. 只有 `verdict=accept` 且全部适用门为 `pass` 时，才把候选作为同阶段下一协议或下一阶段的父源。
-   否则保留父源；不得因为后续阶段需要输入而自动接受当前候选。
-8. 默认只生成一个保守候选；观察到具体、可修正问题时才生成修订候选。
-
-材料打不开、哈希漂移、证据冲突或观察不确定时安全停止，不猜测、不无限重试。
-
-## 交付
-
-读取 [交付协议](references/delivery.md)，用独立 `delivery.render` 脚本生成最终候选，完成最终视觉审查，
-再写 `final-selection.json`：
-
-```bash
-python3 /abs/starun-siril/scripts/deep_sky_siril.py finalize \
-  --session /abs/session --selection /abs/session/final-selection.json
-```
-
-只有 `success|partial_success` 会创建正式的 `outputs/reference.jpg` 和 `outputs/final.jpg`。状态为
-`review_required` 时必须保留并验证候选及审计证据，但不得创建正式输出；`failed` 只记录结构化错误。
-成功提交后默认清理阶段图像；`review_required|failed` 或 `--keep-intermediates` 保留现场。
+不下载或安装工具、模型、插件或完整星表。默认在线，`init --offline` 显式收紧网络；`platesolve/pcc/spcc` 须显式且恰好指定一个 `-catalog=gaia|localgaia`。冻结手册提供语法语义，[command policy](references/command-policy.json) 决定命令授权。
 
 ## 定向模式
 
-用户只要求某项操作时，仅运行对应协议。用户只要求可执行脚本时，仍先 `probe/init` 冻结真实路径，
-生成 `.ssf` 和同 stem provenance 后调用 `run --validate-only`；静态验证不代表 Siril 已执行或图像已验收。用户只询问 Siril
-功能、命令或参数时，使用离线手册检索并读取命中原文，不创建 session、不执行命令。
+按模式读取材料；分别报告静态验证、执行和像素审查。
+
+| 模式 | 边界与入口 |
+|---|---|
+| 纯知识查询 | 读[手册查询协议](references/manual-query.md)，检索并读取命中原文；不 probe、不建 session、不检查或处理图像。 |
+| session 绑定脚本生成 | 按[开始](#开始)冻结真实运行时、输入与路径，已知协议读下表正文，未定时查索引，生成 SSF/provenance 并 `run --validate-only`；不执行 input.inspect 或目标脚本，不承诺便携脚本。 |
+| 定向执行 | 按[开始](#开始)初始化或验证 session，执行并审查 input.inspect（已接受同图检查可复用），随后只执行用户指定且前置满足的协议。 |
+| 完整处理 | 按[开始](#开始)初始化，再依[阶段顺序](references/stage-sequence.md)逐阶段评估；进入阶段时才读对应导引，不一次加载全部阶段。 |
+
+必要父源与上游证据必须真实存在；缺失时说明限制，不虚构执行、审查或擅自补做处理。
+
+## 开始
+
+实际执行与绑定脚本生成先读[解释器与入口](references/cli-contract.md#解释器与入口)、[init](references/cli-contract.md#init)及[session 不变量](references/session-contract.md#不变量)。资源相对本技能目录解析，辅助脚本使用已验证普通 Python 与绝对路径。
+
+核对输入前置证据后 probe/init；init 已验证并冻结 Bundle，不重复手动验证。已有 session 先验证冻结绑定。实际执行中，有效 `input_state` 或 `channel_mode` 为 unknown 时只完成 input.inspect 与审查，停止依赖处理；取得可信声明后按 [confirm-input](references/cli-contract.md#confirm-input)一次补齐未知项，不改初始字段。`channel_map=null` 不等于类型 unknown。
+
+新会话默认 `style=vivid`、`dualband=off`；窄带配色须用户显式选择。用户选择 OSC HOO 时，初始化前先读[配色路线](references/stages/stage-01-input-inspect.md#palette-route-selection)。
+
+`run --source` 传当前已接受科学父源的绝对路径，Stage 1 使用 session 的 `input.path`；SSF 的 load 使用同一路径。`@input` 仅为内部回执标记，不能传作 CLI 路径。
+
+## Agent 循环
+
+实际执行逐协议完成以下循环；脚本生成只写脚本与静态验证，不接受候选。
+
+1. 已知协议直读正文，未定时查索引，按用户目标、冻结上下文与真实科学测量选参，不以摘要代替正文。默认一份保守候选，有具体观察才修订；阶段特例按原文。完整处理逐阶段评估，不以预计收益小省略要求的测量或候选。
+2. 用新编号写单协议 `scripts/NNN-name.ssf` 与同 stem provenance；按协议映射绑定唯一 primary 正文及完整 SHA-256。完整骨架可参数化；语法、变体或结果存疑时按手册查询协议保存真实 command/read evidence。
+3. 按 [run 合同](references/cli-contract.md#run)声明父源、primary output 及全部预期产物。失败产物仅作诊断，不作为科学父源。
+4. 打开要求的父源、候选及局部材料，按[质量协议](references/quality.md#review-receipt)取 review 骨架并记录观察；仅 accept 且适用门全 pass 才采用。数值、摘要与退出码不替代实际像素审查。
+5. 采用后继续已授权工作；拒绝或不确定时保留已接受父源，继续可独立步骤。材料打不开、哈希漂移或来源冲突时停止依赖执行；修订另建编号，不改旧证据。换父源或几何后重新核对 ROI 并测量。
+
+恢复或上下文变化时用[只读 status](references/cli-contract.md#status)查父源、阻塞及剩余额度。review-check 成功后直接使用返回的 continuation，按其模板记录继续或实际停止理由；不重复全量扫描，也不以承诺下一步结束完整处理。
+
+## 多文件串行处理
+
+按用户文件顺序逐个处理，每份独立 session；当前文件完成、失败或待审后再处理下一份。逐份核对状态、约束、父源与 ROI，不跨文件套用参数或审查结论。待审保留证据，不自动 accept；最终逐文件报告状态、路径和限制。
 
 ## 按需读取
 
-- 所有运行先读 [CLI 合同](references/cli-contract.md)、[默认阶段顺序](references/stage-sequence.md) 与
-  [session 合同](references/session-contract.md)。
-- 选择处理步骤时从 [协议索引](references/protocol-index.md) 打开对应协议原文。
-- 审查候选或最终图时读 [质量协议](references/quality.md)。
-- 生成最终交付时读 [交付协议](references/delivery.md)。
-- 处理堆栈 Master 缺失 WCS 或需要从源头单帧/参考帧同步先验时读 [源头 FITS Header 保留协议](references/astrometry-source-preservation.md)。
-- 调试命令、路径、网络或适配器时读 [Siril 安全协议](references/siril-safety.md)。
-- 查询功能、参数或编写不熟悉的 `.ssf` 时读 [手册查询协议](references/manual-query.md)。
+下表直达唯一 primary 正文；未定时读[索引](references/protocol-index.md)。Stage 7 修订、换链及对照共享[三次额度](references/stages/stage-07-stretch.md#v4-attempt-accounting)。
 
-机器合同为 [命令安全策略](references/command-policy.json)、
-[背景样点 Schema](references/background-sample-contract.schema.json)、
-[SSF provenance Schema](references/ssf-provenance.schema.json)、
-[review Schema](references/review.schema.json) 和
-[final-selection Schema](references/final-selection.schema.json)。
+| 协议 | 正文 |
+|---|---|
+| `input.inspect` | [正文](references/stages/stage-01-input-inspect.md) |
+| `geometry.crop-near-black` | [正文](references/stages/stage-02-geometry.md) |
+| `background.subtract` | [正文](references/stages/stage-03-background.md) |
+| `astrometry.solve` / `color.calibrate` | [正文](references/stages/stage-04-astrometry-color.md) |
+| `restoration.denoise` / `restoration.deconvolve` | [正文](references/stages/stage-05-linear-restoration.md) |
+| `stars.separate` | [正文](references/stages/stage-06-stars-separation.md) |
+| `stretch`（形态多阶段，默认逐步反馈） | [正文](references/stages/stage-07-stretch.md) |
+| `structure.local-contrast` / `color.map` | [正文](references/stages/stage-08-starless-enhance.md) |
+| `color.finish` | [正文](references/shared-protocols/color-finish.md) |
+| `stars.recompose`（贡献与轮廓独立评估） | [正文](references/stages/stage-09-stars-recompose.md) |
+| `restoration.denoise-nonlinear` | [正文](references/shared-protocols/denoise-nonlinear.md) |
+| `tone.adjust` | [正文](references/shared-protocols/tone-adjust.md) |
+| `delivery.render` | [正文](references/stages/stage-10-delivery-finishing.md) |
+
+| 当前需要 | 材料 |
+|---|---|
+| 形态与退化 | [目标形态参考](references/target-morphology-review.md)、[排查参考](references/troubleshooting.md)，定位首次出现的阶段 |
+| 缺 WCS 或源头 Header | [源头保留协议](references/astrometry-source-preservation.md)，写新文件后新建 session |
+| 路径、工具或解释器故障 | [安全协议](references/siril-safety.md) |
+| 测量与审查恢复 | [质量协议](references/quality.md)的相应小节 |
+
+## 交付
+
+先读[交付协议](references/delivery.md)，独立执行并审查 delivery.render，再按 [finalize](references/cli-contract.md#finalize)提交 final-selection。仅 success/partial_success 创建正式 reference/final；审查不确定用 review_required。
 
 ## 最终回复
 
-若状态为 `success|partial_success`，展示 `outputs/final.jpg` 的绝对路径。否则明确说明没有正式交付。
-始终报告状态、实际采用的协议、星点状态、限制和中间图像保留情况；只陈述 session、receipts 和产物能
-证明的事实。
+成功时展示 `outputs/final.jpg`、`outputs/final.fit` 绝对路径；否则说明没有正式交付。报告真实状态、采用协议、星点状态、限制与保留情况，依据真实记录提炼说明。
+
+## 历史入口与兼容
+
+<a id="scientific-stage-3-sources"></a>
+<a id="native-stage-4-xisf-inputs"></a>
+<a id="fixed-recomposition-review-materials"></a>
+<a id="dwarf-filter-provenance"></a>
+<a id="protected-background-samples"></a>
+<a id="native-dualband-background-neutralization"></a>
+<a id="assessed-stage-5-restoration"></a>
+<a id="explicit-stage-9-source"></a>
+
+旧入口按上方路由读取，历史 session 按[文档指导版本](references/session-contract.md#文档指导版本)复核冻结证据；回放/finalize 及明确获准的派生诊断沿用原边界，不新增科学处理、不迁移或改写旧证据。

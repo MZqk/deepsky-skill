@@ -14,7 +14,6 @@ from unittest import mock
 
 SKILL = Path(__file__).parents[1]
 SCRIPTS = SKILL / "scripts"
-sys.path.insert(0, str(SCRIPTS))
 
 import query_siril_manual as query  # noqa: E402
 import siril_manual_bundle as bundle  # noqa: E402

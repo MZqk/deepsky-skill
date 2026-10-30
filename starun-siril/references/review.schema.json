@@ -4,12 +4,33 @@
   "description": "Hash-bound visual review of materials produced by one successful Siril run.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "run_id", "run_receipt_sha256", "protocol", "inspected_materials", "verdict", "gates", "notes"],
+  "required": [
+    "schema",
+    "run_id",
+    "run_receipt_sha256",
+    "protocol",
+    "inspected_materials",
+    "verdict",
+    "gates",
+    "notes"
+  ],
   "properties": {
-    "schema": {"const": "starun-siril.review.v1"},
-    "run_id": {"type": "string", "pattern": "^[0-9]{3}-[a-z0-9][a-z0-9-]{0,63}$"},
-    "run_receipt_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "protocol": {"type": "string", "minLength": 3, "maxLength": 80},
+    "schema": {
+      "const": "starun-siril.review.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{3}-[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "run_receipt_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "protocol": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 80
+    },
     "inspected_materials": {
       "type": "array",
       "minItems": 1,
@@ -19,69 +40,1152 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "sha256"],
+        "required": [
+          "path",
+          "sha256"
+        ],
         "properties": {
-          "path": {"type": "string", "minLength": 1, "maxLength": 300, "pattern": ".*\\S.*"},
-          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "pattern": ".*\\S.*"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
         }
       }
     },
-    "verdict": {"enum": ["accept", "reject", "uncertain"]},
+    "verdict": {
+      "enum": [
+        "accept",
+        "reject",
+        "uncertain"
+      ]
+    },
     "gates": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["structure", "background", "color", "stars", "geometry"],
+      "required": [
+        "structure",
+        "background",
+        "color",
+        "stars",
+        "geometry"
+      ],
       "properties": {
-        "structure": {"enum": ["pass", "fail", "not_applicable", "uncertain"]},
-        "background": {"enum": ["pass", "fail", "not_applicable", "uncertain"]},
-        "color": {"enum": ["pass", "fail", "not_applicable", "uncertain"]},
-        "stars": {"enum": ["pass", "fail", "not_applicable", "uncertain"]},
-        "geometry": {"enum": ["pass", "fail", "not_applicable", "uncertain"]}
+        "structure": {
+          "enum": [
+            "pass",
+            "fail",
+            "not_applicable",
+            "uncertain"
+          ]
+        },
+        "background": {
+          "enum": [
+            "pass",
+            "fail",
+            "not_applicable",
+            "uncertain"
+          ]
+        },
+        "color": {
+          "enum": [
+            "pass",
+            "fail",
+            "not_applicable",
+            "uncertain"
+          ]
+        },
+        "stars": {
+          "enum": [
+            "pass",
+            "fail",
+            "not_applicable",
+            "uncertain"
+          ]
+        },
+        "geometry": {
+          "enum": [
+            "pass",
+            "fail",
+            "not_applicable",
+            "uncertain"
+          ]
+        }
       }
     },
-    "notes": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": ".*\\S.*"}
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {"verdict": {"const": "accept"}},
-        "required": ["verdict"]
-      },
-      "then": {
-        "properties": {
-          "gates": {
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": ".*\\S.*"
+    },
+    "stretch_assessment": {
+      "type": "object",
+      "description": "Agent-authored structural conclusions; runtime requires this only for marked Stage 7 visibility reports. No automatic visual score.",
+      "additionalProperties": false,
+      "required": [
+        "visibility",
+        "structures",
+        "adoption_reason"
+      ],
+      "properties": {
+        "visibility": {
+          "$ref": "#/$defs/binding"
+        },
+        "structures": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/structure"
+          }
+        },
+        "adoption_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/artifact_assessment"
+        }
+      }
+    },
+    "denoise_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "diagnostics",
+        "noise_benefit",
+        "noise_observation",
+        "structures",
+        "adoption_reason"
+      ],
+      "description": "Required for proposal-bound linear or chroma denoise. Agent conclusions never come from statistics alone.",
+      "properties": {
+        "diagnostics": {
+          "$ref": "#/$defs/binding"
+        },
+        "noise_benefit": {
+          "enum": [
+            "observed",
+            "not_observed",
+            "uncertain"
+          ]
+        },
+        "noise_observation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        },
+        "structures": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "region",
+              "retention",
+              "observation"
+            ],
             "properties": {
-              "structure": {"enum": ["pass", "not_applicable"]},
-              "background": {"enum": ["pass", "not_applicable"]},
-              "color": {"enum": ["pass", "not_applicable"]},
-              "stars": {"enum": ["pass", "not_applicable"]},
-              "geometry": {"enum": ["pass", "not_applicable"]}
+              "region": {
+                "$ref": "#/$defs/region"
+              },
+              "retention": {
+                "enum": [
+                  "retained",
+                  "loss",
+                  "uncertain"
+                ]
+              },
+              "observation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              }
+            }
+          }
+        },
+        "adoption_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        }
+      }
+    },
+    "recomposition_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "diagnostics",
+        "goal_status",
+        "regions",
+        "adoption_reason"
+      ],
+      "description": "Required only for proposal-bound recomposition; the Agent judges actual subject and star quality.",
+      "properties": {
+        "diagnostics": {
+          "$ref": "#/$defs/binding"
+        },
+        "goal_status": {
+          "enum": [
+            "met",
+            "not_met",
+            "uncertain"
+          ]
+        },
+        "regions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "region",
+              "assessment",
+              "observation"
+            ],
+            "properties": {
+              "region": {
+                "$ref": "#/$defs/region"
+              },
+              "assessment": {
+                "enum": [
+                  "acceptable",
+                  "degraded",
+                  "uncertain"
+                ]
+              },
+              "observation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              },
+              "stellar_checks": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "core",
+                  "color",
+                  "halo",
+                  "endpoints"
+                ],
+                "properties": {
+                  "core": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "assessment",
+                      "observation"
+                    ],
+                    "properties": {
+                      "assessment": {
+                        "enum": [
+                          "acceptable",
+                          "degraded",
+                          "uncertain"
+                        ]
+                      },
+                      "observation": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000,
+                        "pattern": ".*\\S.*"
+                      }
+                    }
+                  },
+                  "color": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "assessment",
+                      "observation"
+                    ],
+                    "properties": {
+                      "assessment": {
+                        "enum": [
+                          "acceptable",
+                          "degraded",
+                          "uncertain"
+                        ]
+                      },
+                      "observation": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000,
+                        "pattern": ".*\\S.*"
+                      }
+                    }
+                  },
+                  "halo": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "assessment",
+                      "observation"
+                    ],
+                    "properties": {
+                      "assessment": {
+                        "enum": [
+                          "acceptable",
+                          "degraded",
+                          "uncertain"
+                        ]
+                      },
+                      "observation": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000,
+                        "pattern": ".*\\S.*"
+                      }
+                    }
+                  },
+                  "endpoints": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "assessment",
+                      "observation"
+                    ],
+                    "properties": {
+                      "assessment": {
+                        "enum": [
+                          "acceptable",
+                          "degraded",
+                          "uncertain"
+                        ]
+                      },
+                      "observation": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000,
+                        "pattern": ".*\\S.*"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "adoption_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        },
+        "contribution_assessment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "assessment",
+            "observation"
+          ],
+          "properties": {
+            "assessment": {
+              "enum": [
+                "acceptable",
+                "degraded",
+                "uncertain"
+              ]
+            },
+            "observation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": ".*\\S.*"
+            }
+          }
+        },
+        "contour_assessment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "benefit",
+            "regions",
+            "observation"
+          ],
+          "properties": {
+            "benefit": {
+              "enum": [
+                "observed",
+                "not_observed",
+                "uncertain"
+              ]
+            },
+            "regions": {
+              "type": "array",
+              "uniqueItems": true,
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "observation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": ".*\\S.*"
             }
           }
         }
       }
     },
-    {
-      "if": {
-        "properties": {
-          "protocol": {"const": "delivery.render"},
-          "verdict": {"const": "accept"}
+    "tone_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "diagnostics",
+        "goal_status",
+        "regions",
+        "adoption_reason",
+        "additional_benefit",
+        "benefit_observation"
+      ],
+      "description": "Required for remaining-goal tone proposals; additional benefit and protected regions need actual Agent review.",
+      "properties": {
+        "diagnostics": {
+          "$ref": "#/$defs/binding"
         },
-        "required": ["protocol", "verdict"]
-      },
-      "then": {
-        "properties": {
-          "gates": {
+        "goal_status": {
+          "enum": [
+            "met",
+            "not_met",
+            "uncertain"
+          ]
+        },
+        "regions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "region",
+              "assessment",
+              "observation"
+            ],
             "properties": {
-              "structure": {"const": "pass"},
-              "background": {"const": "pass"},
-              "color": {"const": "pass"},
-              "stars": {"const": "pass"},
-              "geometry": {"const": "pass"}
+              "region": {
+                "$ref": "#/$defs/region"
+              },
+              "assessment": {
+                "enum": [
+                  "acceptable",
+                  "degraded",
+                  "uncertain"
+                ]
+              },
+              "observation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              }
+            }
+          }
+        },
+        "adoption_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        },
+        "additional_benefit": {
+          "enum": [
+            "observed",
+            "not_observed",
+            "uncertain"
+          ]
+        },
+        "benefit_observation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        }
+      }
+    },
+    "color_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "diagnostics",
+        "goal_status",
+        "regions",
+        "adoption_reason",
+        "additional_benefit",
+        "benefit_observation"
+      ],
+      "description": "Actual color benefit, every protected ROI and bound regional intent require assessment",
+      "properties": {
+        "diagnostics": {
+          "$ref": "#/$defs/binding"
+        },
+        "goal_status": {
+          "enum": [
+            "met",
+            "not_met",
+            "uncertain"
+          ]
+        },
+        "regions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "region",
+              "assessment",
+              "observation"
+            ],
+            "properties": {
+              "region": {
+                "$ref": "#/$defs/region"
+              },
+              "assessment": {
+                "enum": [
+                  "acceptable",
+                  "degraded",
+                  "uncertain"
+                ]
+              },
+              "observation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              },
+              "intent": {
+                "enum": [
+                  "enhance",
+                  "preserve"
+                ]
+              }
+            }
+          }
+        },
+        "adoption_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        },
+        "additional_benefit": {
+          "enum": [
+            "observed",
+            "not_observed",
+            "uncertain"
+          ]
+        },
+        "benefit_observation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        }
+      }
+    },
+    "color_protection_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "regions_path",
+        "structures",
+        "regions"
+      ],
+      "properties": {
+        "regions_path": {
+          "type": "string"
+        },
+        "structures": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "diffuse_red",
+            "reflection_blue"
+          ],
+          "properties": {
+            "diffuse_red": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "region_ids",
+                "not_applicable_reason"
+              ],
+              "properties": {
+                "region_ids": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "not_applicable_reason": {
+                  "type": "string",
+                  "maxLength": 2000
+                }
+              }
+            },
+            "reflection_blue": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "region_ids",
+                "not_applicable_reason"
+              ],
+              "properties": {
+                "region_ids": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "not_applicable_reason": {
+                  "type": "string",
+                  "maxLength": 2000
+                }
+              }
+            }
+          }
+        },
+        "regions": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "continuity",
+              "color",
+              "weak_edges",
+              "assessment"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "continuity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              },
+              "color": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              },
+              "weak_edges": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              },
+              "assessment": {
+                "enum": [
+                  "acceptable",
+                  "degraded",
+                  "uncertain"
+                ]
+              }
             }
           }
         }
       }
     }
-  ]
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "accept"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "gates": {
+            "properties": {
+              "structure": {
+                "enum": [
+                  "pass",
+                  "not_applicable"
+                ]
+              },
+              "background": {
+                "enum": [
+                  "pass",
+                  "not_applicable"
+                ]
+              },
+              "color": {
+                "enum": [
+                  "pass",
+                  "not_applicable"
+                ]
+              },
+              "stars": {
+                "enum": [
+                  "pass",
+                  "not_applicable"
+                ]
+              },
+              "geometry": {
+                "enum": [
+                  "pass",
+                  "not_applicable"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "protocol": {
+            "const": "delivery.render"
+          },
+          "verdict": {
+            "const": "accept"
+          }
+        },
+        "required": [
+          "protocol",
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "gates": {
+            "properties": {
+              "structure": {
+                "const": "pass"
+              },
+              "background": {
+                "const": "pass"
+              },
+              "color": {
+                "const": "pass"
+              },
+              "stars": {
+                "const": "pass"
+              },
+              "geometry": {
+                "const": "pass"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "stretch_assessment"
+        ]
+      },
+      "then": {
+        "properties": {
+          "protocol": {
+            "const": "stretch"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "regions",
+        "id"
+      ],
+      "properties": {
+        "regions": {
+          "$ref": "#/$defs/binding"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        }
+      }
+    },
+    "regression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "loss",
+        "core_conflict",
+        "core_region",
+        "evidence",
+        "tradeoff_reason"
+      ],
+      "properties": {
+        "loss": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        },
+        "core_conflict": {
+          "enum": [
+            "demonstrated",
+            "not_demonstrated",
+            "uncertain"
+          ]
+        },
+        "core_region": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/region"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/binding"
+          }
+        },
+        "tradeoff_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "core_conflict": {
+                "const": "demonstrated"
+              }
+            },
+            "required": [
+              "core_conflict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "core_region": {
+                "$ref": "#/$defs/region"
+              },
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "region",
+        "reference_visibility",
+        "detail_effect",
+        "observation",
+        "regression"
+      ],
+      "properties": {
+        "region": {
+          "$ref": "#/$defs/region"
+        },
+        "reference_visibility": {
+          "enum": [
+            "met",
+            "partial",
+            "not_met",
+            "uncertain"
+          ]
+        },
+        "detail_effect": {
+          "enum": [
+            "improved",
+            "unchanged",
+            "regressed",
+            "not_applicable",
+            "uncertain"
+          ]
+        },
+        "observation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": ".*\\S.*"
+        },
+        "regression": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/regression"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detail_controls": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "reference_visibility": {
+                    "enum": [
+                      "partial",
+                      "not_met"
+                    ]
+                  }
+                },
+                "required": [
+                  "reference_visibility"
+                ]
+              },
+              {
+                "properties": {
+                  "detail_effect": {
+                    "const": "regressed"
+                  }
+                },
+                "required": [
+                  "detail_effect"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "regression": {
+                "$ref": "#/$defs/regression"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "regression": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "For roi_reference_assessment_v2, cite the actual comparison panel and named enhancement controls. Reference visibility uses the accepted Stage 6 or linear reference; detail effect uses only detail_controls.",
+      "dependentRequired": {
+        "detail_controls": [
+          "evidence"
+        ],
+        "evidence": [
+          "detail_controls"
+        ]
+      }
+    },
+    "artifact_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "focus",
+        "report",
+        "areas",
+        "none_reason"
+      ],
+      "properties": {
+        "focus": {
+          "$ref": "#/$defs/binding"
+        },
+        "report": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/binding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "none_reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": ".*\\S.*"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "areas": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "risks",
+              "baseline",
+              "change",
+              "observation",
+              "evidence",
+              "decision_reason"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+              },
+              "risks": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "stellar_residual",
+                    "separation_patch",
+                    "halo",
+                    "ringing",
+                    "flat_core",
+                    "color_fringe",
+                    "gray_haze",
+                    "structure_loss",
+                    "texture_break",
+                    "hdr_transition"
+                  ]
+                }
+              },
+              "baseline": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "uncertain"
+                ]
+              },
+              "change": {
+                "enum": [
+                  "not_seen",
+                  "improved",
+                  "unchanged",
+                  "new_or_worse",
+                  "uncertain"
+                ]
+              },
+              "observation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              },
+              "decision_reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": ".*\\S.*"
+              },
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/binding"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

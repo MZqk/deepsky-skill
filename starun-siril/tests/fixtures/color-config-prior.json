@@ -1,0 +1,102 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "morphology_default_stretch_flow_v26",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2",
+    "local_contrast_hdr": "wavelet_only_v1",
+    "subject_enhancement": "benefit_first_v1",
+    "linear_denoise": "agent_proposal_v1",
+    "recomposition_parameters": "agent_proposal_v1",
+    "tone_adjustment": "remaining_goal_v1",
+    "color_evaluation": "unmasked_first_v1"
+  },
+  "helper": {
+    "sha256": "376cb00432e175424a9fa5a75e5b9b75e637581fb2151d503f9df09dd685db55",
+    "size": 52105
+  },
+  "profiles": {
+    "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+    "size": 3844
+  },
+  "implementation": {
+    "deep_sky_siril_stretch_v2.py": {
+      "sha256": "78c9239e25c283f4d1218f8961d07a3e3b6cc843fb354f4ac7a4abc425b68f30",
+      "size": 86631
+    },
+    "deep_sky_siril_stretch.py": {
+      "sha256": "cc750a8143d9c023e00a0270b5927eadb6651d88159b95ed31ccc61c75ac4256",
+      "size": 62787
+    },
+    "deep_sky_siril_stretch_profiles.py": {
+      "sha256": "0438905bdc4cb60a2de25c4886ab8df922f3a5b7b34aa2a5bd08f4a8a3eeb2f8",
+      "size": 21428
+    },
+    "deep_sky_siril_local_contrast.py": {
+      "sha256": "9b0540240ef697ca6d62cb8a73f74002809465187e83c14dda673792e625c8fa",
+      "size": 53758
+    },
+    "deep_sky_siril_processing.py": {
+      "sha256": "cd838b8c5b21eecd4d02921f58f6fbc9049300d30e439d244433e39b46c885aa",
+      "size": 143157
+    },
+    "deep_sky_siril_hdr.py": {
+      "sha256": "cb04cb794abe750fa02deb5d6e7b9216400d6573b87fba969e82d195bc5eefe6",
+      "size": 18934
+    },
+    "deep_sky_siril_dualband.py": {
+      "sha256": "a6b566b4c2eafc74304291acbb5846ef19becafdfcf7574bb4ef5903219c09a8",
+      "size": 42748
+    },
+    "deep_sky_siril_core.py": {
+      "sha256": "cd37e16d927e373985c10fbae4df4c7c9cd6cf67ec8098f8e89b05feb5149af8",
+      "size": 143092
+    },
+    "deep_sky_siril_visibility.py": {
+      "sha256": "2f45e019b39d42a5719d2dff0d6598d2dd21e84206e9c7443cb823bc01ffd052",
+      "size": 31804
+    },
+    "deep_sky_siril_denoise.py": {
+      "sha256": "2f683ed60b2eb9e994cbf21559c366dbf1694dda7b2e0454f294b185a07c73a8",
+      "size": 27422
+    },
+    "deep_sky_siril_tone.py": {
+      "sha256": "ff88711dbb03c4517150fdd88bc9c702ab0abd6acf77b39847a7c053fc0fb622",
+      "size": 13176
+    },
+    "deep_sky_siril_color.py": {
+      "sha256": "376cb00432e175424a9fa5a75e5b9b75e637581fb2151d503f9df09dd685db55",
+      "size": 52105
+    },
+    "deep_sky_star_reduction.py": {
+      "sha256": "5d0efd3786d7f929bf35415ebbb529aaa2d333498e92da229d10ff53d24bc626",
+      "size": 49759
+    }
+  },
+  "references": {
+    "references/shared-protocols/color-finish.md": {
+      "sha256": "d6c67bc1bc24c2d659311b77286e58fe89a614049bc18faf1d5272661354ce5b",
+      "size": 17897
+    }
+  }
+}

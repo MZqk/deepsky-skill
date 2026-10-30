@@ -1,0 +1,80 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "masked_dual_v1",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "prepared_stage4_flow_v17",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "texture_hf_review_v1"
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "5eeef9d84fe014361eb5f01f9fbe75cb3f33b1a1ce9af52708d69e887b1cc9fd",
+      "size": 15403
+    },
+    "CHANGELOG.md": {
+      "sha256": "32c498a4bde2bfa7f661f35f0f2c788bf8396158d2d7d80cf8fa43eda2096cf9",
+      "size": 25703
+    },
+    "RELEASING.md": {
+      "sha256": "c431f93c34a465387663968ed2e5344da29b4ac0f9619a960340b79d4ce4b8c9",
+      "size": 15603
+    },
+    "agents/openai.yaml": {
+      "sha256": "179ed096389a5c36003494c7cee9d11643b873cf342e1403fc38ee84e36804d5",
+      "size": 345
+    },
+    "references/stages/stage-04-astrometry-color.md": {
+      "sha256": "812082b3db4836400a0cf5a63954bc77f494e57c20f95333a64e3f71ad48a912",
+      "size": 35302
+    },
+    "references/stages/stage-05-linear-restoration.md": {
+      "sha256": "a1bafe7716423d9f6ca24b95568f8d0e741a5c7659485836e1b8298a28d412ab",
+      "size": 19634
+    },
+    "references/stages/stage-06-stars-separation.md": {
+      "sha256": "f6a1392de8ece375edbd0e5f7ac34862400c734ef7643a0332ad881c4ddedec9",
+      "size": 17550
+    },
+    "references/quality.md": {
+      "sha256": "d39b7d259a5592257d7e33f25ed39e0787d49ceb6f35e2db5874b9fba1d1e1c3",
+      "size": 24973
+    },
+    "references/stage-sequence.md": {
+      "sha256": "cd534cc4769cb6fd6b8711da46edc5f222b64c989e2bd0adf2214e58550f7a08",
+      "size": 9453
+    },
+    "references/session-contract.md": {
+      "sha256": "7384c122e5d9a88528e747944c2244aae2a0d6b84dd930f7010e7ae844e76530",
+      "size": 29772
+    },
+    "references/cli-contract.md": {
+      "sha256": "ba307044768ea142e374a92496e7caa312a03b1f4a942ba4958ce5e4fb541f0d",
+      "size": 48761
+    },
+    "references/delivery.md": {
+      "sha256": "30e0e204df331f06d8478d478e91d2f17e8a96f822213b17585f4120fad5006e",
+      "size": 7453
+    },
+    "references/starnet-linear-source.json": {
+      "sha256": "142948ab4f73ad4c6e2a605c1859abd740e78d36b0c65e0899fe57912fa7b9c7",
+      "size": 1099
+    }
+  },
+  "adapter": {
+    "sha256": "d37a0e68f231599eeb89b24e7d431dbbd18a0a28fc812edb9c84a4d4a37e4240",
+    "size": 13148
+  }
+}

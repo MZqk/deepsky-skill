@@ -1,0 +1,323 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "agent_proposed_stretch_flow_v25",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2"
+  },
+  "implementation": {
+    "deep_sky_siril_stretch_v2.py": {
+      "sha256": "b5172bb15193eec23a35a0602bf8656b270113ca9474ffe81d91b84479ab9797",
+      "size": 56027
+    },
+    "deep_sky_siril_stretch.py": {
+      "sha256": "04258dcf367e55ba3f391d3c8228d0defcea63b61c9dc4ce77bade614164a3eb",
+      "size": 62783
+    },
+    "deep_sky_siril_stretch_profiles.py": {
+      "sha256": "0438905bdc4cb60a2de25c4886ab8df922f3a5b7b34aa2a5bd08f4a8a3eeb2f8",
+      "size": 21428
+    },
+    "deep_sky_siril_local_contrast.py": {
+      "sha256": "e60f3d6b99f8de065412068444e9f1be482de7584acd1411708102c0c77bebd2",
+      "size": 47215
+    },
+    "deep_sky_siril_processing.py": {
+      "sha256": "c915f8e34b685586d621ca1a60aef355b0be9cf5ebd1ffa416c212b39594eeec",
+      "size": 136713
+    },
+    "deep_sky_siril_hdr.py": {
+      "sha256": "cb04cb794abe750fa02deb5d6e7b9216400d6573b87fba969e82d195bc5eefe6",
+      "size": 18934
+    },
+    "deep_sky_siril_dualband.py": {
+      "sha256": "db7278f5a5ada8ca4823075be562f8412374ab549104ee95e5b51560830c0d40",
+      "size": 30116
+    },
+    "deep_sky_siril_core.py": {
+      "sha256": "1b872dc8ded3e875845dd2c3428fd6a157dcc8e71f91e4d89eee108e3b377d29",
+      "size": 138623
+    },
+    "deep_sky_siril_visibility.py": {
+      "sha256": "2b1e9fb3f12e1b1de7a675aef398af44ea8502f9df1714585563b97d35644ceb",
+      "size": 20080
+    }
+  },
+  "profiles": {
+    "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+    "size": 3844
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "a29dbc3f6029f4d2efd6693b3366d60cd9ec99304373ed33d6341c89bc25d702",
+      "size": 22234
+    },
+    "CHANGELOG.md": {
+      "sha256": "6f93d70f55955de6e431df2240ff5641389c64adaf4a8cf1612a232d745589bc",
+      "size": 34619
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "a3e4bc2b43857df466bff4ec4fd1068376d46e4e34c24e2193a551b564dfbb87",
+      "size": 67689
+    },
+    "references/quality.md": {
+      "sha256": "cb9783fbc5a99e09c3346dcd1077d89227aab8db1c313d684ebe30240173e6c5",
+      "size": 30505
+    },
+    "references/cli-contract.md": {
+      "sha256": "e22c2a1f6ac61293819c6c39f560edcfe593246086bf31a6ea989663c84ed0bf",
+      "size": 53374
+    },
+    "references/session-contract.md": {
+      "sha256": "d3bc4f7d120ed0983ee2b8bf3e49337bc2b328680d7c158f478d2a8860d2934c",
+      "size": 36558
+    },
+    "references/delivery.md": {
+      "sha256": "62abe06ba0ff642930b51a0792e22dfa1e9a952368aa1e2b8c741bb3ec547511",
+      "size": 11252
+    },
+    "references/review.schema.json": {
+      "sha256": "2a08822eec652dfdb83adfb5a7fb3a1781d9955c9304c80e3401b98c0528b846",
+      "size": 3105
+    }
+  },
+  "review_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "starun-siril.review.v1",
+    "description": "Hash-bound visual review of materials produced by one successful Siril run.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema",
+      "run_id",
+      "run_receipt_sha256",
+      "protocol",
+      "inspected_materials",
+      "verdict",
+      "gates",
+      "notes"
+    ],
+    "properties": {
+      "schema": {
+        "const": "starun-siril.review.v1"
+      },
+      "run_id": {
+        "type": "string",
+        "pattern": "^[0-9]{3}-[a-z0-9][a-z0-9-]{0,63}$"
+      },
+      "run_receipt_sha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "protocol": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 80
+      },
+      "inspected_materials": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "uniqueItems": true,
+        "description": "Material paths must also be unique; runtime enforces uniqueness by path.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "pattern": ".*\\S.*"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      },
+      "verdict": {
+        "enum": [
+          "accept",
+          "reject",
+          "uncertain"
+        ]
+      },
+      "gates": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "structure",
+          "background",
+          "color",
+          "stars",
+          "geometry"
+        ],
+        "properties": {
+          "structure": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_applicable",
+              "uncertain"
+            ]
+          },
+          "background": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_applicable",
+              "uncertain"
+            ]
+          },
+          "color": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_applicable",
+              "uncertain"
+            ]
+          },
+          "stars": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_applicable",
+              "uncertain"
+            ]
+          },
+          "geometry": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_applicable",
+              "uncertain"
+            ]
+          }
+        }
+      },
+      "notes": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "pattern": ".*\\S.*"
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "verdict": {
+              "const": "accept"
+            }
+          },
+          "required": [
+            "verdict"
+          ]
+        },
+        "then": {
+          "properties": {
+            "gates": {
+              "properties": {
+                "structure": {
+                  "enum": [
+                    "pass",
+                    "not_applicable"
+                  ]
+                },
+                "background": {
+                  "enum": [
+                    "pass",
+                    "not_applicable"
+                  ]
+                },
+                "color": {
+                  "enum": [
+                    "pass",
+                    "not_applicable"
+                  ]
+                },
+                "stars": {
+                  "enum": [
+                    "pass",
+                    "not_applicable"
+                  ]
+                },
+                "geometry": {
+                  "enum": [
+                    "pass",
+                    "not_applicable"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "protocol": {
+              "const": "delivery.render"
+            },
+            "verdict": {
+              "const": "accept"
+            }
+          },
+          "required": [
+            "protocol",
+            "verdict"
+          ]
+        },
+        "then": {
+          "properties": {
+            "gates": {
+              "properties": {
+                "structure": {
+                  "const": "pass"
+                },
+                "background": {
+                  "const": "pass"
+                },
+                "color": {
+                  "const": "pass"
+                },
+                "stars": {
+                  "const": "pass"
+                },
+                "geometry": {
+                  "const": "pass"
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

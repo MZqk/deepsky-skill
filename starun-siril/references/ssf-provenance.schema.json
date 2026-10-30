@@ -16,7 +16,7 @@
       "minItems": 1,
       "maxItems": 32,
       "uniqueItems": true,
-      "description": "Paths must also be unique. Exactly one primary item must name the protocol document; runtime enforces these cross-field constraints.",
+      "description": "Paths must also be unique. Exactly one primary item must name the first stage mapped to the protocol, and additional mapped stages must be bound as supporting. SHA-256 binds the complete file; runtime enforces these cross-field constraints.",
       "items": {"$ref": "#/$defs/referenceBinding"}
     },
     "command_policy": {"$ref": "#/$defs/hashBinding"},

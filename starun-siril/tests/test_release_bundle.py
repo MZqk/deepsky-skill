@@ -20,7 +20,7 @@ SUBPROCESS_ENV = {
 
 
 def _build_release(tmp_path: Path) -> tuple[Path, dict[str, object]]:
-    archive = tmp_path / "starun-siril-0.2.0.zip"
+    archive = tmp_path / "starun-siril-0.3.3.zip"
     completed = subprocess.run(
         [sys.executable, str(PACKAGER), "--output", str(archive)],
         cwd=tmp_path,
@@ -40,7 +40,7 @@ def test_release_bundle_has_exact_runtime_inventory(tmp_path: Path) -> None:
     archive, report = _build_release(tmp_path)
 
     assert report["schema"] == "starun-siril.release-receipt/v2"
-    assert report["skill"] == {"slug": "starun-siril", "version": "0.2.0"}
+    assert report["skill"] == {"slug": "starun-siril", "version": "0.3.3"}
     assert report["publishable"] is False
     assert report["components"][0]["id"] == "siril-manual"
     assert report["archive"]["inventory"] == [item["path"] for item in report["files"]]
@@ -55,6 +55,8 @@ def test_release_bundle_has_exact_runtime_inventory(tmp_path: Path) -> None:
     assert not any("__pycache__" in name or name.endswith(".pyc") for name in names)
     assert "references/ssf-provenance.schema.json" in names
     assert "references/stage-sequence.md" in names
+    assert "references/star-contour-history.json" in names
+    assert not any(name.startswith("references/protocols/") for name in names)
     assert provenance_schema["$id"] == "starun-siril.ssf-provenance.v1"
     assert "references/tool-install.schema.json" not in names
     assert "references/tool-installation.md" not in names
@@ -74,17 +76,47 @@ def test_release_bundle_has_exact_runtime_inventory(tmp_path: Path) -> None:
     scripts = {Path(name).name for name in names if name.startswith("scripts/")}
     assert scripts == {
         "deep_sky_siril.py",
+        "deep_sky_siril_resume.py",
         "deep_sky_siril_artifacts.py",
         "deep_sky_siril_contract.py",
+        "deep_sky_siril_background.py",
         "deep_sky_siril_core.py",
+        "deep_sky_siril_geometry.py",
         "deep_sky_siril_session.py",
+        "deep_sky_siril_stretch.py",
+        "deep_sky_siril_visibility.py",
+        "deep_sky_siril_stretch_v2.py",
+        "deep_sky_siril_stretch_trials.py",
+        "deep_sky_siril_stretch_preflight.py",
+        "deep_sky_siril_stretch_stepwise.py",
+        "deep_sky_siril_artifact_focus.py",
+        "deep_sky_siril_display_scale.py",
+        "deep_sky_siril_morphology.py",
+        "deep_sky_siril_stretch_profiles.py",
+        "deep_sky_star_reduction.py",
+        "filter_metadata.py",
         "deep_sky_siril_tooling.py",
         "deep_sky_siril_validation.py",
         "query_siril_manual.py",
         "siril_background_samples.py",
+        "siril_background_samples_scientific.py",
+        "siril_psf_samples.py",
+        "deep_sky_siril_psf.py",
+        "siril_starnet.py",
+        "siril_starnet_linear.py",
+        "siril_deepsnr.py",
         "siril_auto_samples.py",
         "deep_sky_siril_metrics.py",
         "deep_sky_siril_processing.py",
+        "deep_sky_siril_color.py",
+        "deep_sky_siril_subject_mask.py",
+        "deep_sky_siril_chroma.py",
+        "deep_sky_siril_dualband.py",
+        "deep_sky_siril_denoise.py",
+        "deep_sky_siril_tone.py",
+        "deep_sky_siril_local_contrast.py",
+        "deep_sky_siril_hdr.py",
+        "deep_sky_siril_neutral.py",
         "siril_manual_bundle.py",
         "sync_fits_header.py",
     }
@@ -162,7 +194,13 @@ def test_released_runtime_is_portable_and_supports_strict_static_validation(
     fake_siril.chmod(0o755)
     runtime_env = {**SUBPROCESS_ENV, "DEEP_SKY_SIRIL_BIN": str(fake_siril)}
     source = tmp_path / "master.fit"
-    source.write_bytes(b"release portability fixture")
+    cards = (
+        "SIMPLE  =                    T", "BITPIX  =                   16",
+        "NAXIS   =                    2", "NAXIS1  =                   12",
+        "NAXIS2  =                    8", "END",
+    )
+    header = "".join(card.ljust(80) for card in cards).ljust(2880).encode("ascii")
+    source.write_bytes(header + bytes(2880))
     session = tmp_path / "session"
     initialized = subprocess.run(
         [
@@ -176,7 +214,7 @@ def test_released_runtime_is_portable_and_supports_strict_static_validation(
             "--input-state",
             "linear",
             "--state-evidence",
-            "release bundle static-validation fixture",
+            "user confirmed input_state=linear; release bundle static-validation fixture",
             "--channel-mode",
             "mono",
             "--container-validation",
@@ -191,6 +229,7 @@ def test_released_runtime_is_portable_and_supports_strict_static_validation(
     )
     initialized_payload = json.loads(initialized.stdout)
     assert initialized_payload["contract_version"] == "1"
+    assert initialized_payload["execution_policy"]["guidance"] == "evidence_bound_stretch_flow_v29"
     assert initialized_payload["context"]["container_validation"] == "strict"
     assert initialized_payload["knowledge"]["manual"]["version"] == "1.4.4"
     assert initialized_payload["knowledge"]["bundle_evidence"]["path"] == (
@@ -216,7 +255,7 @@ def test_released_runtime_is_portable_and_supports_strict_static_validation(
         + "\n",
         encoding="utf-8",
     )
-    protocol_reference = unpacked / "references" / "protocols" / "input-inspect.md"
+    stage_reference = unpacked / "references/stages/stage-01-input-inspect.md"
     command_policy = unpacked / "references" / "command-policy.json"
     provenance = script.with_suffix(".provenance.json")
     provenance.write_text(
@@ -232,10 +271,10 @@ def test_released_runtime_is_portable_and_supports_strict_static_validation(
                 },
                 "references": [
                     {
-                        "path": "references/protocols/input-inspect.md",
-                        "sha256": _sha256(protocol_reference),
+                        "path": "references/stages/stage-01-input-inspect.md",
+                        "sha256": _sha256(stage_reference),
                         "role": "primary",
-                    }
+                    },
                 ],
                 "command_policy": {
                     "path": "references/command-policy.json",

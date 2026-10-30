@@ -14,11 +14,9 @@ import unittest
 import numpy as np
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-
 from deep_sky_siril_artifacts import read_fits_header, read_fits_pixels
 import deep_sky_siril_processing as native
+import sync_fits_header as header_cli
 from deep_sky_siril_processing import complete_wcs
 from sync_fits_header import (
     check_complete_wcs,
@@ -26,6 +24,12 @@ from sync_fits_header import (
     sync_fits_header,
     format_fits_card,
     FitsHeaderReader,
+    wcs_pix2world,
+    wcs_world2pix,
+    wcs_round_trip_check,
+    wcs_calc_footprint,
+    evaluate_framing,
+    generate_troubleshooting_hints,
 )
 
 
@@ -161,6 +165,7 @@ class TestSyncFitsHeader(unittest.TestCase):
 
         tgt_reader = FitsHeaderReader(target)
         initial_hash = tgt_reader.get_data_sha256()
+        original_target = target.read_bytes()
 
         # Synchronize
         res = sync_fits_header(
@@ -173,6 +178,8 @@ class TestSyncFitsHeader(unittest.TestCase):
         )
 
         self.assertEqual(res["status"], "success")
+        self.assertEqual(target.read_bytes(), original_target)
+        self.assertFalse(target.with_name(f"{target.name}.bak").exists())
         self.assertTrue(res["complete_wcs"])
         self.assertEqual(res["stage4_readiness"], "preserved_existing_solution")
         self.assertTrue(res["pixel_integrity_verified"])
@@ -311,6 +318,165 @@ class TestSyncFitsHeader(unittest.TestCase):
         self.assertNotIn("CRVAL1", h_priors)
         self.assertIn("OBJECT", h_priors)
         self.assertIn("FOCALLEN", h_priors)
+
+    def test_wcs_round_trip_closure_tan(self):
+        header = {
+            "CRPIX1": 500.0,
+            "CRPIX2": 500.0,
+            "CRVAL1": 83.633,  # RA near M1
+            "CRVAL2": 22.014,  # Dec near M1
+            "CTYPE1": "RA---TAN",
+            "CTYPE2": "DEC--TAN",
+            "CD1_1": -0.0005,
+            "CD1_2": 0.0,
+            "CD2_1": 0.0,
+            "CD2_2": 0.0005,
+        }
+        # Pix -> World -> Pix at center and off-center
+        ra, dec = wcs_pix2world(header, 500.0, 500.0)
+        self.assertAlmostEqual(ra, 83.633, places=5)
+        self.assertAlmostEqual(dec, 22.014, places=5)
+        x_rec, y_rec = wcs_world2pix(header, ra, dec)
+        self.assertAlmostEqual(x_rec, 500.0, places=6)
+        self.assertAlmostEqual(y_rec, 500.0, places=6)
+
+        # Full round trip check on 1000x1000 frame
+        res = wcs_round_trip_check(header, 1000, 1000)
+        self.assertTrue(res["verified"])
+        self.assertLess(res["max_closure_error_px"], 1e-6)
+        self.assertEqual(res["sample_points_count"], 5)
+
+    def test_wcs_round_trip_closure_sip(self):
+        # Header with SIP forward distortion
+        header = {
+            "CRPIX1": 256.0,
+            "CRPIX2": 256.0,
+            "CRVAL1": 150.0,
+            "CRVAL2": 30.0,
+            "CTYPE1": "RA---TAN-SIP",
+            "CTYPE2": "DEC--TAN-SIP",
+            "A_ORDER": 2,
+            "B_ORDER": 2,
+            "A_2_0": 1e-6,
+            "A_0_2": -1e-6,
+            "A_1_1": 5e-7,
+            "B_2_0": -5e-7,
+            "B_0_2": 1e-6,
+            "B_1_1": 1e-6,
+            "CD1_1": -0.0008,
+            "CD1_2": 0.0,
+            "CD2_1": 0.0,
+            "CD2_2": 0.0008,
+        }
+        res = wcs_round_trip_check(header, 512, 512, tolerance_px=1e-4)
+        self.assertTrue(res["verified"])
+        self.assertLess(res["max_closure_error_px"], 1e-5)
+
+    def test_wcs_sky_footprint_and_position_angle(self):
+        header = {
+            "CRPIX1": 512.0,
+            "CRPIX2": 512.0,
+            "CRVAL1": 10.0,
+            "CRVAL2": 20.0,
+            "CTYPE1": "RA---TAN",
+            "CTYPE2": "DEC--TAN",
+            "CD1_1": -0.001,
+            "CD1_2": 0.0,
+            "CD2_1": 0.0,
+            "CD2_2": 0.001,
+        }
+        fp = wcs_calc_footprint(header, 1024, 1024)
+        self.assertIsNotNone(fp)
+        self.assertEqual(len(fp["corners"]), 4)
+        # Bounding box must enclose CRVAL
+        bbox = fp["bounding_box"]
+        self.assertLess(bbox["ra_min_deg"], 10.0)
+        self.assertGreater(bbox["ra_max_deg"], 10.0)
+        self.assertLess(bbox["dec_min_deg"], 20.0)
+        self.assertGreater(bbox["dec_max_deg"], 20.0)
+        # Position angle should be close to 0 deg (North up)
+        self.assertAlmostEqual(fp["position_angle_deg"], 0.0, places=1)
+
+    def test_framing_evaluation(self):
+        # 120 arcmin object in 60'x40' FOV -> fills_frame
+        f1 = evaluate_framing(target_size_arcmin=120.0, fov_w_arcmin=60.0, fov_h_arcmin=40.0)
+        self.assertIsNotNone(f1)
+        self.assertEqual(f1["framing_category"], "fills_frame")
+        self.assertGreater(f1["framing_ratio"], 0.85)
+
+        # 20 arcmin object in 60'x40' FOV -> balanced
+        f2 = evaluate_framing(target_size_arcmin=20.0, fov_w_arcmin=60.0, fov_h_arcmin=40.0)
+        self.assertEqual(f2["framing_category"], "balanced")
+
+        # 5 arcmin object in 60'x40' FOV -> wide_field
+        f3 = evaluate_framing(target_size_arcmin=5.0, fov_w_arcmin=60.0, fov_h_arcmin=40.0)
+        self.assertEqual(f3["framing_category"], "wide_field")
+
+        # 1 arcmin object in 60'x40' FOV -> tiny
+        f4 = evaluate_framing(target_size_arcmin=1.0, fov_w_arcmin=60.0, fov_h_arcmin=40.0)
+        self.assertEqual(f4["framing_category"], "tiny")
+
+    def test_troubleshooting_hints_and_cli_inspect(self):
+        # Has WCS
+        hints_ok = generate_troubleshooting_hints(has_wcs=True, stage4_readiness="preserved_existing_solution")
+        self.assertTrue(hints_ok)
+
+        # Missing WCS, but reference frame matches
+        ref_comp = {"reference_complete_wcs": True, "geometry_match": True}
+        hints_sync = generate_troubleshooting_hints(has_wcs=False, stage4_readiness="missing_astrometric_evidence", ref_comp=ref_comp)
+        self.assertTrue(any("sync_fits_header.py sync" in h for h in hints_sync))
+
+        # Inspect on a real FITS with target-size-arcmin
+        cards = [
+            ("CTYPE1", "RA---TAN"),
+            ("CTYPE2", "DEC--TAN"),
+            ("CRPIX1", 32.0),
+            ("CRPIX2", 32.0),
+            ("CRVAL1", 98.3),
+            ("CRVAL2", 4.7),
+            ("CD1_1", -0.001),
+            ("CD1_2", 0.0),
+            ("CD2_1", 0.0),
+            ("CD2_2", 0.001),
+        ]
+        p_fit = self.tmp_path / "inspect_test.fit"
+        write_test_fits(p_fit, np.zeros((64, 64), dtype=np.float32), cards)
+
+        res = inspect_fits(p_fit, target_size_arcmin=3.0)
+        self.assertTrue(res["complete_wcs"])
+        self.assertIn("wcs_round_trip", res)
+        self.assertTrue(res["wcs_round_trip"]["verified"])
+        self.assertIn("sky_footprint", res)
+        self.assertIsNotNone(res["sky_footprint"])
+        self.assertIn("framing", res)
+        self.assertIsNotNone(res["framing"])
+        self.assertIn("troubleshooting_hints", res)
+
+
+
+@pytest.mark.parametrize("header_complete", [True, False])
+def test_verify_exit_code_tracks_header_completeness_only(tmp_path, monkeypatch, capsys, header_complete):
+    cards = [
+        ("CTYPE1", "RA---TAN"), ("CTYPE2", "DEC--TAN"),
+        ("CRPIX1", 8.0), ("CRPIX2", 8.0),
+        ("CRVAL1", 98.3), ("CRVAL2", 4.7),
+        ("CD1_1", -0.001), ("CD1_2", 0.0),
+        ("CD2_1", 0.0), ("CD2_2", 0.001),
+    ]
+    if not header_complete:
+        cards = [(key, value) for key, value in cards if key != "CTYPE2"]
+    path = tmp_path / "verify.fit"
+    write_test_fits(path, np.zeros((16, 16), dtype=np.float32), cards)
+    diagnostic = {"verified": False, "status": "failed", "max_closure_error_px": 0.25}
+    monkeypatch.setattr(header_cli, "wcs_round_trip_check", lambda *_args: diagnostic)
+
+    code = header_cli.main(["verify", str(path), "--json"])
+    result = json.loads(capsys.readouterr().out)
+
+    assert code == (0 if header_complete else 1)
+    assert result["complete_wcs"] is header_complete
+    assert result["wcs_round_trip"] == (diagnostic if header_complete else None)
+    assert result["stage4_status"] == ("preserved_existing_solution" if header_complete else "requires_platesolve")
 
 
 if __name__ == "__main__":

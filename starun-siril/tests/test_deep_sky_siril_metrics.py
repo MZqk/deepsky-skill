@@ -3,12 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import struct
-import sys
 import tempfile
 import unittest
-
-SKILL_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 
 import deep_sky_siril_metrics as metrics_mod  # noqa: E402
 

@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 from typing import Any, Sequence
 
 import deep_sky_siril_artifacts as artifacts
@@ -22,6 +23,7 @@ import deep_sky_siril_tooling as tooling
 import deep_sky_siril_validation as validation_ops
 from deep_sky_siril_contract import (
     CONTRACT_VERSION,
+    PAIRED_DELIVERY_POLICIES,
     DISPLAY_IMAGE_SUFFIXES,
     HASH_PATTERN,
     IMAGE_SUFFIXES,
@@ -33,11 +35,11 @@ from deep_sky_siril_contract import (
     _fsync_directory,
     atomic_write_json,
     atomic_write_text,
+    canonical_json,
     fingerprint,
     fingerprint_matches,
     load_json,
     relative_session_path,
-    resource_fingerprint_matches,
     session_path,
     sha256_file,
     stable_hash,
@@ -191,6 +193,7 @@ def _decode_scientific_output(
         "pipe_check_requires=false\n"
         "check_updates=false\n"
         "[gui]\n"
+        "icc_autoassignment=0\n"
         "use_scripts_repository=false\n"
         "use_spcc_repository=false\n"
         "auto_update_scripts=false\n"
@@ -225,6 +228,7 @@ def _decode_scientific_output(
                 timeout=decode_timeout,
                 check=False,
                 env=tooling._subprocess_environment("siril_runtime"),
+            cwd=session,
             )
             output = completed.stdout
             exit_code = completed.returncode
@@ -437,6 +441,14 @@ def _validate_output(
         }
 
 
+def _unknown_context_fields(payload: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(
+        field
+        for field in ("input_state", "channel_mode")
+        if payload["context"].get(field, "unknown") == "unknown"
+    )
+
+
 def _validate_protocol_applicability(
     session: Path,
     payload: dict[str, Any],
@@ -450,12 +462,13 @@ def _validate_protocol_applicability(
             "protocol_not_applicable",
             "input.inspect must use the immutable @input source",
         )
-    if payload["context"].get("input_state") != "unknown":
+    unknown_fields = _unknown_context_fields(payload)
+    if not unknown_fields:
         return
     if protocol != "input.inspect":
         raise ContractError(
             "protocol_not_applicable",
-            "Unknown input permits only Stage 1 input.inspect; create a new session after obtaining reliable state evidence",
+            f"Unknown {', '.join(unknown_fields)} permits only Stage 1 input.inspect; after an accepted inspection, use confirm-input with reliable source evidence for every unknown field",
         )
 
 
@@ -600,6 +613,7 @@ def _replay_run_receipt(
         source=source,
         expected_outputs=expected,
         probe=frozen_probe,
+        replaying=True,
     )
     runtime = receipt.get("runtime")
     if (
@@ -637,6 +651,9 @@ def _knowledge_bindings_unchanged(
 ) -> bool:
     try:
         current = session_state._verify_session_knowledge(session, payload)
+        effective = session_state.effective_session_payload(session, payload)
+        if effective.get("input_confirmation") != payload.get("input_confirmation"):
+            return False
     except ContractError:
         return False
     captured = validation.get("knowledge_validation")
@@ -645,6 +662,45 @@ def _knowledge_bindings_unchanged(
         and all(captured.get(key) == value for key, value in current.items())
         and validation_ops.knowledge_bindings_unchanged(session, validation)
     )
+
+
+def _quarantine_separation_outputs(session: Path, run_id: str, expected: Sequence[Path]):
+    records, errors = [], []
+    for path in expected:
+        original = path.relative_to(session).as_posix()
+        if Path(original).parts[0] not in {'artifacts', 'previews'}:
+            continue
+        if not path.exists() and not path.is_symlink():
+            continue
+        try:
+            source = session_path(session, path, must_exist=True, allowed_roots=('artifacts', 'previews'))
+            before = fingerprint(source, include_path=False)
+            target = session_path(session, session / 'reports' / run_id / 'rejected' / original,
+                                  allowed_roots=('reports',))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            session_path(session, target, allowed_roots=('reports',))
+            # An exclusive link avoids overwriting evidence before unlinking the original.
+            os.link(source, target, follow_symlinks=False)
+            if fingerprint(target, include_path=False) != before or fingerprint(source, include_path=False) != before:
+                raise ContractError('artifact_changed_during_quarantine', 'Output changed while isolating it')
+            source.unlink()
+            _fsync_directory(source.parent)
+            _fsync_directory(target.parent)
+            records.append({'original_path': original, 'path': relative_session_path(session, target), **before})
+        except (ContractError, OSError, ValueError) as exc:
+            errors.append({'path': original, 'reason': str(exc)})
+    return records, errors
+
+
+def _accepted_review(session: Path, run_name: str):
+    """Require one verified actual acceptance for a scientific parent."""
+    matches = [p for p in (session / "reviews").glob("*.json") if load_json(p).get("run_id") == run_name]
+    if len(matches) != 1:
+        raise ContractError("review_required", f"Exactly one actual review is required for {run_name}")
+    review, binding = _validate_review(session, str(matches[0]), run_name)
+    if review["verdict"] != "accept":
+        raise ContractError("review_required", f"Accepted visual review is required for {run_name}")
+    return review, binding
 
 
 def run_script(
@@ -661,6 +717,7 @@ def run_script(
     stretch_run: str | None = None,
 ) -> dict[str, Any]:
     session, payload, manifest = session_state.load_session(session_value)
+    payload = session_state.effective_session_payload(session, payload, manifest)
     script = session_path(session, script_value, must_exist=True, allowed_roots=("scripts",))
     if script.suffix != ".ssf" or RUN_ID_PATTERN.fullmatch(script.stem) is None:
         raise ContractError("script_name_invalid", "Script name must be NNN-name.ssf")
@@ -668,7 +725,7 @@ def run_script(
     provenance = script.with_suffix(".provenance.json")
     receipt_path = session / "runs" / f"{run_id}.json"
     if not validate_only and (receipt_path.exists() or receipt_path.is_symlink()):
-        return _replay_run_receipt(
+        replay = _replay_run_receipt(
             session=session,
             payload=payload,
             manifest=manifest,
@@ -682,6 +739,7 @@ def run_script(
             separation_run=separation_run,
             stretch_run=stretch_run,
         )
+        return _with_metric_report_warnings(session, replay)
     if not session_state.execution_policy_is_current(payload):
         raise ContractError(
             "legacy_session_read_only",
@@ -724,33 +782,35 @@ def run_script(
     offline = bool(payload["context"].get("offline"))
     container_validation = str(payload["context"]["container_validation"])
     frozen_probe = load_json(session / "reports" / "tool-probe.json")
+    defer_local_probe = (protocol == 'structure.local-contrast'
+                         and payload['execution_policy'].get('local_contrast') in {'texture_hf_review_v1', 'wavelet_clahe_competition_v2'})
     probe = (
         frozen_probe
-        if validate_only or protocol == "background.subtract"
+        if validate_only or defer_local_probe or protocol in {"background.subtract", "stars.separate"}
         else tooling.probe_tools(offline=offline)
     )
     siril = probe.get("tools", {}).get("siril_cli", {})
-    from deep_sky_siril_processing import primary_output, prepare_processing, validate_processing_outputs
+    from deep_sky_siril_processing import ProcessingEvidenceError, primary_output, prepare_processing, validate_processing_outputs
     primary = primary_output(session, expected, primary_output_value)
     review_bindings = []
 
     def accepted_review(run_name):
-        matches = [p for p in (session / "reviews").glob("*.json") if load_json(p).get("run_id") == run_name]
-        if len(matches) != 1:
-            raise ContractError("review_required", f"Exactly one actual review is required for {run_name}")
-        review, binding = _validate_review(session, str(matches[0]), run_name)
-        if review["verdict"] != "accept":
-            raise ContractError("review_required", f"Accepted visual review is required for {run_name}")
+        review, binding = _accepted_review(session, run_name)
         if binding not in review_bindings:
             review_bindings.append(binding)
         return review
 
     processing = prepare_processing(session, payload, protocol, source, primary,
         script.read_text(encoding="utf-8"), frozen_probe, separation_run, stretch_run,
-        lambda name: _load_run(session, name), accepted_review)
+        lambda name: _load_run(session, name), accepted_review, run_id=run_id)
+    if defer_local_probe and not validate_only:
+        probe = tooling.probe_tools(offline=offline)
+        siril = probe.get('tools', {}).get('siril_cli', {})
     if protocol == "stars.separate":
         processing["branch_binding"]["separation_run"] = run_id
     processing["review_bindings"] = review_bindings
+    if "input_confirmation" in payload:
+        processing["input_confirmation"] = payload["input_confirmation"]
     if protocol == "astrometry.solve":
         probe["tools"]["local_gaia_astro"] = frozen_probe["tools"].get("local_gaia_astro", {})
         catalogue = processing.get("astrometry", {}).get("catalogue")
@@ -870,6 +930,7 @@ def run_script(
         "pipe_check_requires=false\n"
         "check_updates=false\n"
         "[gui]\n"
+        "icc_autoassignment=0\n"
         "use_scripts_repository=false\n"
         "use_spcc_repository=false\n"
         "auto_update_scripts=false\n"
@@ -886,6 +947,23 @@ def run_script(
     command.append(f"--script={script}")
     started = utc_now()
     timed_out = False
+    if protocol == 'stretch' and processing.get('hdr_transfer', {}).get('strategy'):
+        from deep_sky_siril_stretch_profiles import claim_attempt, load_plan
+        from deep_sky_siril_stretch_trials import enabled as archive_enabled, directory as archive_directory
+        if archive_enabled(payload) and archive_directory(session, run_id).exists():
+            raise ContractError('trial_archive_invalid', 'Trial artifacts already exist; use a new run ID')
+        plan, _ = load_plan(session, payload, processing['hdr_transfer']['strategy'])
+        if plan.get('schema') == 'starun-siril.stretch-strategy.v3':
+            from deep_sky_siril_stretch_stepwise import claim_formal
+            claim_formal(session, payload, processing['hdr_transfer']['stepwise_parameters'], run_id)
+        else:
+            claim_attempt(session, payload, run_id, {'source': plan['source'], 'strategy': processing['hdr_transfer']['strategy']})
+    elif protocol == 'stretch' and processing.get('adaptive_parameters'):
+        from deep_sky_siril_stretch import bound_file
+        binding = processing['adaptive_parameters']['parameters']
+        if load_json(bound_file(session, binding)).get('schema') == 'starun-siril.stretch-parameters.v3':
+            from deep_sky_siril_stretch_stepwise import claim_formal
+            claim_formal(session, payload, binding, run_id)
     try:
         completed = subprocess.run(
             command,
@@ -897,6 +975,7 @@ def run_script(
             timeout=timeout,
             check=False,
             env=tooling._subprocess_environment("siril_runtime"),
+            cwd=session,
         )
         output = completed.stdout
         exit_code = completed.returncode
@@ -993,22 +1072,12 @@ def run_script(
     )
     starnet_unchanged = True
     if protocol == "stars.separate":
-        executable_record = (
-            starnet_runtime.get("executable")
-            if isinstance(starnet_runtime, dict)
-            else None
-        )
-        model_record = (
-            starnet_runtime.get("model")
-            if isinstance(starnet_runtime, dict)
-            else None
-        )
-        starnet_unchanged = fingerprint_matches(executable_record) and resource_fingerprint_matches(
-            model_record
-        )
+        starnet_unchanged = tooling.starnet_runtime_unchanged(starnet_runtime)
+    deepsnr_runtime = processing.get('linear_denoise', {}).get('runtime')
+    deepsnr_unchanged = deepsnr_runtime is None or tooling.deepsnr_runtime_unchanged(deepsnr_runtime)
     sirilpy_runtime = validation.get("sirilpy_bridge")
     sirilpy_unchanged = True
-    if protocol == "background.subtract" and isinstance(sirilpy_runtime, dict):
+    if protocol in {"background.subtract", "restoration.deconvolve"} and isinstance(sirilpy_runtime, dict):
         sirilpy_unchanged = (
             sirilpy_runtime.get("status") == "runtime_check_required"
             and sirilpy_runtime.get("required_version") == "1.0.25"
@@ -1018,6 +1087,7 @@ def run_script(
         siril_unchanged
         and adapters_unchanged
         and starnet_unchanged
+        and deepsnr_unchanged
         and sirilpy_unchanged
     )
     success = (
@@ -1032,17 +1102,93 @@ def run_script(
         and runtime_bindings_unchanged
     )
     processing_checks = {"status": "not_run"}
+    separation_failure = None
+    bridge_checks = None
+    if protocol == 'stars.separate':
+        from deep_sky_siril_processing import validate_separation_bridge
+        try:
+            bridge_checks = validate_separation_bridge(session, primary, processing['star_separation'])
+        except (ContractError, ValueError, OSError, KeyError, TypeError) as exc:
+            reason_code = 'starnet_bridge_unverified'
+            reason = str(exc)
+            try:
+                separation = processing['star_separation']
+                document = load_json(session / separation['contract'])
+                full = session_path(session, separation['full_source'], must_exist=True, allowed_roots=('artifacts',))
+                bitpix = artifacts.read_fits_header(full).get('BITPIX')
+                if document.get('schema') == 'starun-siril.starnet-contract.v2' and bitpix != -32:
+                    reason_code = 'native_input_precision_invalid'
+                    reason = f'Native full-source requires float32 FITS (BITPIX=-32), got BITPIX={bitpix}. {exc}'
+            except (ContractError, ValueError, OSError, KeyError, TypeError):
+                pass
+            separation_failure = {'reason_code': reason_code, 'reason': reason,
+                                  'log_path': relative_session_path(session, log_path)}
+            bridge_checks = {'status': 'failed', 'reason_code': reason_code, 'reason': reason}
+            success = False
+            processing_checks = {'status': 'failed', 'reason': reason}
+    deconvolution_checks = None
+    if processing.get('deconvolution_binding'):
+        from deep_sky_siril_psf import measure_deconvolution
+        try:
+            deconvolution_checks = measure_deconvolution(session, source, primary,
+                                                         processing['deconvolution_binding'], log_text, write_reports=True)
+        except ProcessingEvidenceError as exc:
+            success = False
+            processing_checks = {'status': 'failed', 'reason': str(exc), **exc.processing_checks}
     if success:
         try:
-            checks = validate_processing_outputs(session, source, primary, processing)
+            checks = validate_processing_outputs(session, source, primary, processing, execution_policy=payload['execution_policy'], write_diagnostics=True, log_text=log_text)
             if processing.get("astrometry", {}).get("catalogue") and not fingerprint_matches(processing["astrometry"]["catalogue"]):
                 raise ContractError("runtime_dependency_changed", "Astrometric catalogue changed")
             if any(sha256_file(session / b["path"]) != b["sha256"] for b in review_bindings):
                 raise ContractError("review_changed", "Parent visual review changed during execution")
             processing_checks = {"status": "passed", **checks}
+            if protocol == 'stretch':
+                from deep_sky_siril_visibility import build
+                visibility = build(session, payload, source, primary, processing, run_id, timeout)
+                if visibility is not None:
+                    processing['stretch_visibility'] = visibility
+            if "astrometry" in checks:
+                # The receipt records the achieved solve, never the pre-execution request.
+                processing["astrometry"] = checks["astrometry"]
+            if checks.get('background_validation', {}).get('status', 'passed') != 'passed':
+                success = False
+                processing_checks['status'] = 'failed'
+                processing_checks['reason'] = '; '.join(checks['background_validation']['reasons'])
         except (ContractError, ValueError, OSError) as exc:
             success = False
             processing_checks = {"status": "failed", "reason": str(exc)}
+            if isinstance(exc, ProcessingEvidenceError):
+                processing_checks.update(exc.processing_checks)
+    if (protocol == 'stars.recompose'
+            and payload['execution_policy'].get('star_diagnostics') == 'subject_roi_residual_v2'
+            and 'closure' not in processing_checks):
+        from deep_sky_siril_processing import _measure_recomposition
+        processing_checks['status'] = 'failed'
+        try:
+            processing_checks['closure'] = _measure_recomposition(
+                session, processing['branch_binding'], payload['context']['target_type'],
+                source=source, primary=primary, policy='subject_roi_residual_v2')
+        except ProcessingEvidenceError as exc:
+            processing_checks.update(exc.processing_checks)
+            processing_checks.setdefault('reason', str(exc))
+        except (ContractError, ValueError, OSError, KeyError, TypeError) as exc:
+            processing_checks.setdefault('reason', str(exc))
+    if protocol == 'stars.separate':
+        processing_checks['bridge'] = bridge_checks
+        if not success:
+            reason = processing_checks.get('reason') or (
+                f'Star separation failed: exit_code={exit_code}, timed_out={timed_out}, '
+                f'outputs_valid={all_outputs_valid}, log_status={log_diagnostics["status"]}, '
+                f'input_unchanged={input_unchanged}, source_unchanged={source_unchanged}, '
+                f'script_unchanged={script_unchanged}, knowledge_unchanged={knowledge_bindings_unchanged}, '
+                f'runtime_unchanged={runtime_bindings_unchanged}')
+            processing_checks.update(status='failed', reason=reason)
+            separation_failure = separation_failure or {
+                'reason_code': 'stars_separation_failed', 'reason': reason,
+                'log_path': relative_session_path(session, log_path)}
+    if deconvolution_checks is not None:
+        processing_checks['deconvolution'] = deconvolution_checks
     receipt = {
         "schema": f"{SCHEMA_PREFIX}.run-receipt.v1",
         "contract_version": CONTRACT_VERSION,
@@ -1072,6 +1218,7 @@ def run_script(
             "container_validation": container_validation,
             "adapters": validation.get("adapters", []),
             **({"starnet": starnet_runtime} if starnet_runtime is not None else {}),
+            **({'deepsnr': deepsnr_runtime} if deepsnr_runtime is not None else {}),
             **(
                 {"sirilpy_bridge": sirilpy_runtime}
                 if sirilpy_runtime is not None
@@ -1094,22 +1241,290 @@ def run_script(
         **processing,
         "processing_checks": processing_checks,
     }
+    if protocol == 'stars.separate' and not success:
+        rejected, quarantine_errors = _quarantine_separation_outputs(session, run_id, expected)
+        receipt.update(outputs=[], primary_output=None, failure=separation_failure,
+                       rejected_outputs=rejected, quarantine_errors=quarantine_errors)
+    if deepsnr_runtime is not None and not success:
+        rejected, quarantine_errors = _quarantine_separation_outputs(session, run_id, expected)
+        receipt.update(outputs=[], primary_output=None, rejected_outputs=rejected, quarantine_errors=quarantine_errors)
+    if protocol == 'stretch' and receipt.get('hdr_transfer'):
+        from deep_sky_siril_stretch_trials import enabled as archive_enabled, create as archive_trial
+        if archive_enabled(payload):
+            try:
+                receipt['trial_artifacts'] = archive_trial(session, receipt)
+            except (ContractError, OSError, ValueError) as exc:
+                success = False
+                receipt['status'] = 'failed'
+                processing_checks.update(status='failed', reason='Stage 7 trial archiving failed: '+str(exc))
     atomic_write_json(receipt_path, receipt)
     session_state._append_run(session / "manifest.json", manifest, receipt_path, receipt)
     if success:
-        _try_generate_run_metrics(session, run_id, protocol, source, expected, primary)
-    return receipt
+        if protocol == "stars.separate":
+            # Commit scientific outputs and receipt before deleting temporary handoffs.
+            work = session / "runtime" / "starnet" / run_id
+            if work.is_dir() and not work.is_symlink():
+                shutil.rmtree(work)
+        try:
+            _try_generate_run_metrics(session, run_id, protocol, source, expected, primary,
+                                      background_validation=processing_checks.get('background_validation'),
+                                      neutral_validation=processing_checks.get('color_calibration', {}).get('neutral_validation'))
+        except Exception as exc:
+            warning = _metric_report_warning(run_id, "metrics_generation_failed", f"{type(exc).__name__}: {exc}")
+            try:
+                _write_metric_evidence(session, run_id, "metrics-error.json", {
+                    "schema": f"{SCHEMA_PREFIX}.metric-error.v1", "run_id": run_id,
+                    "run_receipt_sha256": sha256_file(receipt_path), "created_at": utc_now(),
+                    "warning": warning,
+                })
+            except Exception as record_error:
+                warning["persistence_error"] = f"{type(record_error).__name__}: {record_error}"
+            return {**receipt, "report_warnings": [warning]}
+    return _with_metric_report_warnings(session, receipt) if success else receipt
 
 
 def _try_generate_run_metrics(session: Path, run_id: str, protocol: str, source: Path,
-                              expected_paths: Sequence[Path], primary: Path | None) -> None:
+                              expected_paths: Sequence[Path], primary: Path | None, *, background_validation=None, neutral_validation=None) -> None:
     import deep_sky_siril_metrics as metrics_mod
     stars_tsv = next((p for p in expected_paths if p.suffix == ".tsv" and "star" in p.name), None)
     # input.inspect reports the scientific input, never the JPEG quantization as source clipping.
     candidate = primary or source
     metrics_mod.generate_metric_report(run_id=run_id, protocol=protocol, candidate_path=candidate,
         parent_path=source, stars_tsv_path=stars_tsv,
-        output_path=session / "reports" / run_id / "metrics.json")
+        background_validation=background_validation, neutral_validation=neutral_validation,
+        output_path=session_path(session, session / "reports" / run_id / "metrics.json", allowed_roots=("reports",)))
+
+
+def _metric_report_warning(run_id: str, code: str, message: str) -> dict[str, Any]:
+    return {"code": code, "message": message, "report_path": f"reports/{run_id}/metrics.json",
+            "recovery_hint": "Use deep_sky_siril_metrics.py --session SESSION --run-id " + run_id
+                             + "; recovery requires a current-policy session with intact evidence."}
+
+
+def _write_metric_evidence(session: Path, run_id: str, name: str, record: dict[str, Any]) -> Path:
+    """Publish complete supplemental evidence without replacing an existing file."""
+    path = session_path(session, session / "reports" / run_id / name, allowed_roots=("reports",))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, prefix=f".{name}.", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(canonical_json(record) + b"\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+        _fsync_directory(path.parent)
+    except FileExistsError as exc:
+        raise ContractError("write_conflict", f"Metric evidence already exists: {path}") from exc
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return path
+
+
+def confirm_input(
+    session_value: str, run_id: str, *, input_state: str | None,
+    channel_mode: str | None, state_evidence: Sequence[str],
+) -> dict[str, Any]:
+    """Commit explicit post-inspection declarations while preserving frozen evidence."""
+    session, payload, manifest = session_state.load_session(session_value)
+    if not session_state.execution_policy_is_current(payload):
+        raise ContractError("legacy_session_read_only", "Legacy sessions cannot confirm input context")
+    if manifest.get("finalization") is not None:
+        raise ContractError("input_confirmation_invalid", "Finalized sessions cannot confirm input context")
+    probe = load_json(session / "reports/tool-probe.json")
+    tooling.verify_tool_fingerprint(probe.get("tools", {}).get("siril_cli", {}).get("fingerprint"), name="siril_cli")
+    if not isinstance(run_id, str) or RUN_ID_PATTERN.fullmatch(run_id) is None:
+        raise ContractError("input_confirmation_invalid", "Inspect run ID must be NNN-name")
+    fields = {}
+    for key, value in (("input_state", input_state), ("channel_mode", channel_mode)):
+        if value is None:
+            continue
+        original = payload["context"].get(key, "unknown")
+        if original == "unknown":
+            fields[key] = value
+        elif original != value:
+            raise ContractError("input_evidence_conflict", f"Confirmation conflicts with known {key}")
+    evidence = [" ".join(item.split()) for item in state_evidence]
+    context = session_state.confirmed_input_context(payload, fields, evidence)
+    path = session_path(session, session_state.INPUT_CONFIRMATION_PATH, allowed_roots=("reports",))
+    reused = path.exists()
+    existing = session_state.read_input_confirmation(path)[0] if reused else None
+    if existing is not None:
+        session_state.validate_input_confirmation(session, payload, existing)
+    if manifest.get("input_confirmation") is not None:
+        if (existing["run_id"] != run_id or existing["confirmed_fields"] != fields
+            or existing["state_evidence"] != evidence):
+            raise ContractError("input_evidence_conflict", "Committed input confirmation cannot be replaced")
+        _load_run(session, run_id)
+        _validate_review(session, str(session / existing["review"]["path"]), run_id)
+        return {"status": "success", "context": context,
+                "confirmation": manifest["input_confirmation"], "reused": True}
+    entries = manifest.get("runs")
+    if not isinstance(entries, list):
+        raise ContractError("manifest_invalid", "Manifest run index is invalid")
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or RUN_ID_PATTERN.fullmatch(entry["id"]) is None:
+            raise ContractError("manifest_invalid", "Manifest run entry is invalid")
+        receipt_path = session_path(session, f"runs/{entry['id']}.json", allowed_roots=("runs",))
+        receipt = load_json(receipt_path)
+        if (entry.get("receipt") != receipt_path.name or entry.get("receipt_sha256") != sha256_file(receipt_path)
+            or receipt.get("id") != entry["id"] or receipt.get("status") != entry.get("status")):
+            raise ContractError("manifest_invalid", "Manifest inspect binding changed")
+        if receipt.get("protocol") != "input.inspect" or receipt.get("source_path") != "@input":
+            raise ContractError("input_confirmation_invalid", "Only input.inspect may precede input confirmation")
+    if not any(entry["id"] == run_id and entry.get("status") == "success" for entry in entries):
+        raise ContractError("input_confirmation_invalid", "Confirmation requires a successful indexed input inspection")
+    run_path, run = _load_run(session, run_id)
+    if run.get("protocol") != "input.inspect" or run.get("source_path") != "@input":
+        raise ContractError("input_confirmation_invalid", "Confirmation requires immutable @input inspection")
+    reviews = [p for p in (session / "reviews").glob("*.json") if load_json(p).get("run_id") == run_id]
+    if len(reviews) != 1:
+        raise ContractError("review_required", "Confirmation requires exactly one accepted input inspection review")
+    review, _ = _validate_review(session, str(reviews[0]), run_id)
+    if review["verdict"] != "accept":
+        raise ContractError("review_required", "Confirmation requires an accepted input inspection review")
+    record = {
+        "schema": f"{SCHEMA_PREFIX}.input-confirmation.v1",
+        "session_sha256": payload["session_sha256"],
+        "input": {key: payload["input"][key] for key in ("sha256", "size")},
+        "run_id": run_id,
+        "run_receipt": {"path": relative_session_path(session, run_path), **fingerprint(run_path, include_path=False)},
+        "review": {"path": relative_session_path(session, reviews[0]), **fingerprint(reviews[0], include_path=False)},
+        "confirmed_fields": fields, "state_evidence": evidence,
+        "created_at": existing["created_at"] if existing else utc_now(),
+    }
+    session_state.validate_input_confirmation(session, payload, record)
+    if existing is not None and existing != record:
+        raise ContractError("input_evidence_conflict", "Uncommitted input confirmation conflicts with this request")
+    _, after_payload, after_manifest = session_state.load_session(session)
+    if after_payload != payload or after_manifest != manifest:
+        raise ContractError("input_confirmation_drift", "Session changed during input confirmation")
+    if not reused:
+        _write_metric_evidence(session, "", path.name, record)
+    published, observed = session_state.read_input_confirmation(path)
+    if published != record:
+        raise ContractError("input_confirmation_drift", "Input confirmation changed during publication")
+    session_state.validate_input_confirmation(session, payload, published)
+    manifest["input_confirmation"] = {"path": session_state.INPUT_CONFIRMATION_PATH, **observed}
+    manifest["updated_at"] = utc_now()
+    atomic_write_json(session / "manifest.json", manifest)
+    return {"status": "success", "context": context,
+            "confirmation": manifest["input_confirmation"], "reused": reused}
+
+
+def _metric_recovery_inputs(session_value: str | Path, run_id: str, *, allow_legacy: bool = False) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    """Reuse immutable replay verification; never execute the recorded script."""
+    if RUN_ID_PATTERN.fullmatch(run_id) is None:
+        raise ContractError("script_name_invalid", "Run ID must be NNN-name")
+    session, payload, manifest = session_state.load_session(session_value)
+    payload = session_state.effective_session_payload(session, payload, manifest)
+    if not allow_legacy and not session_state.execution_policy_is_current(payload):
+        raise ContractError("legacy_session_read_only", "Legacy sessions allow receipt replay/finalize only, not metric recovery")
+    run_path, receipt = _load_run(session, run_id)
+    source = Path(payload["input"]["path"]) if receipt["source_path"] == "@input" else session_path(
+        session, session / receipt["source_path"], must_exist=True, allowed_roots=("artifacts",))
+    script = session_path(session, session / receipt["script"]["path"], must_exist=True, allowed_roots=("scripts",))
+    expected = [session_path(session, session / record["path"], must_exist=True) for record in receipt["outputs"]]
+    primary_value = receipt.get("primary_output")
+    primary = session_path(session, session / primary_value, must_exist=True) if primary_value else None
+    branch = receipt.get("branch_binding", {})
+    _replay_run_receipt(session=session, payload=payload, manifest=manifest, receipt_path=run_path,
+        script=script, provenance=script.with_suffix(".provenance.json"), protocol=receipt["protocol"],
+        source_value=str(source), expected_values=[str(path) for path in expected],
+        primary_output_value=str(primary) if primary else None,
+        separation_run=branch.get("separation_run"), stretch_run=branch.get("stretch_run"))
+    candidate = primary or source
+    stars = next((p for p in expected if p.suffix == ".tsv" and "star" in p.name), None)
+    background = receipt.get("processing_checks", {}).get("background_validation")
+    neutral = receipt.get('processing_checks', {}).get('color_calibration', {}).get('neutral_validation')
+    paths = {"parent": source, "candidate": candidate}
+    if neutral is not None:
+        paths['neutral_regions'] = session_path(session, receipt['color_calibration']['background_regions'], must_exist=True, allowed_roots=('reports',))
+    if stars is not None:
+        paths["stars_tsv"] = stars
+    if background is not None:
+        paths["background_validation"] = session_path(session, session / background["path"], must_exist=True)
+    binding = {"run_receipt_sha256": sha256_file(run_path),
+               "inputs": {role: fingerprint(path) for role, path in paths.items()}}
+    arguments = {"run_id": run_id, "protocol": receipt["protocol"], "candidate_path": candidate,
+                 "parent_path": source, "stars_tsv_path": stars, "background_validation": background,
+                 'neutral_validation': neutral}
+    return session, binding, arguments
+
+
+def _validate_metric_recovery(session: Path, run_id: str, path: Path) -> dict[str, Any]:
+    import deep_sky_siril_metrics as metrics_mod
+    expected_path = session / "reports" / run_id / "metrics-recovery.json"
+    if path != expected_path:
+        raise ContractError("skill_output_invalid", "Metric recovery belongs to another run")
+    report = load_json(path)
+    _, binding, arguments = _metric_recovery_inputs(session, run_id, allow_legacy=True)
+    recovery = report.get("recovery_binding", {})
+    gates = report.get("gate_evaluations")
+    candidate, parent = report.get("candidate"), report.get("parent")
+    if (report.get("schema") != metrics_mod.METRIC_REPORT_SCHEMA or report.get("run_id") != run_id
+        or report.get("protocol") != arguments["protocol"] or not isinstance(recovery, dict)
+        or set(recovery) != {"run_receipt_sha256", "inputs", "created_at", "report_sha256"}
+        or not isinstance(recovery.get("created_at"), str) or not recovery["created_at"]
+        or {key: recovery.get(key) for key in binding} != binding
+        or recovery.get("report_sha256") != stable_hash({k: v for k, v in report.items() if k != "recovery_binding"})
+        or not isinstance(candidate, dict) or candidate.get("path") != str(arguments["candidate_path"])
+        or not isinstance(parent, dict) or parent.get("path") != str(arguments["parent_path"])
+        or report.get("background_validation") != arguments["background_validation"]
+        or report.get('neutral_validation') != arguments['neutral_validation']
+        or report.get("recommended_verdict") not in {"reject", "uncertain"}
+        or not isinstance(gates, dict) or set(gates) != {"structure", "background", "color", "stars", "geometry"}
+        or any(not isinstance(gate, dict) or gate.get("verdict") not in {"fail", "uncertain"} for gate in gates.values())):
+        raise ContractError("skill_output_invalid", "Metric recovery binding or report is invalid")
+    return report
+
+
+def recover_run_metrics(session_value: str, run_id: str) -> dict[str, Any]:
+    """Add a bound report; preserve original execution and all existing evidence."""
+    import deep_sky_siril_metrics as metrics_mod
+    session, binding, arguments = _metric_recovery_inputs(session_value, run_id)
+    path = session_path(session, session / "reports" / run_id / "metrics-recovery.json", allowed_roots=("reports",))
+    reused = path.exists()
+    if reused:
+        _validate_metric_recovery(session, run_id, path)
+    else:
+        report = metrics_mod.generate_metric_report(**arguments)
+        _, after, _ = _metric_recovery_inputs(session, run_id)
+        if after != binding:
+            raise ContractError("skill_output_invalid", "Metric recovery evidence changed during measurement")
+        report["recovery_binding"] = {**binding, "created_at": utc_now(), "report_sha256": stable_hash(report)}
+        _write_metric_evidence(session, run_id, path.name, report)
+    return {"status": "success", "run_id": run_id, "reused": reused,
+            "report": {**fingerprint(path, include_path=False), "path": relative_session_path(session, path)}}
+
+
+def _with_metric_report_warnings(session: Path, receipt: dict[str, Any]) -> dict[str, Any]:
+    """Inspect optional reporting state without changing immutable replay evidence."""
+    run_id = receipt["id"]
+    try:
+        path = session_path(session, session / "reports" / run_id / "metrics.json", must_exist=True)
+        report = load_json(path)
+        if report.get("run_id") != run_id or report.get("protocol") != receipt["protocol"]:
+            raise ContractError("skill_output_invalid", "Metric report belongs to another run")
+        errors = [f"{role}: {record['metrics']['error']}" for role in ("candidate", "parent")
+                  if isinstance(record := report.get(role), dict)
+                  and isinstance(record.get("metrics"), dict) and record["metrics"].get("error")]
+        if not errors:
+            return receipt
+        warning = _metric_report_warning(run_id, "metrics_measurement_unavailable", "; ".join(errors))
+    except Exception as exc:
+        warning = _metric_report_warning(run_id, "metrics_report_unavailable", f"{type(exc).__name__}: {exc}")
+    recovery_path = session / "reports" / run_id / "metrics-recovery.json"
+    try:
+        if recovery_path.exists() or recovery_path.is_symlink():
+            recovery_path = session_path(session, recovery_path, must_exist=True, allowed_roots=("reports",))
+            _validate_metric_recovery(session, run_id, recovery_path)
+            warning["supplemental_report"] = {**fingerprint(recovery_path, include_path=False),
+                                               "path": relative_session_path(session, recovery_path)}
+    except Exception as exc:
+        warning["recovery_error"] = f"{type(exc).__name__}: {exc}"
+    return {**receipt, "report_warnings": [warning]}
 
 
 def _validate_selection(selection: dict[str, Any]) -> None:
@@ -1273,6 +1688,427 @@ def _load_run(session: Path, run_id: str) -> tuple[Path, dict[str, Any]]:
     return path, payload
 
 
+def review_materials_for_run(session_value: str, run_id: str) -> dict[str, Any]:
+    """Derive the review skeleton for one run without writing anything.
+
+    The Agent still opens every image and writes its own verdict and notes. This only
+    removes the mechanical part of authoring a review: binding the run receipt plus every
+    existing candidate, parent preview, report and diagnostic the protocol produced.
+    """
+    session, _payload, _manifest = session_state.load_session(session_value)
+    run_path, run = _load_run(session, run_id)
+    if run.get('chroma_denoise'):
+        from deep_sky_siril_chroma import review_paths
+        paths = review_paths(session, run)
+        paths[str(run_path.relative_to(session))] = run_path
+        return _review_skeleton(run_path, run, [{'path': ref, 'sha256': sha256_file(path)} for ref, path in paths.items()])
+    if run.get('dualband_transfer'):
+        from deep_sky_siril_dualband import review_paths
+        paths = review_paths(session, run)
+        return _review_skeleton(run_path, run, [{'path': ref, 'sha256': sha256_file(path)} for ref, path in paths.items()])
+    if run.get('local_contrast_guard'):
+        paths = _local_contrast_review_paths(session, run)
+        materials = [{'path': reference, 'sha256': sha256_file(path)} for reference, path in sorted(paths.items())]
+        return _review_skeleton(run_path, run, materials)
+    if run.get('adaptive_parameters'):
+        from deep_sky_siril_stretch_v2 import review_paths
+        paths = review_paths(session, run['adaptive_parameters'])
+        if paths:
+            paths[run_path.relative_to(session).as_posix()] = run_path
+            for record in run['outputs']:
+                if Path(record['path']).suffix.lower() in DISPLAY_IMAGE_SUFFIXES:
+                    paths[record['path']] = session_path(session, record['path'], must_exist=True)
+            return _review_skeleton(run_path, run, [{'path': ref, 'sha256': sha256_file(path)} for ref, path in paths.items()])
+    if run.get('hdr_transfer', {}).get('protection') and run.get('protocol') == 'stretch':
+        from deep_sky_siril_hdr import protection_review_paths
+        paths = protection_review_paths(session, run['hdr_transfer'], run)
+        for ref in run['hdr_transfer']['previews'].values():
+            paths[ref] = session_path(session, ref, must_exist=True)
+        paths[run_path.relative_to(session).as_posix()] = run_path
+        return _review_skeleton(run_path, run, [{'path': ref, 'sha256': sha256_file(path)} for ref, path in paths.items()])
+    if run.get('protocol') == 'stars.recompose':
+        paths = _recomposition_review_paths(session, run)
+        materials = [{'path': reference, 'sha256': sha256_file(path)} for reference, path in paths.items()]
+        materials.append(_recomposition_metric_material(session, run))
+        return _review_skeleton(run_path, run, sorted(materials, key=lambda record: record['path']))
+    from deep_sky_siril_processing import script_commands
+    script = session_path(session, run["script"]["path"], must_exist=True, allowed_roots=("scripts",))
+    tokens = script_commands(script.read_text(encoding="utf-8"))
+    from deep_sky_siril_validation import _normalized_write
+    parents: list[Path] = []
+    for row in tokens:
+        if row[0] != "load" or len(row) != 2:
+            continue
+        target = _absolute(row[1])
+        if target not in parents:
+            parents.append(target)
+    if run.get('processing_checks', {}).get('closure', {}).get('warnings') and run.get('source_path') != '@input':
+        parent = session_path(session, run['source_path'], must_exist=True, allowed_roots=('artifacts',))
+        if parent not in parents:
+            parents.append(parent)
+    if run.get("protocol") == "delivery.render":
+        previews = _delivery_parent_preview_paths(session, run)
+        if not previews:
+            raise ContractError("skill_output_invalid", "Final review requires a verified parent preview")
+        parents.extend(sorted(previews))
+    candidates: list[Path] = []
+    for record in run.get("outputs", []):
+        if isinstance(record, dict) and isinstance(record.get("path"), str):
+            candidate = session_path(session, session / record["path"], must_exist=True)
+            if candidate not in candidates:
+                candidates.append(candidate)
+    for preview in _adjustment_preview_paths(session, run):
+        if preview not in candidates:
+            candidates.append(preview)
+    materials: list[dict[str, str]] = []
+    seen: set[Path] = set()
+    for target in [*candidates, *parents]:
+        if target in seen or target.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        seen.add(target)
+        # The scientific parent is the immutable @input master and lives outside the session.
+        reference = (relative_session_path(session, target)
+                     if target.is_relative_to(session) else "@input")
+        materials.append({"path": reference, "sha256": sha256_file(target)})
+    if run.get('local_saturation') or run.get('color_curve') or run.get('local_tone'):
+        materials.append({'path': relative_session_path(session, run_path), 'sha256': sha256_file(run_path)})
+    reports = []
+    if run.get('local_tone'):
+        reports.append({key: run['local_tone']['regions'][key] for key in ('path', 'sha256')})
+    checks = run.get("processing_checks") or {}
+    curve = (run.get('color_curve') or run.get('local_saturation', {})).get('curve_parameters')
+    if curve:
+        from deep_sky_siril_stretch import bound_file
+        parameter_path = bound_file(session, curve['report'])
+        reports.extend({key: curve[role][key] for key in ('path', 'sha256')}
+                       for role in ('report', 'regions', 'configuration'))
+        for trial in load_json(parameter_path)['trials']:
+            reports.extend({key: trial[role][key] for key in ('path', 'sha256')} for role in ('script', 'log'))
+    if run.get('color_calibration', {}).get('policy') == 'scientific_native_flow_v2':
+        for reference in (relative_session_path(session, run_path), run['color_calibration']['background_regions']):
+            report = session_path(session, reference, must_exist=True, allowed_roots=('runs', 'reports'))
+            reports.append({'path': reference, 'sha256': sha256_file(report)})
+    if run.get('restoration_validation'):
+        reports.append({'path': relative_session_path(session, run_path), 'sha256': sha256_file(run_path)})
+    for record in checks.get('deconvolution', {}).get('spatial_reports', {}).get('reports', {}).values():
+        reports.append({'path': record['path'], 'sha256': record['sha256']})
+    for key in ("background_validation", "hdr", "star_separation", "color_calibration"):
+        record = checks.get(key)
+        path = record.get("path") if isinstance(record, dict) else None
+        if isinstance(path, str):
+            report = session_path(session, session / path, must_exist=True, allowed_roots=("reports",))
+            reports.append({"path": relative_session_path(session, report), "sha256": sha256_file(report)})
+    closure = checks.get('closure', {})
+    histogram = checks.get('delivery_export', {}).get('histogram_gate', {})
+    if closure.get('warnings') or histogram.get('warnings'):
+        reports.append({'path': relative_session_path(session, run_path), 'sha256': sha256_file(run_path)})
+    if reports:
+        metrics_report = session / "reports" / run_id / "metrics.json"
+        if metrics_report.is_file():
+            reports.append({"path": relative_session_path(session, metrics_report),
+                            "sha256": sha256_file(metrics_report)})
+    for material in reports:
+        if material not in materials:
+            materials.append(material)
+    return _review_skeleton(run_path, run, materials)
+
+
+def _local_contrast_review_paths(session: Path, run: dict[str, Any]) -> dict[str, Path]:
+    guard = run['local_contrast_guard']
+    references = {run['source_path'], run['primary_output'], f"runs/{run['id']}.json",
+                  guard['regions']['path'], *guard['previews'].values()}
+    references.update(record['path'] for record in run['outputs'])
+    if guard.get('parameters'):
+        from deep_sky_siril_local_contrast import parameter_review_paths
+        references.update(parameter_review_paths(session, guard['parameters']['path']))
+    if guard.get('subject_mask'):
+        from deep_sky_siril_subject_mask import review_paths as subject_paths
+        references.update(subject_paths(session,session/run['source_path'],guard['subject_mask']))
+    return {reference: session_path(session, reference, must_exist=True) for reference in references}
+
+
+def _recomposition_review_paths(session: Path, run: dict[str, Any]) -> dict[str, Path]:
+    from deep_sky_siril_processing import script_commands
+    payload = session_state.load_session(session)[1]
+    input_path = _absolute(payload['input']['path'])
+    paths: dict[str, Path] = {}
+    try:
+        for record in run['outputs']:
+            if Path(record['path']).suffix.lower() in IMAGE_SUFFIXES:
+                paths[record['path']] = session_path(session, record['path'], must_exist=True,
+                                                     allowed_roots=('artifacts', 'previews'))
+        if not any(path.suffix.lower() in DISPLAY_IMAGE_SUFFIXES for path in paths.values()):
+            raise ContractError('skill_output_invalid', 'Stage 9 review requires a declared candidate preview')
+        script = session_path(session, run['script']['path'], must_exist=True, allowed_roots=('scripts',))
+        auxiliary = None
+        if run.get('branch_binding', {}).get('contour_report'):
+            from deep_sky_star_reduction import bound_file
+            contour = load_json(bound_file(session, run['branch_binding']['contour_report']))
+            auxiliary = bound_file(session, contour['weights'])
+        for row in script_commands(script.read_text(encoding='utf-8')):
+            if row[0] == 'load' and len(row) == 2:
+                target = _absolute(row[1])
+                if target == auxiliary:
+                    continue
+                if target == input_path:
+                    paths['@input'] = input_path
+                else:
+                    target = session_path(session, target, must_exist=True, allowed_roots=('artifacts',))
+                    paths[relative_session_path(session, target)] = target
+        required = [run['source_path'], run['primary_output'],
+                    *(run['branch_binding'][role] for role in ('full_baseline', 'original_starless', 'display_stars'))]
+        for reference in required:
+            paths[reference] = (input_path if reference == '@input' else
+                                session_path(session, reference, must_exist=True, allowed_roots=('artifacts',)))
+        reference = f"runs/{run['id']}.json"
+        paths[reference] = session_path(session, reference, must_exist=True, allowed_roots=('runs',))
+    except (OSError, KeyError) as exc:
+        raise ContractError('skill_output_invalid', f'Stage 9 review material is missing: {exc}') from exc
+    return dict(sorted(paths.items()))
+
+
+def _recomposition_metric_material(session: Path, run: dict[str, Any], inspected: set[str] | None = None) -> dict[str, str]:
+    from deep_sky_siril_metrics import METRIC_REPORT_SCHEMA
+    from siril_manual_bundle import BundleError, strict_json_bytes
+    payload = session_state.load_session(session)[1]
+    parent = (Path(payload['input']['path']) if run['source_path'] == '@input' else session / run['source_path'])
+    candidate = session / run['primary_output']
+    errors = []
+    for name in ('metrics.json', 'metrics-recovery.json'):
+        reference = f"reports/{run['id']}/{name}"
+        if inspected is not None and reference not in inspected:
+            errors.append(f'{reference}: not inspected')
+            continue
+        path = session_path(session, reference, allowed_roots=('reports',))
+        if not path.exists():
+            errors.append(f'{reference}: missing')
+            continue
+        before = fingerprint(path, include_path=False)
+        try:
+            report = strict_json_bytes(path.read_bytes(), document=str(path))
+        except BundleError as exc:
+            report = None
+            errors.append(f'{reference}: {exc}')
+        except OSError as exc:
+            raise ContractError('skill_output_invalid', f'Stage 9 metric report cannot be read: {reference}: {exc}') from exc
+        if fingerprint(path, include_path=False) != before:
+            raise ContractError('skill_output_invalid', f'Stage 9 metric report changed while reading: {reference}')
+        try:
+            if name == 'metrics-recovery.json':
+                _validate_metric_recovery(session, run['id'], path)
+            elif (not isinstance(report, dict) or report.get('schema') != METRIC_REPORT_SCHEMA
+                  or report.get('run_id') != run['id'] or report.get('protocol') != run['protocol']
+                  or 'recovery_binding' in report
+                  or any(not isinstance(report.get(role), dict)
+                         or report[role].get('path') != str(expected)
+                         or not isinstance(report[role].get('metrics'), dict)
+                         for role, expected in (('candidate', candidate), ('parent', parent)))):
+                raise ContractError('skill_output_invalid', f'Stage 9 metric report binding is invalid: {reference}')
+        except ContractError as exc:
+            errors.append(str(exc))
+            continue
+        if report is not None:
+            if fingerprint(path, include_path=False) != before:
+                raise ContractError('skill_output_invalid', f'Stage 9 metric report changed while validating: {reference}')
+            return {'path': reference, 'sha256': before['sha256']}
+    hint = _metric_report_warning(run['id'], 'metrics_report_unavailable', '')['recovery_hint']
+    raise ContractError('skill_output_invalid', 'Stage 9 review requires a valid metrics report: '
+                        + '; '.join(errors) + '. ' + hint)
+
+
+def _color_protection_skeleton(run):
+    evidence = run.get('processing_checks', {}).get('color_protection')
+    if evidence is None:
+        return None
+    return {'regions_path': evidence['regions_path'],
+            'structures': {name: {'region_ids': [], 'not_applicable_reason': ''}
+                           for name in ('diffuse_red', 'reflection_blue')},
+            'regions': [{'id': r['id'], 'continuity': '', 'color': '', 'weak_edges': '', 'assessment': None}
+                        for r in evidence['regions']]}
+
+
+def _validate_color_protection(run, review):
+    expected = _color_protection_skeleton(run)
+    block = review.get('color_protection_assessment')
+    if expected is None:
+        if block is not None:
+            raise ContractError('skill_output_invalid', 'Color protection assessment has no bound diagnostics')
+        return
+    def text(value):
+        return isinstance(value, str) and bool(value.strip()) and len(value) <= 2000
+    if (not isinstance(block, dict) or set(block) != set(expected) or block['regions_path'] != expected['regions_path']
+        or not isinstance(block['structures'], dict) or set(block['structures']) != set(expected['structures'])
+        or not isinstance(block['regions'], list) or len(block['regions']) != len(expected['regions'])):
+        raise ContractError('skill_output_invalid', 'Review each color protection region and red/blue applicability')
+    ids = {r['id'] for r in expected['regions']}
+    for value in block['structures'].values():
+        if (not isinstance(value, dict) or set(value) != {'region_ids', 'not_applicable_reason'}
+            or not isinstance(value['region_ids'], list) or any(not isinstance(v,str) or v not in ids for v in value['region_ids'])
+            or len(set(value['region_ids'])) != len(value['region_ids'])
+            or (not value['region_ids'] and not text(value['not_applicable_reason']))):
+            raise ContractError('skill_output_invalid', 'Declare observed structure IDs or a reason it is not applicable; do not infer spectral origin')
+    for row, required in zip(block['regions'], expected['regions']):
+        if (not isinstance(row, dict) or set(row) != set(required) or row['id'] != required['id']
+            or any(not text(row[k]) for k in ('continuity','color','weak_edges'))
+            or row['assessment'] not in ('acceptable','degraded','uncertain')
+            or (review['verdict'] == 'accept' and row['assessment'] != 'acceptable')):
+            raise ContractError('skill_output_invalid', 'Neutral sky cannot offset subject color, continuity or weak-edge regression')
+    if expected['regions_path'] not in {r['path'] for r in review['inspected_materials']}:
+        raise ContractError('skill_output_invalid', 'Inspect the source-bound protection region contract')
+
+
+def _review_skeleton(run_path: Path, run: dict[str, Any], materials: list[dict[str, str]]) -> dict[str, Any]:
+    color = None
+    if run.get('color_evaluation'):
+        from deep_sky_siril_color import review_paths as color_paths, assessment_skeleton as color_skeleton
+        materials = list({item['path']: item for item in [*materials,
+            *[{'path': name, 'sha256': sha256_file(path)} for name, path in color_paths(run_path.parent.parent, run).items()]]}.values())
+        color = color_skeleton(run_path.parent.parent, run)
+    tone = None
+    if run.get('tone_proposal'):
+        from deep_sky_siril_tone import review_paths as tone_paths, assessment_skeleton as tone_skeleton
+        materials = sorted({item['path']: item for item in [*materials,
+            *[{'path': name, 'sha256': sha256_file(path)} for name, path in tone_paths(run_path.parent.parent, run).items()]]}.values(),
+            key=lambda item: item['path'])
+        tone = tone_skeleton(run_path.parent.parent, run)
+    recomposition = None
+    if run.get('recomposition_proposal'):
+        from deep_sky_star_reduction import review_paths as recomposition_paths, assessment_skeleton as recomposition_skeleton
+        materials = sorted({item['path']: item for item in [*materials,
+            *[{'path': name, 'sha256': sha256_file(path)} for name, path in recomposition_paths(run_path.parent.parent, run).items()]]}.values(),
+            key=lambda item: item['path'])
+        recomposition = recomposition_skeleton(run_path.parent.parent, run)
+    denoise = None
+    if run.get('chroma_denoise'):
+        from deep_sky_siril_chroma import review_paths as denoise_paths, assessment_skeleton as denoise_skeleton
+        materials = list({item['path']: item for item in [*materials,
+            *[{'path': name, 'sha256': sha256_file(path)} for name, path in denoise_paths(run_path.parent.parent, run).items()]]}.values())
+        denoise = denoise_skeleton(run_path.parent.parent, run)
+    if run.get('linear_denoise') or run.get('dualband_transfer', {}).get('linear_denoise'):
+        from deep_sky_siril_denoise import review_paths as denoise_paths, assessment_skeleton as denoise_skeleton
+        materials = list({item['path']: item for item in [*materials,
+            *[{'path': name, 'sha256': sha256_file(path)} for name, path in denoise_paths(run_path.parent.parent, run).items()]]}.values())
+        denoise = denoise_skeleton(run_path.parent.parent, run)
+    if run.get('stretch_visibility'):
+        from deep_sky_siril_visibility import review_paths
+        session = run_path.parent.parent
+        materials = list({item['path']: item for item in [*materials,
+            *[{'path': name, 'sha256': sha256_file(path)} for name, path in review_paths(session, run['stretch_visibility'], run).items()]]}.values())
+    result = {
+        "schema": f"{SCHEMA_PREFIX}.review.v1",
+        "run_id": run['id'],
+        "run_receipt_sha256": sha256_file(run_path),
+        "protocol": run.get("protocol"),
+        "inspected_materials": materials,
+        "verdict": None,
+        "gates": {name: None for name in ("structure", "background", "color", "stars", "geometry")},
+        "notes": "",
+    }
+
+    if run.get('stretch_visibility'):
+        from deep_sky_siril_visibility import assessment_skeleton
+        assessment = assessment_skeleton(run_path.parent.parent, run['stretch_visibility'])
+        if assessment is not None:
+            from deep_sky_siril_artifact_focus import enabled as artifact_enabled, formal_skeleton
+            payload = load_json(run_path.parent.parent/'session.json')
+            if artifact_enabled(payload):
+                block, materials = formal_skeleton(run_path.parent.parent, payload, run,
+                    {'path': run_path.relative_to(run_path.parent.parent).as_posix(), **fingerprint(run_path, include_path=False)}, materials)
+                assessment['artifacts'] = block
+                result['inspected_materials'] = materials
+            result['stretch_assessment'] = assessment
+    if denoise is not None:
+        result['denoise_assessment'] = denoise
+    if recomposition is not None:
+        result['recomposition_assessment'] = recomposition
+    if tone is not None:
+        result['tone_assessment'] = tone
+    if color is not None:
+        result['color_assessment'] = color
+    protection = _color_protection_skeleton(run)
+    if protection is not None:
+        result['color_protection_assessment'] = protection
+        path = run_path.parent.parent/protection['regions_path']
+        if not any(item['path'] == protection['regions_path'] for item in materials):
+            materials.append({'path': protection['regions_path'], 'sha256': sha256_file(path)})
+    return result
+
+
+def check_review(session: Path, run_id: str, review_value: str | None) -> dict[str, Any]:
+    """Validate an existing review receipt, or report what a valid one must contain."""
+    session = Path(session).expanduser().resolve()
+    if review_value is None:
+        return {"status": "review_required", "review": review_materials_for_run(session, run_id)}
+    review, _binding = _validate_review(session, str(review_value), run_id)
+    result = {"status": "review_valid", "review": review}
+    if load_json(session/'session.json').get('execution_policy', {}).get('recovery_summary') == 'explicit_stage_decisions_v1':
+        from deep_sky_siril_resume import decision_summary
+        result['continuation'] = decision_summary(session,run_id,review,session_path(
+            session,review_value,must_exist=True,allowed_roots=('reviews',)))
+    return result
+
+
+def _adjustment_preview_paths(session, run):
+    for key in ('chroma_denoise', 'local_saturation', 'color_curve', 'local_tone'):
+        if run.get(key):
+            return [session / run[key]['previews'][role] for role in ('parent', 'candidate')]
+    from deep_sky_siril_processing import script_commands
+    script = session_path(session, run["script"]["path"], must_exist=True, allowed_roots=("scripts",))
+    return [validation_ops._normalized_write("savejpg", tokens[1])
+            for tokens in script_commands(script.read_text(encoding="utf-8")) if tokens[0] == "savejpg"]
+
+
+def _delivery_parent_preview_paths(session: Path, run: dict[str, Any]) -> set[Path]:
+    source_path = run.get("source_path")
+    try:
+        verified_outputs = session_state._verified_run_outputs(session)
+        prior_runs = session_state._verified_success_receipts(session)
+    except OSError as exc:
+        raise ContractError("skill_output_invalid", f"Final review parent preview verification failed: {exc}") from exc
+    parent_previews: set[Path] = set()
+    for prior_run in prior_runs:
+        if prior_run.get("id") == run["id"]:
+            continue
+        prior_outputs = prior_run.get("outputs", [])
+        owns_parent = (
+            source_path == "@input"
+            and prior_run.get("protocol") == "input.inspect"
+            and prior_run.get("source_path") == "@input"
+        ) or any(
+            isinstance(record, dict) and record.get("path") == source_path
+            for record in prior_outputs
+        )
+        if not owns_parent:
+            continue
+        adjustment_candidate_preview = None
+        if (prior_run.get("protocol") == "tone.adjust" or "color_finish" in prior_run
+            or prior_run.get("local_saturation")):
+            adjustment_candidate_preview = _adjustment_preview_paths(session, prior_run)[-1]
+        if prior_run.get('background_validation', {}).get('display'):
+            adjustment_candidate_preview = session / prior_run['background_validation']['display']['candidate_preview']
+        if prior_run.get('color_calibration', {}).get('display'):
+            adjustment_candidate_preview = session / prior_run['color_calibration']['display']['candidate_preview']
+        if prior_run.get('restoration_validation', {}).get('display'):
+            adjustment_candidate_preview = session / prior_run['restoration_validation']['display']['candidate_preview']
+        if prior_run.get('chroma_denoise'):
+            adjustment_candidate_preview = session / prior_run['chroma_denoise']['previews']['candidate']
+        if prior_run.get('local_contrast_guard'):
+            adjustment_candidate_preview = session / prior_run['local_contrast_guard']['previews']['candidate']
+        for record in prior_outputs:
+            if not isinstance(record, dict) or not isinstance(
+                record.get("path"), str
+            ):
+                continue
+            candidate = (session / record["path"]).resolve(strict=False)
+            if (
+                candidate in verified_outputs
+                and candidate.suffix.lower() in DISPLAY_IMAGE_SUFFIXES
+                and (adjustment_candidate_preview is None or candidate == adjustment_candidate_preview)
+            ):
+                parent_previews.add(candidate)
+    return parent_previews
+
+
 def _validate_review(
     session: Path,
     path_value: str,
@@ -1296,7 +2132,7 @@ def _validate_review(
         "notes",
     }
     if (
-        set(review) != required
+        set(review) - {"stretch_assessment", "denoise_assessment", "recomposition_assessment", "tone_assessment", "color_assessment", "color_protection_assessment"} != required
         or review.get("schema") != f"{SCHEMA_PREFIX}.review.v1"
         or review.get("run_id") != run_id
         or not isinstance(review.get("notes"), str)
@@ -1344,14 +2180,26 @@ def _validate_review(
                 f"Review material is invalid or duplicated: {run_id}",
             )
         seen.add(relative)
-        material_path = session_path(session, session / relative, must_exist=True)
-        if material["sha256"] != sha256_file(material_path):
+        try:
+            material_path = (Path(session_state.load_session(session)[1]['input']['path']) if relative == '@input'
+                             else session_path(session, session / relative, must_exist=True))
+            observed = sha256_file(material_path)
+        except OSError as exc:
+            raise ContractError('skill_output_invalid', f'Reviewed material is missing or unreadable: {relative}') from exc
+        if material["sha256"] != observed:
             raise ContractError(
                 "skill_output_invalid",
                 f"Reviewed material changed: {relative}",
             )
         if material_path.suffix.lower() in IMAGE_SUFFIXES:
             image_materials[relative] = material_path.resolve()
+        elif material_path.suffix.lower() == ".json":
+            try:
+                material_document = load_json(material_path)
+            except ContractError:
+                material_document = {}
+            if material_path.name == "metrics-recovery.json" or "recovery_binding" in material_document:
+                _validate_metric_recovery(session, run_id, material_path)
     gates = review.get("gates")
     gate_names = {"structure", "background", "color", "stars", "geometry"}
     values = {"pass", "fail", "not_applicable", "uncertain"}
@@ -1376,6 +2224,163 @@ def _validate_review(
             "skill_output_invalid",
             f"Accepted review contains a failed or uncertain gate: {run_id}",
         )
+    checks = run.get('processing_checks', {})
+    if run.get('stretch_visibility') or 'stretch_assessment' in review:
+        from deep_sky_siril_visibility import validate_assessment
+        validate_assessment(session, run, review)
+    if run.get('stretch_visibility'):
+        from deep_sky_siril_artifact_focus import enabled as artifact_enabled, formal_validate
+        if artifact_enabled(load_json(session/'session.json')):
+            seen.add(formal_validate(session, load_json(session/'session.json'), run, review))
+        from deep_sky_siril_visibility import review_paths
+        if not set(review_paths(session, run['stretch_visibility'], run)).issubset(seen):
+            raise ContractError('skill_output_invalid', 'Stage 7 review requires its Stage 6 autostretch reference and matching local comparisons')
+    if run.get('adaptive_parameters'):
+        from deep_sky_siril_stretch_v2 import review_paths
+        if not set(review_paths(session, run['adaptive_parameters'])).issubset(seen):
+            raise ContractError('skill_output_invalid', 'Protected stretch review requires its parameter report, matching full replay and fixed ROI panel')
+    if run.get('hdr_transfer', {}).get('protection') and run.get('protocol') == 'stretch':
+        from deep_sky_siril_hdr import protection_review_paths
+        if not set(protection_review_paths(session, run['hdr_transfer'], run)).issubset(seen):
+            raise ContractError('skill_output_invalid', 'HDR review is missing its protected regions or same-mask full replay')
+    if run.get('dualband_transfer'):
+        from deep_sky_siril_dualband import review_paths
+        if not set(review_paths(session, run)).issubset(seen):
+            raise ContractError('skill_output_invalid', 'Dualband review requires all bound monochrome comparisons, RGB baseline, HOO pixels, local previews and reports')
+        if review['verdict'] == 'accept' and any(v != 'pass' for v in gates.values()):
+            raise ContractError('skill_output_invalid', 'Accepted dualband review requires all five gates to pass')
+    if run.get('local_contrast_guard') and review['verdict'] == 'accept':
+        missing = set(_local_contrast_review_paths(session, run)) - seen
+        if missing:
+            raise ContractError('skill_output_invalid', 'Local contrast review is missing bound materials: ' + ', '.join(sorted(missing)))
+        local = checks.get('local_contrast', {})
+        if local.get('status') != 'measured' or local.get('clipping_verdict') == 'reject':
+            raise ContractError('skill_output_invalid', 'Local contrast evidence is uncertain or fails the existing scientific clipping gate')
+        if gates['structure'] != 'pass' or gates['background'] != 'pass':
+            raise ContractError('skill_output_invalid', 'Local contrast requires actual structure and background review, including high-frequency warnings')
+    restoration = run.get('restoration_validation')
+    if run.get('recomposition_proposal') or 'recomposition_assessment' in review:
+        from deep_sky_star_reduction import validate_assessment as validate_recomposition_assessment
+        validate_recomposition_assessment(session, run, review)
+    if run.get('chroma_denoise'):
+        from deep_sky_siril_chroma import validate_assessment
+        validate_assessment(session, run, review)
+    if run.get('linear_denoise') or run.get('dualband_transfer', {}).get('linear_denoise') or ('denoise_assessment' in review and not run.get('chroma_denoise')):
+        from deep_sky_siril_denoise import validate_assessment as validate_denoise_assessment
+        validate_denoise_assessment(session, run, review)
+    if restoration and review['verdict'] == 'accept':
+        required = {restoration['display']['parent_preview'], restoration['display']['candidate_preview'], f'runs/{run_id}.json'}
+        if not required.issubset(seen):
+            raise ContractError('skill_output_invalid', 'Stage 5 review requires the receipt and both matching-transfer previews')
+    neutral = run.get('color_calibration', {})
+    if neutral.get('policy') == 'scientific_native_flow_v2' and review['verdict'] == 'accept':
+        if not {neutral['display']['parent_preview'], neutral['display']['candidate_preview']}.issubset(seen):
+            raise ContractError('skill_output_invalid', 'Native neutral review must inspect both matching-transfer previews')
+    fit_quality = (checks.get('color_calibration') or {}).get('fit_quality') or {}
+    if (review['verdict'] == 'accept' and fit_quality.get('verdict') == 'degenerate'
+            and (run.get('color_calibration') or {}).get('claim') in {'photometric', 'spectrophotometric'}):
+        raise ContractError('skill_output_invalid',
+                            'A degenerate photometric fit cannot be accepted; keep the uncalibrated parent and continue down the route ladder')
+    closure = checks.get('closure', {})
+    histogram = checks.get('delivery_export', {}).get('histogram_gate', {})
+    if (run.get('protocol') == 'stars.recompose' and review['verdict'] == 'accept'
+        and session_state.load_session(session)[1].get('execution_policy', {}).get('recomposition_review') in {'fixed_materials_v1', 'stellar_color_assessment_v2'}):
+        missing = set(_recomposition_review_paths(session, run)) - seen
+        if missing:
+            raise ContractError('skill_output_invalid', 'Stage 9 review is missing required materials: '
+                                + ', '.join(sorted(missing)) + f'. Use review-check --session {session} --run-id {run_id} for the full list')
+        _recomposition_metric_material(session, run, seen)
+    if review['verdict'] == 'accept' and (closure.get('warnings') or histogram.get('warnings')):
+        required_materials = {f'runs/{run_id}.json'}
+        if closure.get('policy') == 'subject_roi_residual_v2':
+            required_materials.update(run['branch_binding'][role] for role in
+                                      ('full_baseline', 'original_starless', 'display_stars'))
+            required_materials.update((run['source_path'], run['primary_output']))
+        if histogram.get('policy') == 'delivery_histogram_gate_v2':
+            required_materials.update(run['delivery_export'][role] for role in ('fits', 'jpeg'))
+        if not required_materials.issubset(seen):
+            raise ContractError('skill_output_invalid', 'Warning review must inspect the bound receipt and actual scientific/display comparisons')
+        if review['verdict'] == 'accept' and any(value != 'pass' for value in gates.values()):
+            raise ContractError('skill_output_invalid', 'Accepted warning review requires all five gates to pass')
+    deconvolution = run.get('processing_checks', {}).get('deconvolution', {})
+    if review['verdict'] == 'accept' and deconvolution.get('policy') == 'native_star_samples_v2':
+        spatial = deconvolution.get('spatial_reports', {})
+        records = spatial.get('reports', {})
+        if spatial.get('status') != 'bound' or set(records) != {'json', 'markdown'}:
+            raise ContractError('skill_output_invalid', 'Accepted PSF v2 review requires both bound spatial reports')
+        for record in records.values():
+            report_path = session_path(session, record['path'], must_exist=True, allowed_roots=('reports',))
+            if (record['path'] not in seen or fingerprint(report_path, include_path=False)
+                != {k: record[k] for k in ('sha256', 'size')}):
+                raise ContractError('skill_output_invalid', 'Accepted PSF v2 review must inspect unchanged JSON and Markdown reports')
+        required_pixels = {run['source_path'], run['primary_output']} | {
+            record['path'] for record in run.get('outputs', []) if Path(record['path']).suffix.lower() in IMAGE_SUFFIXES}
+        if not required_pixels.issubset(image_materials):
+            raise ContractError('skill_output_invalid', 'Accepted PSF v2 review must inspect actual parent and candidate pixels')
+    neutral = run.get('processing_checks', {}).get('color_calibration', {}).get('neutral_validation')
+    if neutral is not None:
+        required = {f'runs/{run_id}.json', run['color_calibration']['background_regions']}
+        if not required.issubset(seen):
+            raise ContractError('skill_output_invalid', 'Neutral review must inspect the bound receipt evidence and region contract')
+        if review['verdict'] == 'accept':
+            candidate_images = {run['primary_output']}
+            from deep_sky_siril_processing import script_commands
+            commands = script_commands((session / run['script']['path']).read_text(encoding='utf-8'))
+            last_load = max(i for i, row in enumerate(commands) if row[0] == 'load')
+            for row in commands[last_load+1:]:
+                if row[0] == 'savejpg':
+                    preview = validation_ops._normalized_write('savejpg', row[1])
+                    candidate_images.add(relative_session_path(session, session_path(session, preview, must_exist=True)))
+            parent_images = {run['source_path']} if run['source_path'] != '@input' else set()
+            if run['color_calibration'].get('policy') == 'scientific_native_flow_v2':
+                parent_images.add(run['color_calibration']['display']['parent_preview'])
+            for owner in session_state._verified_success_receipts(session):
+                if owner['id'] == run_id:
+                    continue
+                owns_parent = (run['source_path'] == '@input' and owner['protocol'] == 'input.inspect'
+                               and owner['source_path'] == '@input') or owner.get('primary_output') == run['source_path']
+                if owns_parent:
+                    parent_images.update(record['path'] for record in owner['outputs']
+                                         if Path(record['path']).suffix.lower() in DISPLAY_IMAGE_SUFFIXES)
+            if not candidate_images.intersection(image_materials) or not parent_images.intersection(image_materials):
+                raise ContractError('skill_output_invalid', 'Accepted neutral review must inspect actual parent and candidate images')
+    if run.get('protocol') == 'background.subtract' and run.get('processing_checks', {}).get('background_validation', {}).get('decision'):
+        bg = run['processing_checks']['background_validation']
+        if review['verdict'] == 'accept' and bg['decision'] != 'review_required':
+            raise ContractError('skill_output_invalid', 'Skipped or blocked background candidates cannot be accepted')
+        display = run['background_validation']['display']
+        required_materials = {display['parent_preview'], display['candidate_preview'], bg['path']}
+        if not required_materials.issubset(seen):
+            raise ContractError('skill_output_invalid', 'Background review must inspect both matching-transfer previews and the bound background report')
+    if run.get('protocol') == 'stretch' and run.get('hdr_transfer'):
+        if not set(run['hdr_transfer']['previews'].values()).issubset(image_materials):
+            raise ContractError('skill_output_invalid', 'HDR stretch review must inspect gentle, faint, mask and candidate JPEGs')
+    if run.get('local_tone'):
+        required = set(run['local_tone']['previews'].values()) | {f'runs/{run_id}.json', run['local_tone']['regions']['path']}
+        if not required.issubset(seen):
+            raise ContractError('skill_output_invalid', 'Local tone review must inspect parent, mask, candidate, regions and run evidence')
+    if run.get('local_saturation') or run.get('color_curve'):
+        color_binding = run.get('color_curve') or run['local_saturation']
+        required = set(color_binding['previews'].values()) | {f'runs/{run_id}.json'}
+        curve = color_binding.get('curve_parameters')
+        if curve:
+            from deep_sky_siril_stretch import bound_file
+            report = load_json(bound_file(session, curve['report']))
+            required.update(curve[key]['path'] for key in ('report', 'regions', 'configuration'))
+            required.update(trial[key]['path'] for trial in report['trials'] for key in ('script', 'log'))
+        if not required.issubset(seen):
+            raise ContractError('skill_output_invalid', 'Local saturation review must inspect parent, mask, candidate and run evidence')
+    if run.get("protocol") == "tone.adjust" or "color_finish" in run:
+        previews = {relative_session_path(session, path) for path in _adjustment_preview_paths(session, run)}
+        if not previews.issubset(image_materials):
+            raise ContractError("skill_output_invalid", "Adjustment review must inspect both direct parent and candidate JPEGs")
+    if run.get('tone_proposal') or 'tone_assessment' in review:
+        from deep_sky_siril_tone import validate_assessment as validate_tone_assessment
+        validate_tone_assessment(session, run, review)
+    _validate_color_protection(run, review)
+    if run.get('color_evaluation') or 'color_assessment' in review:
+        from deep_sky_siril_color import validate_assessment as validate_color_assessment
+        validate_color_assessment(session, run, review)
     if run.get("protocol") == "delivery.render":
         delivery_images = {
             str(record["path"])
@@ -1384,35 +2389,13 @@ def _validate_review(
             and isinstance(record.get("path"), str)
             and Path(record["path"]).suffix.lower() in IMAGE_SUFFIXES
         }
+        if run.get('delivery_export'):
+            required = {run['delivery_export'][role] for role in ('fits', 'jpeg')}
+            if not required.issubset(image_materials):
+                raise ContractError('skill_output_invalid', 'Final review must inspect the delivery JPEG and paired FITS')
+            delivery_images = {run['delivery_export']['jpeg']}
         inspected_delivery = set(image_materials) & delivery_images
-        source_path = run.get("source_path")
-        verified_outputs = session_state._verified_run_outputs(session)
-        parent_previews: set[Path] = set()
-        for prior_run in session_state._verified_success_receipts(session):
-            if prior_run.get("id") == run_id:
-                continue
-            prior_outputs = prior_run.get("outputs", [])
-            owns_parent = (
-                source_path == "@input"
-                and prior_run.get("protocol") == "input.inspect"
-                and prior_run.get("source_path") == "@input"
-            ) or any(
-                isinstance(record, dict) and record.get("path") == source_path
-                for record in prior_outputs
-            )
-            if not owns_parent:
-                continue
-            for record in prior_outputs:
-                if not isinstance(record, dict) or not isinstance(
-                    record.get("path"), str
-                ):
-                    continue
-                candidate = (session / record["path"]).resolve(strict=False)
-                if (
-                    candidate in verified_outputs
-                    and candidate.suffix.lower() in DISPLAY_IMAGE_SUFFIXES
-                ):
-                    parent_previews.add(candidate)
+        parent_previews = _delivery_parent_preview_paths(session, run)
         inspected_parent = set(image_materials.values()) & parent_previews
         if not inspected_delivery or not inspected_parent:
             raise ContractError(
@@ -1426,6 +2409,20 @@ def _validate_review(
                 "skill_output_invalid",
                 "Accepted final review requires all five gates to pass",
             )
+        checks = run.get('processing_checks', {}).get('delivery_export', {})
+        hist_gate = checks.get('histogram_gate', {})
+        if hist_gate.get('status') == 'failed':
+            reasons_str = '; '.join(hist_gate.get('reasons', []))
+            if review["verdict"] == "accept":
+                raise ContractError(
+                    "skill_output_invalid",
+                    f"Accepted final review violates delivery histogram gate: {reasons_str}",
+                )
+            if gates.get("background") == "pass":
+                raise ContractError(
+                    "skill_output_invalid",
+                    f"Delivery background gate cannot pass when histogram gate failed: {reasons_str}",
+                )
     return review, {
         "path": relative_session_path(session, path),
         "sha256": sha256_file(path),
@@ -1487,14 +2484,15 @@ def _ensure_copy(
     return source_sha256
 
 
-def _list_intermediate_images(session: Path) -> list[str]:
+def _list_intermediate_images(session: Path, *, preserve=()) -> list[str]:
     images: list[str] = []
     for root_name in ("artifacts", "previews", "reports"):
         root = session / root_name
         for path in sorted(root.rglob("*"), reverse=True):
             if path.is_symlink():
                 raise ContractError("unsafe_path", f"Refusing to prune a symlink: {path}")
-            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
+            if (path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+                and relative_session_path(session, path) not in preserve):
                 images.append(relative_session_path(session, path))
     return sorted(images)
 
@@ -1648,8 +2646,11 @@ def _load_committed_finalization(
         "retention_policy",
         "cleanup_completed",
     }
+    paired = (session_payload.get('execution_policy') or {}).get('delivery') in PAIRED_DELIVERY_POLICIES
     if delivered:
         required |= {"reference_sha256", "final_sha256"}
+        if paired:
+            required.add('final_fits_sha256')
     if (
         set(finalization) != required
         or finalization.get("schema") != f"{SCHEMA_PREFIX}.finalization.v1"
@@ -1729,7 +2730,17 @@ def _load_committed_finalization(
                 "skill_output_invalid",
                 "Committed image binding is invalid",
             )
+        if paired:
+            _verified_committed_file(session / 'outputs/final.fit', finalization.get('final_fits_sha256'), 'final FITS')
+            for document in (result, audit):
+                record = document.get('final_fits', {})
+                if (not isinstance(record, dict) or record.get('path') != 'outputs/final.fit'
+                    or record.get('sha256') != finalization['final_fits_sha256']
+                    or record.get('size') != (session / 'outputs/final.fit').stat().st_size):
+                    raise ContractError('skill_output_invalid', 'Committed final FITS binding is invalid')
     else:
+        if paired and ((session / 'outputs/final.fit').exists() or (session / 'outputs/final.fit').is_symlink()):
+            raise ContractError('manifest_invalid', 'Non-delivery finalization contains outputs/final.fit')
         if final_path.exists() or final_path.is_symlink():
             raise ContractError(
                 "manifest_invalid",
@@ -1765,6 +2776,40 @@ def _load_committed_finalization(
                 "skill_output_invalid",
                 "Failed result is missing its error",
             )
+    if session_payload.get('execution_policy', {}).get('delivery') == 'paired_fits_jpeg_v2':
+        evidence = audit.get('evidence_files')
+        if not isinstance(evidence, list) or not evidence:
+            raise ContractError('skill_output_invalid', 'Committed v2 evidence inventory is missing')
+        paths = set()
+        pruned = set(audit.get('pruned_intermediate_images', [])) if retention_policy == 'prune' else set()
+        for record in evidence:
+            if (not isinstance(record, dict) or set(record) != {'path', 'sha256', 'size'}
+                or not isinstance(record['path'], str) or record['path'] in paths
+                or not isinstance(record['sha256'], str) or HASH_PATTERN.fullmatch(record['sha256']) is None
+                or type(record['size']) is not int or record['size'] < 0):
+                raise ContractError('skill_output_invalid', 'Committed v2 evidence inventory is invalid')
+            paths.add(record['path'])
+            path = session_path(session, record['path'], allowed_roots=('scripts', 'runs', 'reviews', 'reports', 'logs', 'artifacts', 'previews'))
+            if path.exists():
+                if fingerprint(path, include_path=False) != {k: record[k] for k in ('sha256', 'size')}:
+                    raise ContractError('skill_output_invalid', 'Committed evidence changed: ' + record['path'])
+            elif record['path'] not in pruned:
+                raise ContractError('skill_output_invalid', 'Committed evidence is missing: ' + record['path'])
+        required = {f'runs/{run_id}.json' for run_id in audit.get('selected_runs', [])}
+        required.update(record['path'] for record in audit.get('reviews', []))
+        from deep_sky_siril_stretch_trials import retained_paths
+        trial_paths = retained_paths(session, session_payload)
+        from deep_sky_siril_morphology import retained_paths as morphology_paths
+        trial_paths.update(morphology_paths(session,session_payload,require_sources=False))
+        from deep_sky_siril_artifact_focus import retained_paths as artifact_paths
+        trial_paths.update(artifact_paths(session, session_payload, require_sources=False))
+        from deep_sky_siril_display_scale import retained_paths as display_scale_paths
+        trial_paths.update(display_scale_paths(session, session_payload))
+        if trial_paths & pruned:
+            raise ContractError('skill_output_invalid', 'Committed cleanup cannot remove Stage 7 trial artifacts')
+        required.update(trial_paths)
+        if not required.issubset(paths):
+            raise ContractError('skill_output_invalid', 'Committed v2 evidence omits selected receipts or reviews')
     return result, audit, retention_policy, cleanup_completed
 
 
@@ -1774,6 +2819,7 @@ def _validated_candidate(
 ) -> tuple[
     Path,
     dict[str, tuple[dict[str, Any], dict[str, Any]]],
+    dict[str, Any],
     dict[str, Any],
 ]:
     selected_runs = selection["selected_runs"]
@@ -1844,7 +2890,7 @@ def _validated_candidate(
             "skill_output_invalid",
             "Candidate image is not a valid JPEG",
         )
-    return candidate, review_by_run, display
+    return candidate, review_by_run, display, owner
 
 
 def finalize_session(
@@ -1854,14 +2900,24 @@ def finalize_session(
     keep_intermediates: bool,
 ) -> dict[str, Any]:
     session, payload, manifest = session_state.load_session(session_value)
+    payload = session_state.effective_session_payload(session, payload, manifest)
     selection_path = session_path(session, selection_value, must_exist=True)
     selection = load_json(selection_path)
     _validate_selection(selection)
     selection_sha256 = sha256_file(selection_path)
-    for run_id in selection["selected_runs"]:
-        _load_run(session, run_id)
 
     prior = manifest.get("finalization")
+    committed_v2 = isinstance(prior, dict) and payload.get('execution_policy', {}).get('delivery') == 'paired_fits_jpeg_v2'
+    if not committed_v2:
+        for run_id in selection["selected_runs"]:
+            _, selected_run = _load_run(session, run_id)
+            if selected_run.get('processing_checks', {}).get('background_validation', {}).get('decision') == 'skip':
+                raise ContractError('skill_output_invalid', 'Skipped background candidates cannot enter selected lineage')
+            hist_gate = selected_run.get('processing_checks', {}).get('delivery_export', {}).get('histogram_gate', {})
+            if hist_gate.get('status') == 'failed' and selection["status"] in {"success", "partial_success"}:
+                reasons_str = '; '.join(hist_gate.get('reasons', []))
+                raise ContractError('skill_output_invalid', f"Finalization rejected: delivery candidate failed histogram gate ({reasons_str})")
+
     if isinstance(prior, dict):
         result, audit, retention_policy, cleanup_completed = (
             _load_committed_finalization(
@@ -1885,6 +2941,7 @@ def finalize_session(
         raise ContractError("manifest_invalid", "Manifest finalization is invalid")
 
     status = selection["status"]
+    paired = (payload.get('execution_policy') or {}).get('delivery') in PAIRED_DELIVERY_POLICIES
     if bool(selection["stars_required"]) != (
         payload["context"].get("stars") != "standalone-starless"
     ):
@@ -1901,11 +2958,11 @@ def finalize_session(
             "skill_output_invalid",
             "Required stars are absent from the delivered output",
         )
-    input_state = payload["context"].get("input_state")
-    if input_state == "unknown" and status != "failed":
+    unknown_fields = _unknown_context_fields(payload)
+    if unknown_fields and status != "failed":
         raise ContractError(
             "skill_output_invalid",
-            "Unknown input stops after Stage 1 and cannot be finalized with a candidate; create a new session after obtaining reliable state evidence",
+            f"Unknown {', '.join(unknown_fields)} stops after Stage 1 and cannot be finalized with a candidate; use confirm-input with reliable source evidence after an accepted inspection",
         )
 
     selection_record = {
@@ -1920,6 +2977,14 @@ def finalize_session(
         "preserve" if should_keep or not delivered else "prune"
     )
     prune_plan: list[str] = []
+    from deep_sky_siril_stretch_trials import retained_paths
+    trial_paths = retained_paths(session, payload)
+    from deep_sky_siril_morphology import retained_paths as morphology_paths
+    trial_paths.update(morphology_paths(session,payload))
+    from deep_sky_siril_artifact_focus import retained_paths as artifact_paths
+    trial_paths.update(artifact_paths(session, payload))
+    from deep_sky_siril_display_scale import retained_paths as display_scale_paths
+    trial_paths.update(display_scale_paths(session, payload))
 
     audit: dict[str, Any] = {
         "schema": f"{SCHEMA_PREFIX}.final-audit.v1",
@@ -1945,11 +3010,14 @@ def finalize_session(
         "intermediates_preserved": retention_policy == "preserve",
         "knowledge_validation": session_state._knowledge_record(payload),
     }
+    if "input_confirmation" in payload:
+        audit["input_confirmation"] = payload["input_confirmation"]
 
     if status == "failed":
         for official in (
             session / "outputs" / "reference.jpg",
             session / "outputs" / "final.jpg",
+            *([session / "outputs" / "final.fit"] if paired else []),
         ):
             if official.exists() or official.is_symlink():
                 raise ContractError(
@@ -1959,7 +3027,7 @@ def finalize_session(
         audit["error"] = selection["error"]
         result["error"] = selection["error"]
     else:
-        candidate, review_by_run, display = _validated_candidate(
+        candidate, review_by_run, display, owner = _validated_candidate(
             session,
             selection,
         )
@@ -1969,6 +3037,20 @@ def finalize_session(
         }
         audit["candidate"] = {**candidate_record, "validation": display}
         audit["selected_runs"] = selection["selected_runs"]
+        if (payload.get('execution_policy') or {}).get('delivery') == 'paired_fits_jpeg_v2':
+            evidence = set()
+            evidence.update(session/relative for relative in trial_paths)
+            for directory in ('scripts', 'runs', 'reviews', 'reports', 'logs'):
+                evidence.update(path for path in (session / directory).rglob('*') if path.is_file())
+            for selected_id in selection['selected_runs']:
+                _, selected_receipt = _load_run(session, selected_id)
+                evidence.update(session_path(session, record['path'], must_exist=True)
+                                for record in selected_receipt.get('outputs', []))
+            evidence.difference_update((session / 'reports/final-audit.json', session / 'reports/final-result.json'))
+            audit['evidence_files'] = [
+                {'path': relative_session_path(session, path), **fingerprint(session_path(session, path, must_exist=True,
+                    allowed_roots=('scripts', 'runs', 'reviews', 'reports', 'logs', 'artifacts', 'previews')), include_path=False)}
+                for path in sorted(evidence)]
         audit["reviews"] = [
             review_by_run[run_id][1] for run_id in selection["selected_runs"]
         ]
@@ -1976,6 +3058,7 @@ def finalize_session(
             for official in (
                 session / "outputs" / "reference.jpg",
                 session / "outputs" / "final.jpg",
+                *([session / "outputs" / "final.fit"] if paired else []),
             ):
                 if official.exists() or official.is_symlink():
                     raise ContractError(
@@ -1990,6 +3073,20 @@ def finalize_session(
             )
             reference_path = session / "outputs" / "reference.jpg"
             final_path = session / "outputs" / "final.jpg"
+            if paired:
+                binding = owner.get('delivery_export', {})
+                checks = owner.get('processing_checks', {}).get('delivery_export', {})
+                if (binding.get('policy') != payload['execution_policy']['delivery']
+                    or binding.get('jpeg') != relative_session_path(session, candidate)
+                    or binding.get('fits') != owner.get('primary_output') or checks.get('status') != 'passed'):
+                    raise ContractError('skill_output_invalid', 'Final JPEG is not bound to a verified scientific FITS')
+                science = session_path(session, binding['fits'], must_exist=True, allowed_roots=('artifacts',))
+                record = checks.get('artifacts', {}).get('fits', {})
+                target = session / 'outputs/final.fit'
+                _ensure_copy(science, target, expected_sha256=record.get('sha256'))
+                final_fits = {'path': 'outputs/final.fit', **fingerprint(target, include_path=False)}
+                audit['final_fits'] = {**final_fits, 'validation': checks}
+                result['final_fits'] = final_fits
             _ensure_copy(reference_source, reference_path)
             _ensure_copy(candidate, final_path)
             reference_record = {
@@ -2008,7 +3105,7 @@ def finalize_session(
             result["reference"] = reference_record
             result["final"] = final_record
             if retention_policy == "prune":
-                prune_plan.extend(_list_intermediate_images(session))
+                prune_plan.extend(_list_intermediate_images(session, preserve=trial_paths))
 
     audit_path = session / "reports" / "final-audit.json"
     atomic_write_json(audit_path, audit)
@@ -2036,6 +3133,8 @@ def finalize_session(
     if delivered:
         finalization["reference_sha256"] = result["reference"]["sha256"]
         finalization["final_sha256"] = result["final"]["sha256"]
+        if paired:
+            finalization["final_fits_sha256"] = result["final_fits"]["sha256"]
     manifest["finalization"] = finalization
     manifest["updated_at"] = utc_now()
     atomic_write_json(session / "manifest.json", manifest)
@@ -2050,4 +3149,4 @@ def finalize_session(
     return result
 
 
-__all__ = ("finalize_session", "run_script")
+__all__ = ("check_review", "finalize_session", "review_materials_for_run", "run_script")

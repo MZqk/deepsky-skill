@@ -1,0 +1,46 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "agent_proposed_stretch_flow_v25",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2"
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "d46e12b12b93abc5ef7f56e21d793732ac485379ecf4f73b82cb90b90b159d55",
+      "size": 21692
+    },
+    "CHANGELOG.md": {
+      "sha256": "2c1fbd22b57ee3f3fe71d0411a2bb534595e38a64c87a6e786eb75b5effe7b74",
+      "size": 33135
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "81c6e8cf590a5d03368b0e8fda4ef07ab0eabe25c98a2c82814f4d64d63710fa",
+      "size": 58081
+    },
+    "references/target-morphology-review.md": {
+      "sha256": "cad88b61d7c2d77390614c37c5475c36c37be19f36e706df991b6d37cedf8af2",
+      "size": 8511
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "starun-siril.starnet-linear-source.v1",
+  "license": "GPL-3.0-or-later",
+  "native_version": "2.6.2",
+  "native_documentation": "https://starnetastro.com/documentation/starnet/command-line-tool/",
+  "upstream_url": "https://gitlab.com/free-astro/siril-scripts",
+  "commit": "f6cc0feae8f0f686f1b83f18758eae1ca27392a7",
+  "path": "StarNetAstro/StarNet.py",
+  "legacy_adapter_sha256": "083df0e3b4411642f0980c7ba632f3bc858f0b9dd0e948904aa2cd2076f7f583",
+  "adapter_sha256": "6556638d21d95855f985d2bfdfca249278b26a93908119555d8d37cc2909d28b",
+  "modifications": [
+    "Reuse the frozen legacy source/runtime validator and Python probe without changing that adapter.",
+    "Copy the declared Siril float32 FITS byte-for-byte; native CLI performs linear pre-stretch and inverse.",
+    "Use explicit shadows_clipping and target_background, protected highlights and no upsampling or external mask.",
+    "Siril reloads native starless FITS and computes the signed additive residual.",
+    "Bind native argv, raw logs, FITS fingerprints and final float32 pixels; retain failed handoffs.",
+    "Pass above-one finite linear samples unchanged; log their count/peak and retain native clipping warnings per the official 2.6.2 CLI documentation reviewed 2026-10-15."
+  ]
+}

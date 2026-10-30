@@ -1,0 +1,475 @@
+{
+  "execution_policy": {
+    "evidence_admission": "source_bound_v1",
+    "stretch_optimization": "highlight_budget_mtf_v2",
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_review_gate_v5",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "evidence_bound_stretch_flow_v29",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "stretch_routing": "profile_bound_v1",
+    "stretch_trial_artifacts": "retained_artifacts_v1",
+    "stretch_constraint_preflight": "curve_effect_review_v2",
+    "stretch_morphology": "roi_declared_v1",
+    "stretch_tail_comparison": "verified_negative_control_v1",
+    "recovery_summary": "explicit_stage_decisions_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "color_curve_variants": "inverse_saturation_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "stellar_color_assessment_v2",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2",
+    "local_contrast_mask": "minimum_source_support_v1",
+    "local_contrast_hdr": "wavelet_only_v1",
+    "subject_enhancement": "benefit_first_v1",
+    "linear_denoise": "agent_proposal_v1",
+    "linear_denoise_backend": "deepsnr_primary_v1",
+    "recomposition_parameters": "agent_proposal_v1",
+    "recomposition_geometry": "fixed_catalog_profiles_v1",
+    "tone_adjustment": "remaining_goal_v1",
+    "color_evaluation": "unmasked_first_v1",
+    "color_region_goals": "explicit_targets_v1",
+    "color_preservation": "vivid_preservation_v1",
+    "chroma_denoise": "chroma_bilateral_v1",
+    "subject_mask": "reviewed_polygons_v1"
+  },
+  "helpers": {
+    "scripts/deep_sky_siril_validation.py": {
+      "sha256": "8bc0b42315d82a6c4ee9eda0b98f3e86f87af4b3dcd4444cc67b3b9a1395f48f",
+      "size": 44413
+    },
+    "scripts/deep_sky_siril_metrics.py": {
+      "sha256": "514e7e2bbe2a39818ab7f362f8ba04018833bde313e54ef68e4d5101d88b3b44",
+      "size": 34710
+    },
+    "scripts/siril_psf_samples.py": {
+      "sha256": "694e4d34869331ca776827c2442da24c4a0d0fd3e9ab8e75cefae9083a0cd721",
+      "size": 15655
+    },
+    "scripts/deep_sky_siril_artifacts.py": {
+      "sha256": "3c22f06fe68a71ffe6dc5b41aecd8f6c4406601b6d4e9c88fd6b6556b073e30a",
+      "size": 56744
+    },
+    "scripts/deep_sky_siril_color.py": {
+      "sha256": "0f3b71bf3cf952110c35295e07ac32fc516accb3b303703066bff7c01cb238f3",
+      "size": 80411
+    },
+    "scripts/deep_sky_siril_processing.py": {
+      "sha256": "ed5d759112404ef61ed77adf5238d40f9583b5807e110db538939dd098e0fd5d",
+      "size": 156022
+    },
+    "scripts/deep_sky_siril_geometry.py": {
+      "sha256": "ccbf6130e5190c4b5912dac586574f13087bff2eb6f4d2b2ad625adb477d5bcb",
+      "size": 12174
+    },
+    "scripts/deep_sky_siril_neutral.py": {
+      "sha256": "0b71b4d981a1fd3b67b610c0319ee0541e4b6deb61d06827dcdaee6fe994c003",
+      "size": 12451
+    },
+    "scripts/siril_deepsnr.py": {
+      "sha256": "d421a4d6441a3533196244320c4fb6e964f83e0ea80965c02002fffd8880ff6f",
+      "size": 13277
+    },
+    "scripts/deep_sky_siril_stretch.py": {
+      "sha256": "8a4e3e5e2709ceb0125c5e105b0cdffc4d46d3fed5e85f61b2129277875c88d2",
+      "size": 70962
+    },
+    "scripts/deep_sky_siril_stretch_preflight.py": {
+      "sha256": "f10ba2afa9283c1842e7e0a6189fc4ab18f05675e875bb36df6d423fe7391c1e",
+      "size": 21033
+    },
+    "scripts/deep_sky_siril_subject_mask.py": {
+      "sha256": "161eaf1f100a9832410798d7236e47592f677683d3180143e86eb7621e7df78d",
+      "size": 13979
+    },
+    "scripts/query_siril_manual.py": {
+      "sha256": "f6a0028e87dcbb4ec48d517f5ea2413730376c8edf2000364c3fba8520708e03",
+      "size": 97374
+    },
+    "scripts/deep_sky_siril_contract.py": {
+      "sha256": "5510ae28f20d2525933ab0dbd13c276f3a0fdb218a74645675c92832820763d4",
+      "size": 18566
+    },
+    "scripts/deep_sky_siril_visibility.py": {
+      "sha256": "80365b5ded1149044aa59a96704b78ea642dded742d4129b8090a95221b18843",
+      "size": 44475
+    },
+    "scripts/deep_sky_siril_hdr.py": {
+      "sha256": "2d6e189e3d447b1cc587346edb5441f9199af5ba12f544412b01d8d977d960bd",
+      "size": 20445
+    },
+    "scripts/deep_sky_siril_resume.py": {
+      "sha256": "730526de6c5ca1b295552bdf40865c5e5a962f30984f98a25dba2a58a3cdbe44",
+      "size": 20207
+    },
+    "scripts/filter_metadata.py": {
+      "sha256": "98cd89ba8451d6de292d1629133d78687d11333f176a36d0b8da01c2330d3b6a",
+      "size": 6343
+    },
+    "scripts/siril_auto_samples.py": {
+      "sha256": "535964985db4b884ac6cc64dbe41d847143ca0dcc1cb8327047083d6c17631db",
+      "size": 38701
+    },
+    "scripts/deep_sky_siril_morphology.py": {
+      "sha256": "bed4e4d79d44646e5410094235f7e39594fee4656124c6d35be68e71dae46ba9",
+      "size": 13222
+    },
+    "scripts/deep_sky_siril_session.py": {
+      "sha256": "b4fb0c8ea91911ff3d33582fe3b925e9f58a52df18aef8625aa1acd3e44b50c0",
+      "size": 331174
+    },
+    "scripts/siril_background_samples_scientific.py": {
+      "sha256": "a3ec4d493b15f72f42a77b0ce3f00888656ecb4d8855fa9072304ab642e93601",
+      "size": 4895
+    },
+    "scripts/deep_sky_siril_local_contrast.py": {
+      "sha256": "f0e18c761470a10bd75280e3013a11fec9145a6f6bc62c1812bb24e1945e2a30",
+      "size": 58805
+    },
+    "scripts/deep_sky_siril_stretch_v2.py": {
+      "sha256": "b06f148826b8a064adb8f586ffa2dcf4a98fe593abd1bf4fda311b60bb2c5114",
+      "size": 121834
+    },
+    "scripts/siril_starnet.py": {
+      "sha256": "083df0e3b4411642f0980c7ba632f3bc858f0b9dd0e948904aa2cd2076f7f583",
+      "size": 15280
+    },
+    "scripts/deep_sky_siril_background.py": {
+      "sha256": "c2cb5c70728b66cb79a94ae227f5d1eb6e5ebc0ac8ad436ffda0ad99c9a05277",
+      "size": 19404
+    },
+    "scripts/deep_sky_siril_dualband.py": {
+      "sha256": "a27baa33eb16d24c224bf0dadb83e7d01ee55d0d51a09b0797d6543fc4f8c16a",
+      "size": 45321
+    },
+    "scripts/siril_background_samples.py": {
+      "sha256": "f01ea5649f165ce4cf1d4ca2e3ca2ed501a7e7e293945ba5a68ee025e6c35b36",
+      "size": 12197
+    },
+    "scripts/deep_sky_siril_chroma.py": {
+      "sha256": "105645109aa4ddee26eb35a2315a8699f4136d2a814a53ee331b1d9d2e06ff40",
+      "size": 26631
+    },
+    "scripts/deep_sky_siril_tooling.py": {
+      "sha256": "47a0442a1a6a1fd4cc9ff913e64945a7cd6f1780a1bfaa84d05eef9d28cc7f83",
+      "size": 25409
+    },
+    "scripts/deep_sky_siril_stretch_profiles.py": {
+      "sha256": "2d80ddb49ad69bc304121e6346a68e923c8611e96b1c7685747b4f7d97eb36b2",
+      "size": 72358
+    },
+    "scripts/sync_fits_header.py": {
+      "sha256": "c0beb76a59ced1dcb0ed0e8d8cdc53f73ce72afac3a48a35b0c6bf0a495168df",
+      "size": 44865
+    },
+    "scripts/build_siril_manual.py": {
+      "sha256": "ab56dc1bdd2ed78c1add56b49d2b1883c394e62d5e636f54f5dfbfe5cca924cc",
+      "size": 70607
+    },
+    "scripts/siril_manual_bundle.py": {
+      "sha256": "cf533ce6eecec44fef89c9a10da8b43f0772dd9598b85638f4c9180653117afa",
+      "size": 46445
+    },
+    "scripts/deep_sky_siril.py": {
+      "sha256": "1114127cf894efddb8eefbee80bea1ccd71501ef2a263e9bc5ea9ec0b7d8891a",
+      "size": 10471
+    },
+    "scripts/siril_starnet_linear.py": {
+      "sha256": "6556638d21d95855f985d2bfdfca249278b26a93908119555d8d37cc2909d28b",
+      "size": 13289
+    },
+    "scripts/deep_sky_star_reduction.py": {
+      "sha256": "57c853f30f5a9a30462b4f279ddf6b9fc54dbc467f34585f4a657944f8913170",
+      "size": 82355
+    },
+    "scripts/deep_sky_siril_denoise.py": {
+      "sha256": "8c997fcc49caea8342188dd908216043b74f5c4f55b36792513c859481a4ec28",
+      "size": 34254
+    },
+    "scripts/deep_sky_siril_core.py": {
+      "sha256": "0b756f48d33d6221955d5a70ebf768a9e5633b88dca7f1205e31bcad629a97f4",
+      "size": 150776
+    },
+    "scripts/deep_sky_siril_psf.py": {
+      "sha256": "b463f6b0575cfe2cbe5a08964e82a212ad1c953f8a858db835ca3af858eb2350",
+      "size": 44340
+    },
+    "scripts/deep_sky_siril_stretch_trials.py": {
+      "sha256": "324894185324302b9b7dde58f4cf5938133223e3414efc72d0d5a1770f9569cc",
+      "size": 6986
+    },
+    "scripts/package_release.py": {
+      "sha256": "fd3d0d31a1cea47f2359ae20f1a3450bc2566859e5eeac98770d1a5c69bbea77",
+      "size": 45450
+    },
+    "scripts/deep_sky_siril_tone.py": {
+      "sha256": "ff88711dbb03c4517150fdd88bc9c702ab0abd6acf77b39847a7c053fc0fb622",
+      "size": 13176
+    }
+  },
+  "implementation": {
+    "deep_sky_siril_stretch_v2.py": {
+      "sha256": "b06f148826b8a064adb8f586ffa2dcf4a98fe593abd1bf4fda311b60bb2c5114",
+      "size": 121834
+    },
+    "deep_sky_siril_stretch.py": {
+      "sha256": "8a4e3e5e2709ceb0125c5e105b0cdffc4d46d3fed5e85f61b2129277875c88d2",
+      "size": 70962
+    },
+    "deep_sky_siril_stretch_profiles.py": {
+      "sha256": "2d80ddb49ad69bc304121e6346a68e923c8611e96b1c7685747b4f7d97eb36b2",
+      "size": 72358
+    },
+    "deep_sky_siril_stretch_trials.py": {
+      "sha256": "324894185324302b9b7dde58f4cf5938133223e3414efc72d0d5a1770f9569cc",
+      "size": 6986
+    },
+    "deep_sky_siril_stretch_preflight.py": {
+      "sha256": "f10ba2afa9283c1842e7e0a6189fc4ab18f05675e875bb36df6d423fe7391c1e",
+      "size": 21033
+    },
+    "deep_sky_siril_morphology.py": {
+      "sha256": "bed4e4d79d44646e5410094235f7e39594fee4656124c6d35be68e71dae46ba9",
+      "size": 13222
+    },
+    "deep_sky_siril_local_contrast.py": {
+      "sha256": "f0e18c761470a10bd75280e3013a11fec9145a6f6bc62c1812bb24e1945e2a30",
+      "size": 58805
+    },
+    "deep_sky_siril_processing.py": {
+      "sha256": "ed5d759112404ef61ed77adf5238d40f9583b5807e110db538939dd098e0fd5d",
+      "size": 156022
+    },
+    "deep_sky_siril_hdr.py": {
+      "sha256": "2d6e189e3d447b1cc587346edb5441f9199af5ba12f544412b01d8d977d960bd",
+      "size": 20445
+    },
+    "deep_sky_siril_dualband.py": {
+      "sha256": "a27baa33eb16d24c224bf0dadb83e7d01ee55d0d51a09b0797d6543fc4f8c16a",
+      "size": 45321
+    },
+    "deep_sky_siril_core.py": {
+      "sha256": "0b756f48d33d6221955d5a70ebf768a9e5633b88dca7f1205e31bcad629a97f4",
+      "size": 150776
+    },
+    "deep_sky_siril_visibility.py": {
+      "sha256": "80365b5ded1149044aa59a96704b78ea642dded742d4129b8090a95221b18843",
+      "size": 44475
+    },
+    "deep_sky_siril_denoise.py": {
+      "sha256": "8c997fcc49caea8342188dd908216043b74f5c4f55b36792513c859481a4ec28",
+      "size": 34254
+    },
+    "deep_sky_siril_tone.py": {
+      "sha256": "ff88711dbb03c4517150fdd88bc9c702ab0abd6acf77b39847a7c053fc0fb622",
+      "size": 13176
+    },
+    "deep_sky_siril_color.py": {
+      "sha256": "0f3b71bf3cf952110c35295e07ac32fc516accb3b303703066bff7c01cb238f3",
+      "size": 80411
+    },
+    "deep_sky_siril_psf.py": {
+      "sha256": "b463f6b0575cfe2cbe5a08964e82a212ad1c953f8a858db835ca3af858eb2350",
+      "size": 44340
+    },
+    "deep_sky_siril_metrics.py": {
+      "sha256": "514e7e2bbe2a39818ab7f362f8ba04018833bde313e54ef68e4d5101d88b3b44",
+      "size": 34710
+    },
+    "deep_sky_siril_neutral.py": {
+      "sha256": "0b71b4d981a1fd3b67b610c0319ee0541e4b6deb61d06827dcdaee6fe994c003",
+      "size": 12451
+    },
+    "deep_sky_siril_chroma.py": {
+      "sha256": "105645109aa4ddee26eb35a2315a8699f4136d2a814a53ee331b1d9d2e06ff40",
+      "size": 26631
+    },
+    "deep_sky_siril_subject_mask.py": {
+      "sha256": "161eaf1f100a9832410798d7236e47592f677683d3180143e86eb7621e7df78d",
+      "size": 13979
+    },
+    "deep_sky_siril_resume.py": {
+      "sha256": "730526de6c5ca1b295552bdf40865c5e5a962f30984f98a25dba2a58a3cdbe44",
+      "size": 20207
+    },
+    "deep_sky_star_reduction.py": {
+      "sha256": "57c853f30f5a9a30462b4f279ddf6b9fc54dbc467f34585f4a657944f8913170",
+      "size": 82355
+    },
+    "siril_psf_samples.py": {
+      "sha256": "694e4d34869331ca776827c2442da24c4a0d0fd3e9ab8e75cefae9083a0cd721",
+      "size": 15655
+    },
+    "siril_deepsnr.py": {
+      "sha256": "d421a4d6441a3533196244320c4fb6e964f83e0ea80965c02002fffd8880ff6f",
+      "size": 13277
+    }
+  },
+  "profiles": {
+    "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+    "size": 3844
+  },
+  "anchors": [
+    "adjacent-structure-pairs",
+    "agent-factor-proposals-v25",
+    "agent-led-enhancement",
+    "agent-主导增强目标提案与采用",
+    "agent-显式因子提案-v25",
+    "ai-观察与当前域约束",
+    "baseline-budget-proposal",
+    "baseline-预算与冲突复核",
+    "benefit-first-stretch",
+    "current-roi-protection",
+    "declare-morphology-before-choosing-a-profile",
+    "declared-morphology",
+    "default-stretch-sequence",
+    "default-v4-flow",
+    "dualband-hoo-stretch",
+    "explicit-native-transfer-chains-020",
+    "ghs-的-d-尺度与特定配置下的-mtf-等价",
+    "ghs-选择依据",
+    "hdr-最终混合保护",
+    "masked-dual-hdr",
+    "morphology-default-chain",
+    "morphology-starting-chains",
+    "mtf-是-ghs-族的-b1-特例已实测",
+    "profile-guided-chains-v23",
+    "recomposition-aware-display-review",
+    "reference-driven-baseline",
+    "reference-visibility-review",
+    "rgb-mtf-收尾的末段比较",
+    "rgb-tail-comparison",
+    "roi-protected-stretch-v22",
+    "roi-保护与主体分离度-v22",
+    "roi-约束与科学保护",
+    "ssf-知识关系",
+    "ssf-示例",
+    "stage-7--非线性拉伸与审查",
+    "stage-8-的-hdr-谱系互斥",
+    "stage7-adaptive-budget",
+    "stage7-trial-artifacts",
+    "starless-subject-scope-v24",
+    "stretch",
+    "stretch-ai-morphology",
+    "stretch-compatibility-appendix",
+    "stretch-explicit-native-transfer-chains-020",
+    "stretch-ghs-选择依据",
+    "stretch-masked-dual-hdr",
+    "stretch-mtf-是-ghs-族的-b1-特例已实测",
+    "stretch-routing-v29",
+    "stretch-ssf-知识关系",
+    "stretch-单曲线自适应参数层",
+    "stretch-参数",
+    "stretch-参数化-ssf-骨架",
+    "stretch-审查与回退",
+    "stretch-方法选择",
+    "stretch-适用条件",
+    "structure-roi-context",
+    "structured-stretch-assessment",
+    "subject-priority-stretch-v27",
+    "trial-images-retained-in-artifacts",
+    "v4-attempt-accounting",
+    "whole-chain-constraint-preflight",
+    "主体优先的多节拉伸与参照可见性",
+    "单曲线自适应参数层",
+    "单曲线自适应参数层显式搜索兼容",
+    "参数",
+    "参数与算子",
+    "参数化-ssf-骨架",
+    "双传递蒙版-hdr",
+    "双窄带-hoo-主体与原-rgb-星色",
+    "可选参照反求-baseline-与独立单链比较",
+    "合星前的显示审查",
+    "审查与回退",
+    "对照判读示例",
+    "带框主体上下文选区后冻结前查看",
+    "当前请求与因子提案",
+    "当前默认路线",
+    "形态绑定修订证据与执行入口",
+    "按实际形态选择起始链",
+    "按形态评估高阶链路-v23",
+    "新会话高光预算与-mtf-反求",
+    "新保色策略的-rgb-末段比较",
+    "方法选择",
+    "无星主体与带星诊断的边界",
+    "无星主体与带星诊断的边界-v24",
+    "显式原生传递链",
+    "显式形态比较与搜索兼容",
+    "比较采用与回放",
+    "紧凑记录模板",
+    "请求生成与有限试跑",
+    "请求生成与有限试跑v23-显式搜索兼容",
+    "跨阶段材料与实际验收",
+    "达到参照目标后的按需增强与有限修订",
+    "适用条件",
+    "适用条件与来源",
+    "逐结构采用依据",
+    "邻近结构成对测量真实首步前缀与最终候选",
+    "附录历史策略与显式兼容入口",
+    "验证审查与回退",
+    "默认-v4-最短衔接",
+    "默认-v4-试跑账目",
+    "默认执行顺序"
+  ],
+  "code_blocks": [
+    "```json\n{\"method\":\"ght\",\"purpose\":\"Reveal the measured faint shell\",\"factors\":{\"D\":1.8,\"B\":1.0},\"landmarks\":{\"LP\":{\"region\":\"sky\",\"statistic\":\"p99\"},\"SP\":{\"region\":\"faint\",\"statistic\":\"median\"},\"HP\":{\"region\":\"core\",\"statistic\":\"p01\"}},\"constraints\":[{\"region\":\"faint\",\"statistic\":\"median\",\"min\":0.1,\"max\":0.4}]}\n```",
+    "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril_stretch.py morphology-context \\\n  --session /abs/session --source artifacts/060-starless.fit \\\n  --regions reports/regions.json --preview previews/060-starless.jpg \\\n  --run-id 069-morphology-context\n```",
+    "```json\n{\"constraint_review\":[{\"variant\":\"profile\",\"step\":1,\"region\":\"core\",\"statistic\":\"p99\",\"reason\":\"This phase must retain the measured core range before local separation; this is an intermediate output requirement, not the final display level.\",\"evidence\":[{\"path\":\"previews/060-starless.jpg\",\"sha256\":\"<actual-file-sha256>\"}]}]}\n```",
+    "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril_stretch.py init-request \\\n  --session /abs/session --source artifacts/linear-starless.fit \\\n  --regions reports/regions.json --goals reports/stretch-goals.json \\\n  --run-id 071-morphology --mode profile\n\"$STARUN_PYTHON\" scripts/deep_sky_siril_stretch.py solve \\\n  --session /abs/session --request reports/071-morphology/profile-request.json \\\n  --run-id 071-morphology-profile\n\"$STARUN_PYTHON\" scripts/deep_sky_siril_stretch.py generate \\\n  --session /abs/session --parameters reports/071-morphology-profile/stretch-parameters.json\n```",
+    "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py baseline \\\n  --session /abs/session --request /abs/session/reports/070-template.json \\\n  --anchor-region shell --run-id 070-reference --timeout 1800\n```",
+    "```python\nfrom deep_sky_siril_visibility import PROPOSAL\nfrom deep_sky_siril_stretch import strict_json_bytes\nfrom pathlib import Path\nimport json\n\nsession = Path(\"/abs/session\")\npath = session / \"reports/070-reference/baseline-proposal.json\"\nproposal = strict_json_bytes(path.read_bytes(), document=\"baseline proposal\")\nassert proposal[\"schema\"] == PROPOSAL\naudit = proposal[\"audit\"]\nprint(json.dumps({\"anchor_region\": proposal[\"anchor_region\"],\n    \"reference_median\": proposal[\"reference_median\"], \"eligible\": audit[\"eligible\"],\n    \"constraints\": audit[\"constraints\"], \"reasons\": audit[\"reasons\"],\n    \"noise_warnings\": audit.get(\"noise_warnings\", [])}, indent=2, allow_nan=False))\nif audit[\"eligible\"] is not True:\n    raise SystemExit(\"Baseline hard constraints failed; inspect evidence and create a new request/run ID before solve\")\n```",
+    "```python\n# Stage 7 diagnostic: boxed ROI context.\nfrom pathlib import Path\nfrom PIL import Image, ImageDraw\nimport json\nfrom deep_sky_siril_session import load_session, effective_session_payload\nfrom deep_sky_siril_stretch import read_request, bound_file, record\nfrom deep_sky_siril_metrics import measure_regions\nfrom deep_sky_siril_visibility import stage6_reference\n\nsession, payload, manifest = load_session(Path(\"/abs/session\"))\npayload = effective_session_payload(session, payload, manifest)\nrequest, source, protected, _ = read_request(session, payload, session / \"reports/071-morphology/profile-request.json\")\norigin = stage6_reference(session, payload, source)\nif origin is None or origin[\"source\"] != record(session, source):\n    raise SystemExit(\"This example requires the actual accepted Stage 6 preview\")\npreview = bound_file(session, origin[\"preview\"], (\"previews\",))\nregions_path = session / \"reports/070-diagnostic-regions.json\"\nif regions_path.resolve() == bound_file(session, request[\"regions\"]).resolve():\n    raise ValueError(\"Diagnostic regions must remain separate from solving regions\")\nmeasured = measure_regions(source, None, regions_path)\nif measured[\"status\"] != \"measured\":\n    raise ValueError(measured.get(\"reason\", \"Unavailable scientific ROI measurements\"))\nregions = json.loads(regions_path.read_text())\nwith Image.open(preview) as original:\n    image = original.convert(\"RGB\")\n    profile = original.info.get(\"icc_profile\")\nwidth, height = regions[\"reference\"][\"width\"], regions[\"reference\"][\"height\"]\nif image.size != (width, height):\n    raise ValueError(\"Use the original preview geometry and orientation\")\ncontext_rect = (100, 100, 600, 600)  # Replace with the actual subject and its surrounding field.\nx0, y0, x1, y1 = context_rect\nif not 0 <= x0 < x1 <= width or not 0 <= y0 < y1 <= height:\n    raise ValueError(\"Subject context is outside the original geometry\")\nsubject = [r for r in protected if r[\"role\"] in {\"faint\", \"core\"}] + regions[\"regions\"]\nif any(not (x0 <= r[\"rect\"][0] < r[\"rect\"][2] <= x1 and y0 <= r[\"rect\"][1] < r[\"rect\"][3] <= y1) for r in subject):\n    raise ValueError(\"The context must contain the subject ROIs and their diagnostic neighbours\")\nannotated = image.copy()\ndraw = ImageDraw.Draw(annotated)\nfor tag, colour, rows in ((\"solve\", \"#66d9c3\", protected), (\"diag\", \"#f6b26b\", regions[\"regions\"])):\n    for row in rows:\n        a, b, c, d = row[\"rect\"]\n        draw.rectangle((a, b, c - 1, d - 1), outline=colour)\n        draw.text((a, max(0, b - 12)), tag + \"/\" + row[\"id\"], fill=colour)\nfull = annotated.copy()\nfull.thumbnail((360, 360))\ncrop = annotated.crop(context_rect)\npanel = Image.new(\"RGB\", (full.width + crop.width + 24, max(full.height, crop.height) + 36), \"#161616\")\npanel.paste(full, (8, 28)); panel.paste(crop, (full.width + 16, 28))\nImageDraw.Draw(panel).text((8, 8), \"Full frame | subject context (native crop)\", fill=\"white\")\ndirectory = session / \"reports/070-v4-a1-roi-diagnostics\"\ndirectory.mkdir()\nwith (directory / \"context.png\").open(\"xb\") as stream:\n    panel.save(stream, format=\"PNG\", icc_profile=profile)\ncontext = {\"context_rect\": list(context_rect), \"bindings\": {\"source\": record(session, source),\n    \"origin\": origin, \"solve_regions\": request[\"regions\"], \"diagnostic_regions\": record(session, regions_path),\n    \"panel\": record(session, directory / \"context.png\")}}\nwith (directory / \"context.json\").open(\"x\") as stream:\n    json.dump(context, stream, indent=2, allow_nan=False)\n```",
+    "```python\n# Stage 7 diagnostic: adjacent structure pairs.\nfrom pathlib import Path\nfrom PIL import Image, ImageDraw\nimport json\nfrom deep_sky_siril_core import _load_run\nfrom deep_sky_siril_stretch import bound_file, record\nfrom deep_sky_siril_metrics import measure_regions\nfrom deep_sky_siril_visibility import review_paths\n\nsession = Path(\"/abs/session\")\ndirectory = session / \"reports/070-v4-a1-roi-diagnostics\"\ncontext_path = directory / \"context.json\"\ncontext = json.loads(context_path.read_text())[\"bindings\"]\n_, receipt = _load_run(session, \"070-v4-a1\")\nif receipt[\"status\"] != \"success\":\n    raise ValueError(\"Use a successful formal run and its frozen visibility evidence\")\nreview_paths(session, receipt[\"stretch_visibility\"], receipt)\nvisibility_path = bound_file(session, receipt[\"stretch_visibility\"])\nview = json.loads(visibility_path.read_text())\ncontrols = [row for row in view[\"controls\"] if row[\"kind\"] == \"first_prefix\"]\nif len(controls) != 1 or context[\"source\"] != view[\"source\"] or context[\"solve_regions\"] != view[\"regions\"] or context[\"origin\"] != view[\"origin\"]:\n    raise ValueError(\"The context and first prefix must belong to this exact source and ROI selection\")\nbound_file(session, context[\"panel\"])\nregions_path = bound_file(session, context[\"diagnostic_regions\"])\nregions = json.loads(regions_path.read_text())[\"regions\"]\nsource = bound_file(session, view[\"source\"], (\"artifacts\",))\ncontrol = controls[0]\npaths = {\"control\": bound_file(session, control[\"input\"]),\n         \"candidate\": bound_file(session, view[\"candidate\"], (\"artifacts\",))}\nmetrics = {name: measure_regions(path, source, regions_path) for name, path in paths.items()}\npairs = [(\"filament\", \"filament\", \"adjacent-diffuse\"), (\"dark-lane\", \"adjacent-bright\", \"dark-lane\"),\n         (\"outer-edge\", \"outer-edge\", \"adjacent-outside\"), (\"bright-rim\", \"bright-rim\", \"adjacent-inner\")]\nrows = {name: {row[\"id\"]: row[\"candidate\"][\"channels\"] for row in report[\"regions\"]} for name, report in metrics.items()}\nresults = []\nfor name, positive, negative in pairs:\n    result = {\"id\": name, \"positive\": positive, \"negative\": negative}\n    try:\n        for label, report in metrics.items():\n            if report[\"status\"] != \"measured\":\n                raise ValueError(label + \": \" + report.get(\"reason\", \"Nonfinite or unavailable ROI measurements\"))\n        values = [rows[label][roi] for label in (\"control\", \"candidate\") for roi in (positive, negative)]\n        channels = [row[\"channel\"] for row in values[0]]\n        if not channels or any([row[\"channel\"] for row in value] != channels for value in values):\n            raise ValueError(\"Channel identities differ\")\n        differences = [[a[\"median\"] - b[\"median\"] for a, b in zip(values[i], values[i + 1])] for i in (0, 2)]\n        result.update(status=\"measured\", channels=[{\"channel\": channel, \"C_control\": before,\n            \"C_candidate\": after, \"delta_C\": after - before} for channel, before, after in zip(channels, *differences)])\n    except (KeyError, ValueError) as error:\n        result.update(status=\"uncertain\", reason=str(error), channels=[])\n    results.append(result)\npreviews = [bound_file(session, row, (\"reports\",)) for row in\n            (control[\"baseline_view\"][\"preview\"], view[\"candidate_view\"][\"preview\"])]\nimages = []\nfor path in previews:\n    with Image.open(path) as image:\n        images.append(image.convert(\"RGB\"))\nif any(image.size != (metrics[\"control\"][\"reference\"][\"width\"], metrics[\"control\"][\"reference\"][\"height\"]) for image in images):\n    raise ValueError(\"Use the original native preview geometry\")\ncell = max(row[\"rect\"][2] - row[\"rect\"][0] for row in regions)\npanel = Image.new(\"RGB\", (2 * (cell + 8) + 8, 8 + sum(r[\"rect\"][3] - r[\"rect\"][1] + 24 for r in regions)), \"#161616\")\ndraw, top = ImageDraw.Draw(panel), 8\nfor region in regions:\n    draw.text((8, top), region[\"id\"] + \" / first prefix | final\", fill=\"white\")\n    for column, image in enumerate(images):\n        panel.paste(image.convert(\"RGB\").crop(region[\"rect\"]), (8 + column * (cell + 8), top + 24))\n    top += region[\"rect\"][3] - region[\"rect\"][1] + 24\npanel_path, report_path = directory / \"pairs.png\", directory / \"pairs.json\"\nif any(path.exists() or path.is_symlink() for path in (panel_path, report_path)):\n    raise FileExistsError(\"Keep existing diagnostic evidence; use a new directory\")\nwith panel_path.open(\"xb\") as stream:\n    panel.save(stream, format=\"PNG\", icc_profile=images[1].info.get(\"icc_profile\"))\nfor image in images:\n    image.close()\ndiagnostic = {\"bindings\": {\"context\": record(session, context_path), \"visibility\": receipt[\"stretch_visibility\"],\n    \"regions\": context[\"diagnostic_regions\"], \"panel\": record(session, panel_path)},\n    \"metrics\": metrics, \"pairs\": results, \"requires_visual_review\": True}\nwith report_path.open(\"x\") as stream:\n    json.dump(diagnostic, stream, indent=2, allow_nan=False)\n```",
+    "```\nm = 1 / (exp(d) + 1)\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nautostretch -linked -4.50 0.120\nicc_assign sRGB\nstat main\nsave \"/abs/session/artifacts/070-stretch\" -chksum\nsavejpg \"/abs/session/previews/070-stretch\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.01 1\nasinh -human 2 0 -clipmode=rgbblend\nght -D=0.2 -B=0 -LP=0 -SP=0.2 -HP=1 -human -clipmode=rgbblend\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-explicit-stretch\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-explicit-stretch\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nsplit \"/abs/session/artifacts/070-gentle-r\" \"/abs/session/artifacts/070-gentle-g\" \"/abs/session/artifacts/070-gentle-b\"\npm \"0.2126 * $artifacts/070-gentle-r$ + 0.7152 * $artifacts/070-gentle-g$ + 0.0722 * $artifacts/070-gentle-b$\" -nosum\nsave \"/abs/session/artifacts/070-luminance\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\nrgbcomp \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"-out=/abs/session/artifacts/070-mask-rgb\" -nosum\npm \"$artifacts/070-gentle$ * $artifacts/070-mask-rgb$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nclose\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\npm \"$artifacts/070-gentle$ * $artifacts/070-mask$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```",
+    "```bash\npython3 scripts/deep_sky_siril_stretch.py compare-tail --session /abs/session \\\n  --mtf-parameters reports/071-mtf/stretch-parameters.json \\\n  --luminance-parameters reports/072-ghs/stretch-parameters.json --run-id 073-tail\npython3 scripts/deep_sky_siril_stretch.py generate --session /abs/session \\\n  --parameters reports/072-ghs/stretch-parameters.json --comparison reports/073-tail/comparison.json\n```",
+    "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_dualband.py solve \\\n  --session /abs/session --request /abs/session/reports/075-request.json \\\n  --run-id 075-hoo --timeout 1800\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_dualband.py generate \\\n  --session /abs/session --parameters /abs/session/reports/075-hoo/dualband-parameters.json\n```",
+    "```json\n{\n  \"schema\": \"starun-siril.stretch-request.v2\",\n  \"profile\": \"custom\",\n  \"targets\": {\"faint-a\": \"bright\"},\n  \"core_absence\": null,\n  \"source\": {\"path\": \"artifacts/060-starless.fit\", \"sha256\": \"<source-sha256>\"},\n  \"regions\": {\"path\": \"reports/070-stretch/regions.json\", \"sha256\": \"<regions-sha256>\"},\n  \"operators\": [{\n    \"method\": \"ght\",\n    \"purpose\": \"Reveal faint structure while retaining core hierarchy\",\n    \"landmarks\": {\n      \"LP\": {\"region\": \"background-a\", \"statistic\": \"p99\"},\n      \"SP\": {\"region\": \"faint-a\", \"statistic\": \"median\"},\n      \"HP\": {\"region\": \"core-a\", \"statistic\": \"p01\"}\n    },\n    \"constraints\": [\n      {\"region\": \"background-a\", \"statistic\": \"median\", \"min\": 0.05, \"max\": 0.12},\n      {\"region\": \"background-a\", \"statistic\": \"mad\", \"min\": 0, \"max\": 0.01},\n      {\"region\": \"background-a\", \"statistic\": \"hf_sigma2\", \"min\": 0, \"max\": 0.01},\n      {\"region\": \"faint-a\", \"statistic\": \"median\", \"min\": 0.18, \"max\": 0.35},\n      {\"region\": \"core-a\", \"statistic\": \"p999\", \"min\": 0, \"max\": 0.98},\n      {\"region\": \"core-a\", \"statistic\": \"span\", \"min\": 0.05, \"max\": 0.5},\n      {\"region\": \"stars-a\", \"statistic\": \"p999\", \"min\": 0, \"max\": 0.99},\n      {\"region\": \"stars-a\", \"statistic\": \"span\", \"min\": 0.01, \"max\": 0.9}\n    ]\n  }],\n  \"manual_lookup\": {\n    \"status\": \"performed\",\n    \"reason\": \"Read the pinned GHS command semantics\",\n    \"evidence\": [{\"path\": \"reports/manual-evidence/070-ght.command.json\", \"sha256\": \"<evidence-sha256>\"}]\n  }\n}\n```",
+    "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py solve \\\n  --session /abs/session --request /abs/session/reports/070-stretch/request.json \\\n  --run-id 070-stretch --timeout 1800\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py generate \\\n  --session /abs/session --parameters /abs/session/reports/070-stretch/stretch-parameters.json\n```",
+    "```json\n{\n  \"schema\": \"starun-siril.stretch-goals.v1\",\n  \"profile\": \"emission_nebula\",\n  \"reason\": \"Observed diffuse emission with faint filaments and a compact bright region.\",\n  \"targets\": {\"faint-a\": \"bright\"},\n  \"core_absence\": null,\n  \"protection\": [\n    {\"region\":\"sky-a\",\"statistic\":\"mad\",\"min\":0,\"max\":0.012},\n    {\"region\":\"sky-a\",\"statistic\":\"hf_sigma2\",\"min\":0,\"max\":0.008},\n    {\"region\":\"core-a\",\"statistic\":\"p999\",\"min\":0,\"max\":0.95},\n    {\"region\":\"core-a\",\"statistic\":\"span\",\"min\":0.01,\"max\":0.8},\n    {\"region\":\"stars-a\",\"statistic\":\"p999\",\"min\":0,\"max\":0.98},\n    {\"region\":\"stars-a\",\"statistic\":\"span\",\"min\":0.005,\"max\":0.9}\n  ],\n  \"phases\": [\n    {\n      \"constraints\":[{\"region\":\"faint-a\",\"statistic\":\"median\",\"min\":0.025,\"max\":0.4}],\n      \"landmarks\":{\n        \"LP\":{\"region\":\"sky-a\",\"statistic\":\"p99\"},\n        \"SP\":{\"region\":\"faint-a\",\"statistic\":\"median\"},\n        \"HP\":{\"region\":\"core-a\",\"statistic\":\"p01\"}\n      }\n    },\n    {\n      \"constraints\":[{\"region\":\"faint-a\",\"statistic\":\"median\",\"min\":0.05,\"max\":0.6}],\n      \"landmarks\":{\n        \"LP\":{\"region\":\"sky-a\",\"statistic\":\"p99\"},\n        \"SP\":{\"region\":\"faint-a\",\"statistic\":\"median\"},\n        \"HP\":{\"region\":\"core-a\",\"statistic\":\"p01\"}\n      }\n    },\n    {\"constraints\":[\n      {\"region\":\"faint-a\",\"statistic\":\"median\",\"min\":0.1,\"max\":0.7},\n      {\"region\":\"sky-a\",\"statistic\":\"median\",\"min\":0.04,\"max\":0.12}\n    ]}\n  ],\n  \"manual_lookup\":{\"status\":\"not_needed\",\"reason\":\"Complete documented explicit operator skeletons; no command ambiguity.\",\"evidence\":[]}\n}\n```",
+    "```bash\n\"$STARUN_PYTHON\" /abs/skill/scripts/deep_sky_siril_stretch.py init-request --search \\\n  --session /abs/session --source artifacts/060-starless.fit \\\n  --regions reports/stretch-regions.json --goals reports/stretch-goals.json --run-id 071-emission\n\"$STARUN_PYTHON\" /abs/skill/scripts/deep_sky_siril_stretch.py solve \\\n  --session /abs/session --request reports/071-emission/baseline-request.json --run-id 071-emission-base\n\"$STARUN_PYTHON\" /abs/skill/scripts/deep_sky_siril_stretch.py solve \\\n  --session /abs/session --request reports/071-emission/profile-request.json --run-id 071-emission-profile\n\"$STARUN_PYTHON\" /abs/skill/scripts/deep_sky_siril_stretch.py compare \\\n  --session /abs/session --strategy reports/071-emission/strategy.json \\\n  --parameters reports/071-emission-base/stretch-parameters.json \\\n  --parameters reports/071-emission-profile/stretch-parameters.json\n\"$STARUN_PYTHON\" /abs/skill/scripts/deep_sky_siril_stretch.py generate \\\n  --session /abs/session --parameters reports/071-emission-profile/stretch-parameters.json \\\n  --comparison reports/071-emission/comparison.json\n```"
+  ],
+  "documents": {
+    "references/cli-contract.md": {
+      "sha256": "de647c9f2f795476a45f24960b393baf413dd1c39d4d52f24cc50dce340ad5be",
+      "size": 73747
+    },
+    "references/protocol-index.md": {
+      "sha256": "25f4c6762ad6807889e8ad573414951464d731ed0151331e0cf6079092d188ab",
+      "size": 3937
+    },
+    "references/target-morphology-review.md": {
+      "sha256": "8c7fa66cfb9968f44b2282120b2a5702145d26e8d641db267b2ab9fb15de3ca8",
+      "size": 10152
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "b323f21be5f933876c1fca6851b5f9a8081eb6db329c3f6a286d70a5ccbf7386",
+      "size": 125203
+    },
+    "references/stages/stage-04-astrometry-color.md": {
+      "sha256": "3bb9046f3c015a750f9cf403c81c0363153fb158d8610f4c785ad143b3119aa0",
+      "size": 41430
+    },
+    "references/stages/stage-06-stars-separation.md": {
+      "sha256": "378f2c38ea22dd4a8d43b2bf3b30b24fe2c9ad443104189879530676f6cf50dc",
+      "size": 18581
+    }
+  }
+}

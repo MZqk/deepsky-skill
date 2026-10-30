@@ -15,13 +15,13 @@ from deep_sky_siril_contract import (
     ContractError,
     atomic_write_json,
 )
-from deep_sky_siril_core import finalize_session, run_script
+from deep_sky_siril_core import check_review, confirm_input, finalize_session, run_script
 from deep_sky_siril_session import init_session
 from deep_sky_siril_tooling import probe_tools
 from deep_sky_siril_validation import public_protocols
 
 
-PUBLIC_COMMANDS = ("probe", "init", "run", "finalize")
+PUBLIC_COMMANDS = ("probe", "init", "run", "review-check", "confirm-input", "finalize", "status")
 
 
 class ContractArgumentParser(argparse.ArgumentParser):
@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     probe = subparsers.add_parser("probe", help="Probe bounded Siril and optional capabilities")
-    probe.add_argument("--offline", action="store_true")
+    probe.add_argument("--offline", action="store_true", help="Report an offline session policy")
     probe.add_argument("--output")
 
     init = subparsers.add_parser("init", help="Create a standalone contract 1 session")
@@ -70,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--input-state",
         choices=("auto", "linear", "nonlinear", "unknown"),
         default="auto",
+        help="Recover verified same-master declarations; unknown context requires inspection and confirm-input",
     )
     init.add_argument("--state-evidence", action="append", default=[])
     init.add_argument(
@@ -80,13 +81,15 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--channel-map")
     init.add_argument("--target-name")
     init.add_argument("--target-type", default="unknown")
-    init.add_argument("--style", choices=("natural", "balanced", "artistic"), default="natural")
+    init.add_argument("--dualband", choices=("auto", "off"), default="off",
+                      help="Opt in to eligible Ha/OIII HOO trials with auto; default off")
+    init.add_argument("--style", choices=("vivid", "natural", "balanced", "artistic"), default="vivid")
     init.add_argument(
         "--stars",
         choices=("adaptive", "preserve", "standalone-starless"),
         default="adaptive",
     )
-    init.add_argument("--offline", action="store_true", help="Disable all network-backed Siril queries")
+    init.add_argument("--offline", action="store_true", help="Start every Siril run with --offline; forbids remote Gaia in this session")
     init.add_argument("--keep-intermediates", action="store_true")
     init.add_argument(
         "--container-validation",
@@ -99,7 +102,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--session", required=True)
     run.add_argument("--protocol", required=True, choices=public_protocols())
     run.add_argument("--script", required=True)
-    run.add_argument("--source", required=True)
+    run.add_argument(
+        "--source",
+        required=True,
+        metavar="PATH",
+        help="Filesystem path to the bound current parent; prefer an absolute path. "
+             "For input.inspect use session.json input.path, not the receipt marker @input",
+    )
     run.add_argument("--expect", action="append", required=True)
     run.add_argument("--primary-output")
     run.add_argument("--separation-run")
@@ -110,6 +119,29 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write a static validation receipt without starting siril-cli",
     )
+
+    review = subparsers.add_parser(
+        "review-check",
+        help="Derive or validate a review receipt without writing one",
+    )
+    review.add_argument("--session", required=True)
+    review.add_argument("--run-id", required=True)
+    review.add_argument(
+        "--review",
+        help="Existing review receipt to validate; omit to print the skeleton",
+    )
+
+    status = subparsers.add_parser("status", help="Read accepted parent, next-stage intent, blockers and trial budget")
+    status.add_argument("--session", required=True)
+    status.add_argument("--regions", help="Previously reviewed ROI contract to propose rebinding without writing it")
+    status.add_argument("--parameters", help="Existing solved stretch report to verify reusable prefix evidence")
+
+    confirm = subparsers.add_parser("confirm-input", help="Confirm unknown input context after accepted inspection")
+    confirm.add_argument("--session", required=True)
+    confirm.add_argument("--run-id", required=True)
+    confirm.add_argument("--input-state", choices=("linear", "nonlinear"))
+    confirm.add_argument("--channel-mode", choices=("mono", "broadband", "narrowband", "dualband-osc"))
+    confirm.add_argument("--state-evidence", action="append", required=True)
 
     finalize = subparsers.add_parser(
         "finalize",
@@ -154,6 +186,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 target_name=args.target_name,
                 target_type=args.target_type,
                 style=args.style,
+                dualband=args.dualband,
                 stars=args.stars,
                 offline=bool(args.offline),
                 keep_intermediates=bool(args.keep_intermediates),
@@ -172,6 +205,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 timeout=args.timeout,
                 validate_only=bool(args.validate_only),
             )
+        elif args.command == "review-check":
+            result = check_review(
+                args.session,
+                args.run_id,
+                args.review,
+            )
+        elif args.command == "status":
+            from deep_sky_siril_resume import session_status
+            result = session_status(args.session, args.regions, args.parameters)
+        elif args.command == "confirm-input":
+            result = confirm_input(args.session, args.run_id, input_state=args.input_state,
+                                   channel_mode=args.channel_mode, state_evidence=args.state_evidence)
         elif args.command == "finalize":
             result = finalize_session(
                 args.session,

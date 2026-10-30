@@ -1,0 +1,302 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "masked_dual_v1",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "serial_agent_flow_v15",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "texture_hf_review_v1"
+  },
+  "documents": {
+    "CHANGELOG.md": {
+      "sha256": "49e6cd5bf0f62409353b70ffe86e2aae61adde7c0d80e791ffcef69b5ce54fcd",
+      "size": 24705
+    },
+    "RELEASING.md": {
+      "sha256": "de18c98d8860637efdffc9752d8ca6766b3e9a590e0364fd11e62d3046803926",
+      "size": 14315
+    },
+    "SKILL.md": {
+      "sha256": "30f28db1898dc635e459d4ad9bea928b3401bc0212b2ff0cf4aa74117825c23d",
+      "size": 14720
+    },
+    "references/astrometry-source-preservation.md": {
+      "sha256": "6104b3f068e896f37730144bd23891ebf93362cf653061cbb54878d1a9b403f7",
+      "size": 5736
+    },
+    "references/cli-contract.md": {
+      "sha256": "fd32f6b87e126315a78066d62d320c4a12f5222d101e1cea81064cf8b1d80fef",
+      "size": 48341
+    },
+    "references/delivery.md": {
+      "sha256": "30e0e204df331f06d8478d478e91d2f17e8a96f822213b17585f4120fad5006e",
+      "size": 7453
+    },
+    "references/manual-query.md": {
+      "sha256": "9900294086fda831a226976c2644f8a20d562cf30068c9c39db871310a5f4124",
+      "size": 5237
+    },
+    "references/protocol-index.md": {
+      "sha256": "7564810c332ef62e5672f5e5e5d6c9b388808c38f3d3f763269dc942bfaf0aad",
+      "size": 2957
+    },
+    "references/quality.md": {
+      "sha256": "d39b7d259a5592257d7e33f25ed39e0787d49ceb6f35e2db5874b9fba1d1e1c3",
+      "size": 24973
+    },
+    "references/session-contract.md": {
+      "sha256": "bcb9fd5f59bb502e33640fc96107f393f536b9d00028f62f13b3c87687cd47e3",
+      "size": 28829
+    },
+    "references/shared-protocols/color-finish.md": {
+      "sha256": "630a020497ea3d45343e37b7675beff6585eb760271f61dd4138aada5715df9b",
+      "size": 8318
+    },
+    "references/shared-protocols/tone-adjust.md": {
+      "sha256": "7a1c4d4a2e268087315b254dba802280bace88177adc694927156634a9b8a829",
+      "size": 6915
+    },
+    "references/siril-safety.md": {
+      "sha256": "864464c63d870fe4646b4661aa87ddfe14d0d49bb7cb5853329152101c9dd00b",
+      "size": 7624
+    },
+    "references/stage-sequence.md": {
+      "sha256": "519d373b0d43703b216e13847c0aa5fad6ff18f8877e3ea3e6e6faaa4ba86651",
+      "size": 8549
+    },
+    "references/stages/stage-01-input-inspect.md": {
+      "sha256": "ebef01b704f4df4067639374e7dadd6e583f2de401f771a202e1da78d62a0b10",
+      "size": 8598
+    },
+    "references/stages/stage-02-geometry.md": {
+      "sha256": "a9700083f74e0bd206481351ce6b72d5549284afa95466f05e4eb6fea2e0d97e",
+      "size": 4024
+    },
+    "references/stages/stage-03-background.md": {
+      "sha256": "e7274e7fa18c24ba830b56a3eeb8b9cee46a387c949d6878e02937c30658889c",
+      "size": 21280
+    },
+    "references/stages/stage-04-astrometry-color.md": {
+      "sha256": "d1fd672d41e81986bfebf664ac82bdff5537a4aeee1a60ae014dc4814585463e",
+      "size": 27624
+    },
+    "references/stages/stage-05-linear-restoration.md": {
+      "sha256": "a1bafe7716423d9f6ca24b95568f8d0e741a5c7659485836e1b8298a28d412ab",
+      "size": 19634
+    },
+    "references/stages/stage-06-stars-separation.md": {
+      "sha256": "f6a1392de8ece375edbd0e5f7ac34862400c734ef7643a0332ad881c4ddedec9",
+      "size": 17550
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "be1e70bd439e3de0b3a4c536808f15025ed16015b5b9283fbc50deb88e270d66",
+      "size": 23159
+    },
+    "references/stages/stage-08-starless-enhance.md": {
+      "sha256": "2dd2315acfe1d6aff6c82b0c4a2182df626f13c43f5b02e62ee84a47b1e0d0a3",
+      "size": 16637
+    },
+    "references/stages/stage-09-stars-recompose.md": {
+      "sha256": "349c727093a62c07bb02aa9eab90ae601268fdc04104e2e011f3f645f3563ca2",
+      "size": 18510
+    },
+    "references/stages/stage-10-delivery-finishing.md": {
+      "sha256": "56159c044b644da83c8715e31be54b1a39fde8de950ce33d9c97c54d087ff6fc",
+      "size": 8186
+    },
+    "references/target-morphology-review.md": {
+      "sha256": "1ccba65f11263fe6a02008eed76669f2c4d87e123d9cda93afdfa208170e5cc2",
+      "size": 7938
+    },
+    "references/troubleshooting.md": {
+      "sha256": "2c153148e2d65c3d7042904bd7fb23dbcb7a363ea6e6bbd4c2e5a3192508a699",
+      "size": 7719
+    }
+  },
+  "unchanged_runtime": {
+    "scripts/build_siril_manual.py": {
+      "sha256": "ab56dc1bdd2ed78c1add56b49d2b1883c394e62d5e636f54f5dfbfe5cca924cc",
+      "size": 70607
+    },
+    "scripts/deep_sky_siril.py": {
+      "sha256": "1e2890f2f8f33fd6c0622e4efb3abf937cd53e87038f118892906768c29c40f0",
+      "size": 9661
+    },
+    "scripts/deep_sky_siril_artifacts.py": {
+      "sha256": "3c22f06fe68a71ffe6dc5b41aecd8f6c4406601b6d4e9c88fd6b6556b073e30a",
+      "size": 56744
+    },
+    "scripts/deep_sky_siril_background.py": {
+      "sha256": "78a9b446b12004e074cc06b85e9992b7752ecb0fcab6bff459e8fc18b560cd2d",
+      "size": 15032
+    },
+    "scripts/deep_sky_siril_core.py": {
+      "sha256": "037e45beba8edc20237e9a92b544926a7d0058f6c0d1f62a5f16647120462f1d",
+      "size": 133809
+    },
+    "scripts/deep_sky_siril_geometry.py": {
+      "sha256": "ccbf6130e5190c4b5912dac586574f13087bff2eb6f4d2b2ad625adb477d5bcb",
+      "size": 12174
+    },
+    "scripts/deep_sky_siril_hdr.py": {
+      "sha256": "2c803eed47f4edeab161313c2a63d525b17000688122818b546b91057859898d",
+      "size": 16096
+    },
+    "scripts/deep_sky_siril_local_contrast.py": {
+      "sha256": "53e2a4e940f8e7216d5e7d10d359704affb14b6abac8747cb655baef527c2379",
+      "size": 15203
+    },
+    "scripts/deep_sky_siril_metrics.py": {
+      "sha256": "027732e7ec7a8bff81dab96c0a9d2e5d577ed16999645c24b630027422be427a",
+      "size": 30447
+    },
+    "scripts/deep_sky_siril_neutral.py": {
+      "sha256": "0b71b4d981a1fd3b67b610c0319ee0541e4b6deb61d06827dcdaee6fe994c003",
+      "size": 12451
+    },
+    "scripts/deep_sky_siril_processing.py": {
+      "sha256": "9bfdc3aed7f4b8a455b2fd14338decfd98964a50dc1b2e83a620bbab387d78a8",
+      "size": 131679
+    },
+    "scripts/deep_sky_siril_psf.py": {
+      "sha256": "b463f6b0575cfe2cbe5a08964e82a212ad1c953f8a858db835ca3af858eb2350",
+      "size": 44340
+    },
+    "scripts/deep_sky_siril_stretch.py": {
+      "sha256": "7aef5ef49905a9a9679cb706ca2d6105c2b870dda8f8c9b1f4e99d1f1c028ead",
+      "size": 52190
+    },
+    "scripts/deep_sky_siril_tooling.py": {
+      "sha256": "32d901fbcd90aad08fe7970291bd54ba09b69974d9f55dbb397994d68e23f59c",
+      "size": 20996
+    },
+    "scripts/deep_sky_siril_validation.py": {
+      "sha256": "e8a24aab2ebfd40bfb691dca9facecbf822d0bab3373bf714dd033263674257e",
+      "size": 42268
+    },
+    "scripts/deep_sky_star_reduction.py": {
+      "sha256": "ea696a35235ddf30020fbea1d27b99cf2769b671ff38df53429020ed5b28790d",
+      "size": 21997
+    },
+    "scripts/filter_metadata.py": {
+      "sha256": "98cd89ba8451d6de292d1629133d78687d11333f176a36d0b8da01c2330d3b6a",
+      "size": 6343
+    },
+    "scripts/query_siril_manual.py": {
+      "sha256": "f52dee4b356eb05a015536e5960a482511bb755082ac10d3b12d9a8096631538",
+      "size": 72678
+    },
+    "scripts/siril_auto_samples.py": {
+      "sha256": "599eade9a932bd080f71736ec67af9292af36db40e67556787d6f0da2b572533",
+      "size": 36167
+    },
+    "scripts/siril_background_samples.py": {
+      "sha256": "f01ea5649f165ce4cf1d4ca2e3ca2ed501a7e7e293945ba5a68ee025e6c35b36",
+      "size": 12197
+    },
+    "scripts/siril_background_samples_scientific.py": {
+      "sha256": "a3ec4d493b15f72f42a77b0ce3f00888656ecb4d8855fa9072304ab642e93601",
+      "size": 4895
+    },
+    "scripts/siril_manual_bundle.py": {
+      "sha256": "cf533ce6eecec44fef89c9a10da8b43f0772dd9598b85638f4c9180653117afa",
+      "size": 46445
+    },
+    "scripts/siril_psf_samples.py": {
+      "sha256": "694e4d34869331ca776827c2442da24c4a0d0fd3e9ab8e75cefae9083a0cd721",
+      "size": 15655
+    },
+    "scripts/siril_starnet.py": {
+      "sha256": "083df0e3b4411642f0980c7ba632f3bc858f0b9dd0e948904aa2cd2076f7f583",
+      "size": 15280
+    },
+    "scripts/siril_starnet_linear.py": {
+      "sha256": "d37a0e68f231599eeb89b24e7d431dbbd18a0a28fc812edb9c84a4d4a37e4240",
+      "size": 13148
+    },
+    "scripts/sync_fits_header.py": {
+      "sha256": "c0beb76a59ced1dcb0ed0e8d8cdc53f73ce72afac3a48a35b0c6bf0a495168df",
+      "size": 44865
+    }
+  },
+  "scientific_blocks": {
+    "CHANGELOG.md": [],
+    "RELEASING.md": [],
+    "SKILL.md": [],
+    "references/astrometry-source-preservation.md": [],
+    "references/cli-contract.md": [],
+    "references/delivery.md": [],
+    "references/manual-query.md": [],
+    "references/protocol-index.md": [],
+    "references/quality.md": [],
+    "references/session-contract.md": [],
+    "references/shared-protocols/color-finish.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/100-color-finish-parent\" 95\nsatu 0.10 1 6\nstat main\nsave \"/abs/session/artifacts/100-color-finish\" -chksum\nsavejpg \"/abs/session/previews/100-color-finish-candidate\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# local-saturation: {\"amount\":0.08,\"low_start\":0.03,\"low_end\":0.08,\"high_start\":0.65,\"high_end\":0.90,\"sigma\":2}\nload \"/abs/session/artifacts/085-tone.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/088-local-saturation-parent\" 95\nsplit \"/abs/session/artifacts/088-r\" \"/abs/session/artifacts/088-g\" \"/abs/session/artifacts/088-b\"\npm \"0.2126 * $artifacts/088-r$ + 0.7152 * $artifacts/088-g$ + 0.0722 * $artifacts/088-b$\" -nosum\nsave \"/abs/session/artifacts/088-luminance\" -chksum\npm \"max($artifacts/088-r$, max($artifacts/088-g$, $artifacts/088-b$))\" -nosum\nsave \"/abs/session/artifacts/088-peak\" -chksum\npm \"(min(1, max(0, ($artifacts/088-luminance$ - 0.03) / 0.05))^2 * (3 - 2 * min(1, max(0, ($artifacts/088-luminance$ - 0.03) / 0.05)))) * (1 - min(1, max(0, ($artifacts/088-peak$ - 0.65) / 0.25))^2 * (3 - 2 * min(1, max(0, ($artifacts/088-peak$ - 0.65) / 0.25))))\" -nosum\nsave \"/abs/session/artifacts/088-mask-base\" -chksum\ngauss 2\nsave \"/abs/session/artifacts/088-mask-smoothed\" -chksum\npm \"$artifacts/088-mask-smoothed$ * $artifacts/088-mask-base$\" -nosum\nsave \"/abs/session/artifacts/088-mask\" -chksum\nicc_assign sRGB\nsavejpg \"/abs/session/previews/088-local-saturation-mask\" 95\nrgbcomp \"/abs/session/artifacts/088-mask.fit\" \"/abs/session/artifacts/088-mask.fit\" \"/abs/session/artifacts/088-mask.fit\" -out=/abs/session/artifacts/088-mask-rgb -nosum\nload \"/abs/session/artifacts/085-tone.fit\"\nsatu 0.08 0 6\nsave \"/abs/session/artifacts/088-saturated\" -chksum\npm \"$artifacts/085-tone$ + $artifacts/088-mask-rgb$ * ($artifacts/088-saturated$ - $artifacts/085-tone$)\" -nosum\nicc_assign sRGB\nstat main\nsave \"/abs/session/artifacts/088-local-saturation\" -chksum\nsavejpg \"/abs/session/previews/088-local-saturation-candidate\" 95\nclose\n```"
+    ],
+    "references/shared-protocols/tone-adjust.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/085-tone-mtf-parent\" 95\nmtf 0 0.55 1\nstat main\nsave \"/abs/session/artifacts/085-tone-mtf\" -chksum\nsavejpg \"/abs/session/previews/085-tone-mtf-candidate\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/086-tone-ghs-parent\" 95\nght -D=0.2 -B=0 -LP=0.02 -SP=0.15 -HP=0.90 -human -clipmode=rgbblend\nstat main\nsave \"/abs/session/artifacts/086-tone-ghs\" -chksum\nsavejpg \"/abs/session/previews/086-tone-ghs-candidate\" 95\nclose\n```"
+    ],
+    "references/siril-safety.md": [],
+    "references/stage-sequence.md": [],
+    "references/stages/stage-01-input-inspect.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/master.fit\"\nstat main\nsavejpg \"/abs/session/previews/010-input-direct\" 95\nclose\nload \"/abs/master.fit\"\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/010-input-autostretch\" 95\nclose\n```"
+    ],
+    "references/stages/stage-02-geometry.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\ncrop X Y WIDTH HEIGHT\nstat main\nsave \"/abs/session/artifacts/020-crop\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/020-crop\" 95\nclose\n```"
+    ],
+    "references/stages/stage-03-background.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\n# background-validation: {\"regions\":\"reports/030-background/regions.json\",\"sha256\":\"REGIONS_SHA256\"}\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\npyscript \"/abs/starun-siril/scripts/siril_background_samples_scientific.py\" --contract \"/abs/session/reports/030-background/background-sample-contract.json\" --contract-sha256 HASH --expected-source \"/abs/current-parent.fit\" --receipt \"/abs/session/reports/030-background/sample-injection-receipt.json\"\nsubsky 1 -existing\nstat main\nsave \"/abs/session/artifacts/030-background\" -chksum\nclose\nload \"/abs/current-parent.fit\"\nmtf 0 0.006 1\nsavejpg \"/abs/session/previews/030-background-parent\" 95\nclose\nload \"/abs/session/artifacts/030-background.fit\"\nmtf 0 0.006 1\nsavejpg \"/abs/session/previews/030-background-candidate\" 95\nclose\n```"
+    ],
+    "references/stages/stage-04-astrometry-color.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nplatesolve -catalog=gaia -noflip -nocrop\nsave \"/abs/session/artifacts/040-solved\" -chksum\nstat main\nsavejpg \"/abs/session/previews/040-solved\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# color-calibration: {\"method\":\"pcc\",\"source_sha256\":\"CURRENT_SOURCE_SHA256\",\"equipment\":{\"pcc_compatibility\":{\"value\":\"standard_rgb\",\"source\":\"acquisition\",\"evidence\":\"Actual RGB passbands and IR-blocking record\"}}}\nset \"core.catalogue_gaia_photo=/abs/local-gaia\"\nload \"/abs/current-parent.fit\"\npcc -catalog=localgaia\nstat main\nsave \"/abs/session/artifacts/040-color\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/040-color\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# color-calibration: {\"method\":\"neutral\",\"source_sha256\":\"SOURCE_SHA256\",\"background_regions\":\"reports/040-neutral/regions.json\",\"background_partition\":{\"fit\":[\"bg-001\",\"bg-002\",\"bg-003\"],\"validation\":[\"bg-004\",\"bg-005\",\"bg-006\"]},\"white_reference\":null}\nload \"/abs/current-parent.xisf\"\nfmul 1\nsplit \"/abs/session/artifacts/040-raw-r\" \"/abs/session/artifacts/040-raw-g\" \"/abs/session/artifacts/040-raw-b\"\nclose\npm \"($artifacts/040-raw-r$ - 0.02) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-r.fit\" -chksum\nclose\npm \"($artifacts/040-raw-g$ - 0.04) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-g.fit\" -chksum\nclose\npm \"($artifacts/040-raw-b$ - 0.03) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-b.fit\" -chksum\nclose\nrgbcomp \"/abs/session/artifacts/040-corrected-r.fit\" \"/abs/session/artifacts/040-corrected-g.fit\" \"/abs/session/artifacts/040-corrected-b.fit\" \"-out=/abs/session/artifacts/040-neutral.fit\" -nosum\nclose\nload \"/abs/current-parent.xisf\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/040-neutral-parent\" 95\nclose\nload \"/abs/session/artifacts/040-neutral.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/040-neutral-candidate\" 95\nclose\n```"
+    ],
+    "references/stages/stage-05-linear-restoration.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\ndenoise -mod=0.35\nstat main\nsave \"/abs/session/artifacts/050-denoise\" -chksum\nclose\nload \"/abs/current-parent.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/050-denoise-parent\" 95\nclose\nload \"/abs/session/artifacts/050-denoise.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/050-denoise-candidate\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\nsetfindstar reset -moffat -sigma=1.00 -roundness=0.35 -minA=0.01 -maxA=0.95\npyscript \"/abs/starun-siril/scripts/siril_psf_samples.py\" --contract \"/abs/session/reports/055-deconvolve/contract.json\" --contract-sha256 <actual-contract-sha256> --expected-source \"/abs/current-parent.fit\" --receipt \"/abs/session/reports/055-deconvolve/bridge.json\"\nrl \"-loadpsf=/abs/session/reports/055-deconvolve/psf.fit\" -iters=6 -tv -alpha=3000.0\nstat main\nsave \"/abs/session/artifacts/055-deconvolve\" -chksum\nclose\nload \"/abs/session/artifacts/055-deconvolve.fit\"\nsetfindstar reset -moffat -sigma=1.00 -roundness=0.35 -minA=0.01 -maxA=0.95\nfindstar -layer=1 -maxstars=500 \"-out=/abs/session/reports/055-deconvolve/after.tsv\"\nclose\nload \"/abs/current-parent.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/055-deconvolve-parent\" 95\nclose\nload \"/abs/session/artifacts/055-deconvolve.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/055-deconvolve-candidate\" 95\nclose\n```"
+    ],
+    "references/stages/stage-06-stars-separation.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\nsave \"/abs/session/artifacts/060-full-source\" -chksum\nload \"/abs/current-parent.fit\"\nfmul 1\npyscript \"/abs/starun-siril/scripts/siril_starnet_linear.py\" --contract \"/abs/session/reports/060-stars/contract.json\" --contract-sha256 CONTRACT_SHA256 --expected-source \"/abs/current-parent.fit\" --receipt \"/abs/session/reports/060-stars/bridge.json\"\nstat main\nsave \"/abs/session/artifacts/060-starless\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/060-starless\" 95\nclose\npm \"$artifacts/060-full-source$ - $artifacts/060-starless$\"\nsave \"/abs/session/artifacts/060-star-layer\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/060-star-layer\" 95\nclose\n```",
+      "```ssf\nload \"/abs/session/artifacts/060-full-source.fit\"\nmtf 0 0.1 1\nsavejpg \"/abs/session/previews/060-full-fixed\" 95\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.1 1\nsavejpg \"/abs/session/previews/060-starless-fixed\" 95\nclose\n```"
+    ],
+    "references/stages/stage-07-stretch.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nautostretch -linked -4.50 0.120\nicc_assign sRGB\nstat main\nsave \"/abs/session/artifacts/070-stretch\" -chksum\nsavejpg \"/abs/session/previews/070-stretch\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.01 1\nasinh -human 2 0 -clipmode=rgbblend\nght -D=0.2 -B=0 -LP=0 -SP=0.2 -HP=1 -human -clipmode=rgbblend\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-explicit-stretch\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-explicit-stretch\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nsplit \"/abs/session/artifacts/070-gentle-r\" \"/abs/session/artifacts/070-gentle-g\" \"/abs/session/artifacts/070-gentle-b\"\npm \"0.2126 * $artifacts/070-gentle-r$ + 0.7152 * $artifacts/070-gentle-g$ + 0.0722 * $artifacts/070-gentle-b$\" -nosum\nsave \"/abs/session/artifacts/070-luminance\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\nrgbcomp \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"-out=/abs/session/artifacts/070-mask-rgb\" -nosum\npm \"$artifacts/070-gentle$ * $artifacts/070-mask-rgb$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nclose\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\npm \"$artifacts/070-gentle$ * $artifacts/070-mask$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```"
+    ],
+    "references/stages/stage-08-starless-enhance.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# local-contrast: {\"low_start\": 0.03, \"low_end\": 0.08, \"high_start\": 0.65, \"high_end\": 0.90, \"cliplimit\": 1.5, \"grid\": 8, \"strength\": 0.20, \"sigma\": 2, \"regions\": \"reports/080-local-contrast-regions.json\"}\nload \"/abs/current-starless.fit\"\nsavejpg \"/abs/session/previews/080-parent\" 95\nsplit \"/abs/session/artifacts/080-r\" \"/abs/session/artifacts/080-g\" \"/abs/session/artifacts/080-b\"\npm \"0.2126 * $artifacts/080-r$ + 0.7152 * $artifacts/080-g$ + 0.0722 * $artifacts/080-b$\"\nsave \"/abs/session/artifacts/080-l\" -chksum\nclahe 1.5 8\nsave \"/abs/session/artifacts/080-l-enhanced\" -chksum\npm \"(min(1, max(0, ($artifacts/080-l$ - 0.03) / 0.05))^2 * (3 - 2 * min(1, max(0, ($artifacts/080-l$ - 0.03) / 0.05)))) * (1 - min(1, max(0, ($artifacts/080-l$ - 0.65) / 0.25))^2 * (3 - 2 * min(1, max(0, ($artifacts/080-l$ - 0.65) / 0.25))))\"\ngauss 2\nsave \"/abs/session/artifacts/080-mask\" -chksum\nsavejpg \"/abs/session/previews/080-mask\" 95\npm \"1 + 0.20 * $artifacts/080-mask$ * ($artifacts/080-l-enhanced$ - $artifacts/080-l$) / max($artifacts/080-l$, 0.000001)\"\nsave \"/abs/session/artifacts/080-gain\" -chksum\npm \"$artifacts/080-r$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-r-enhanced\" -chksum\npm \"$artifacts/080-g$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-g-enhanced\" -chksum\npm \"$artifacts/080-b$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-b-enhanced\" -chksum\nrgbcomp \"/abs/session/artifacts/080-r-enhanced.fit\" \"/abs/session/artifacts/080-g-enhanced.fit\" \"/abs/session/artifacts/080-b-enhanced.fit\" -out=/abs/session/artifacts/080-local-contrast\nload \"/abs/session/artifacts/080-local-contrast.fit\"\nstat main\nsavejpg \"/abs/session/previews/080-local-contrast\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nsplit \"/abs/session/artifacts/080-red\" \"/abs/session/artifacts/080-green\" \"/abs/session/artifacts/080-blue\"\nclose\nrgbcomp \"/abs/session/artifacts/080-red.fit\" \"/abs/session/artifacts/080-green.fit\" \"/abs/session/artifacts/080-green.fit\" \"-out=/abs/session/artifacts/080-hoo.fit\" -nosum\nload \"/abs/session/artifacts/080-hoo.fit\"\nstat main\nsavejpg \"/abs/session/previews/080-hoo\" 95\nclose\n```"
+    ],
+    "references/stages/stage-09-stars-recompose.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/session/artifacts/055-deconvolved.fit\"\nmtf 0 0.01 1\nsave \"/abs/session/artifacts/090-full-baseline\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.01 1\nsave \"/abs/session/artifacts/090-original-starless\" -chksum\nclose\npm \"$artifacts/090-full-baseline$ - $artifacts/090-original-starless$\"\nsave \"/abs/session/artifacts/090-display-stars\" -chksum\nclose\npm \"$artifacts/080-local-contrast$ + 1.0 * $artifacts/090-display-stars$\"\nsave \"/abs/session/artifacts/090-recomposed\" -chksum\nstat main\nsavejpg \"/abs/session/previews/090-recomposed\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# HDR replay uses the frozen Stage 7 RGB mask.\nload \"/abs/session/artifacts/055-deconvolved.fit\"\nmtf 0 0.2 1\nsave \"/abs/session/artifacts/090-ig\" -chksum\nclose\nload \"/abs/session/artifacts/055-deconvolved.fit\"\nmtf 0 0.06 1\nsave \"/abs/session/artifacts/090-if\" -chksum\nclose\npm \"$artifacts/090-ig$ * $artifacts/070-mask-rgb$ + $artifacts/090-if$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nsave \"/abs/session/artifacts/090-full\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.2 1\nsave \"/abs/session/artifacts/090-ag\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.06 1\nsave \"/abs/session/artifacts/090-af\" -chksum\nclose\npm \"$artifacts/090-ag$ * $artifacts/070-mask-rgb$ + $artifacts/090-af$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nsave \"/abs/session/artifacts/090-base\" -chksum\nclose\npm \"$artifacts/090-full$ - $artifacts/090-base$\" -nosum\nsave \"/abs/session/artifacts/090-stars\" -chksum\nclose\npm \"$artifacts/080-local-contrast$ + 1.0 * $artifacts/090-stars$\" -nosum\nsave \"/abs/session/artifacts/090-final\" -chksum\nstat main\nsavejpg \"/abs/session/previews/090-final\" 95\nclose\n```"
+    ],
+    "references/stages/stage-10-delivery-finishing.md": [
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\ndenoise -nocosmetic -mod=0.20\nstat main\nsave \"/abs/session/artifacts/100-denoise-nonlinear\" -chksum\nsavejpg \"/abs/session/previews/100-denoise-nonlinear\" 95\nclose\n```",
+      "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/110-final-candidate.fit\" -chksum\nclose\nload \"/abs/session/artifacts/110-final-candidate.fit\"\nstat main\nsavejpg \"/abs/session/artifacts/110-final-candidate\" 95\nclose\nload \"/abs/session/artifacts/110-final-candidate.jpg\"\nstat main\nclose\n```"
+    ],
+    "references/target-morphology-review.md": [],
+    "references/troubleshooting.md": []
+  },
+  "command_policy": {
+    "sha256": "d45f36055617e5c992eb8d3d8b7b52b738cc2ccf439091898f077ec49d4b3184",
+    "size": 4099
+  }
+}

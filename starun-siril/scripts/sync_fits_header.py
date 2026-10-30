@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """FITS Header Preservation, Inspection, and WCS Synchronization Tool.
 
-Enables lossless preservation and synchronization of astrometric solutions (WCS)
-and observational priors from capture subframes/reference frames to stacked masters.
-Guarantees bit-for-bit invariance of scientific pixel data arrays.
+Inspect Header evidence and synchronize sourced WCS or observational priors.
+Synchronization copies the data portion unchanged and, by default, checks its SHA256.
+Header completeness and coordinate closure do not validate sky correspondence.
 """
 
 from __future__ import annotations
@@ -251,7 +251,367 @@ def check_complete_wcs(header: Mapping[str, Any]) -> tuple[bool, str]:
         return False, f"Error validating WCS: {exc}"
 
 
-def inspect_fits(path: Path, ref_path: Path | None = None) -> dict[str, Any]:
+def get_wcs_transformation(header: Mapping[str, Any]) -> tuple[float, float, float, float, float]:
+    """Return cd11, cd12, cd21, cd22, det from header."""
+    if all(k in header for k in ("CD1_1", "CD1_2", "CD2_1", "CD2_2")):
+        cd11 = float(header["CD1_1"])
+        cd12 = float(header["CD1_2"])
+        cd21 = float(header["CD2_1"])
+        cd22 = float(header["CD2_2"])
+    elif all(k in header for k in ("CDELT1", "CDELT2")):
+        sx = float(header["CDELT1"])
+        sy = float(header["CDELT2"])
+        pc11 = float(header.get("PC1_1", 1.0))
+        pc12 = float(header.get("PC1_2", 0.0))
+        pc21 = float(header.get("PC2_1", 0.0))
+        pc22 = float(header.get("PC2_2", 1.0))
+        cd11, cd12 = sx * pc11, sx * pc12
+        cd21, cd22 = sy * pc21, sy * pc22
+    else:
+        raise ValueError("Missing CD matrix or CDELT/PC keywords")
+    det = cd11 * cd22 - cd12 * cd21
+    if not math.isfinite(det) or abs(det) < 1e-18:
+        raise ValueError(f"Singular CD transformation matrix: det={det}")
+    return cd11, cd12, cd21, cd22, det
+
+
+def get_sip_polynomials(header: Mapping[str, Any]) -> tuple[
+    dict[tuple[int, int], float],
+    dict[tuple[int, int], float],
+    dict[tuple[int, int], float],
+    dict[tuple[int, int], float],
+]:
+    """Extract forward (A, B) and inverse (AP, BP) SIP coefficients."""
+    a_coeffs: dict[tuple[int, int], float] = {}
+    b_coeffs: dict[tuple[int, int], float] = {}
+    ap_coeffs: dict[tuple[int, int], float] = {}
+    bp_coeffs: dict[tuple[int, int], float] = {}
+
+    for k, v in header.items():
+        try:
+            val = float(v)
+            if not math.isfinite(val):
+                continue
+            if k.startswith("A_") and not k.endswith("_ORDER"):
+                parts = k.split("_")[1:]
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    a_coeffs[(int(parts[0]), int(parts[1]))] = val
+            elif k.startswith("B_") and not k.endswith("_ORDER"):
+                parts = k.split("_")[1:]
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    b_coeffs[(int(parts[0]), int(parts[1]))] = val
+            elif k.startswith("AP_") and not k.endswith("_ORDER"):
+                parts = k.split("_")[1:]
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    ap_coeffs[(int(parts[0]), int(parts[1]))] = val
+            elif k.startswith("BP_") and not k.endswith("_ORDER"):
+                parts = k.split("_")[1:]
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    bp_coeffs[(int(parts[0]), int(parts[1]))] = val
+        except (ValueError, TypeError):
+            continue
+    return a_coeffs, b_coeffs, ap_coeffs, bp_coeffs
+
+
+def wcs_pix2world(header: Mapping[str, Any], x: float, y: float) -> tuple[float, float]:
+    """Transform 1-based pixel coordinates (x, y) to celestial (RA, Dec) in degrees.
+    Supports TAN and TAN-SIP projections.
+    """
+    crpix1 = float(header["CRPIX1"])
+    crpix2 = float(header["CRPIX2"])
+    crval1 = float(header["CRVAL1"])
+    crval2 = float(header["CRVAL2"])
+    cd11, cd12, cd21, cd22, _ = get_wcs_transformation(header)
+
+    u = x - crpix1
+    v = y - crpix2
+
+    ctype1 = str(header.get("CTYPE1", ""))
+    if ctype1.endswith("-SIP"):
+        a_coeffs, b_coeffs, _, _ = get_sip_polynomials(header)
+        f_u = sum(a * (u**p) * (v**q) for (p, q), a in a_coeffs.items())
+        g_v = sum(b * (u**p) * (v**q) for (p, q), b in b_coeffs.items())
+        u = u + f_u
+        v = v + g_v
+
+    xi = cd11 * u + cd12 * v
+    eta = cd21 * u + cd22 * v
+
+    xt = math.radians(xi)
+    yt = math.radians(eta)
+    ra0 = math.radians(crval1)
+    dec0 = math.radians(crval2)
+
+    denom = math.cos(dec0) - yt * math.sin(dec0)
+    ra = math.degrees(ra0 + math.atan2(xt, denom)) % 360.0
+    dec = math.degrees(math.atan2(math.sin(dec0) + yt * math.cos(dec0), math.hypot(xt, denom)))
+    return ra, dec
+
+
+def wcs_world2pix(header: Mapping[str, Any], ra: float, dec: float) -> tuple[float | None, float | None]:
+    """Transform celestial (RA, Dec) in degrees to 1-based pixel coordinates (x, y).
+    Returns (None, None) if point is behind the projection plane.
+    """
+    crpix1 = float(header["CRPIX1"])
+    crpix2 = float(header["CRPIX2"])
+    crval1 = float(header["CRVAL1"])
+    crval2 = float(header["CRVAL2"])
+    cd11, cd12, cd21, cd22, det = get_wcs_transformation(header)
+
+    ra0 = math.radians(crval1)
+    dec0 = math.radians(crval2)
+    r = math.radians(ra)
+    d = math.radians(dec)
+    dra = r - ra0
+
+    denom = math.sin(d) * math.sin(dec0) + math.cos(d) * math.cos(dec0) * math.cos(dra)
+    if denom <= 0:
+        return None, None
+
+    xt = math.cos(d) * math.sin(dra) / denom
+    yt = (math.sin(d) * math.cos(dec0) - math.cos(d) * math.sin(dec0) * math.cos(dra)) / denom
+
+    xi = math.degrees(xt)
+    eta = math.degrees(yt)
+
+    u_prime = (cd22 * xi - cd12 * eta) / det
+    v_prime = (-cd21 * xi + cd11 * eta) / det
+
+    ctype1 = str(header.get("CTYPE1", ""))
+    if ctype1.endswith("-SIP"):
+        a_coeffs, b_coeffs, ap_coeffs, bp_coeffs = get_sip_polynomials(header)
+        u, v = u_prime, v_prime
+        if ap_coeffs or bp_coeffs:
+            f_inv = sum(ap * (u_prime**p) * (v_prime**q) for (p, q), ap in ap_coeffs.items())
+            g_inv = sum(bp * (u_prime**p) * (v_prime**q) for (p, q), bp in bp_coeffs.items())
+            u = u_prime + f_inv
+            v = v_prime + g_inv
+        if a_coeffs or b_coeffs:
+            # Inverse SIP coefficients are an initial approximation; refine against the forward map.
+            uk, vk = u, v
+            for _ in range(25):
+                f_fwd = sum(a * (uk**p) * (vk**q) for (p, q), a in a_coeffs.items())
+                g_fwd = sum(b * (uk**p) * (vk**q) for (p, q), b in b_coeffs.items())
+                uk_next = u_prime - f_fwd
+                vk_next = v_prime - g_fwd
+                if math.hypot(uk_next - uk, vk_next - vk) < 1e-12:
+                    break
+                uk, vk = uk_next, vk_next
+            u, v = uk, vk
+    else:
+        u, v = u_prime, v_prime
+
+    return u + crpix1, v + crpix2
+
+
+def wcs_round_trip_check(
+    header: Mapping[str, Any],
+    width: int,
+    height: int,
+    tolerance_px: float = 1e-4,
+) -> dict[str, Any]:
+    """Verify round-trip closure consistency (pixel -> world -> pixel) for center and corners."""
+    has_wcs, _ = check_complete_wcs(header)
+    if not has_wcs or width <= 0 or height <= 0:
+        return {
+            "verified": False,
+            "max_closure_error_px": None,
+            "tolerance_px": tolerance_px,
+            "sample_points_count": 0,
+            "status": "skipped_no_complete_wcs",
+        }
+
+    sample_points = [
+        (width / 2.0, height / 2.0, "center"),
+        (1.0, 1.0, "corner_bottom_left"),
+        (float(width), 1.0, "corner_bottom_right"),
+        (float(width), float(height), "corner_top_right"),
+        (1.0, float(height), "corner_top_left"),
+    ]
+
+    max_err = 0.0
+    point_results = []
+    all_ok = True
+
+    for x, y, label in sample_points:
+        try:
+            ra, dec = wcs_pix2world(header, x, y)
+            x_back, y_back = wcs_world2pix(header, ra, dec)
+            if x_back is None or y_back is None:
+                all_ok = False
+                err = float("inf")
+            else:
+                err = math.hypot(x - x_back, y - y_back)
+                max_err = max(max_err, err)
+                if err > tolerance_px:
+                    all_ok = False
+            point_results.append({
+                "label": label,
+                "pixel": [round(x, 2), round(y, 2)],
+                "world_ra_dec": [round(ra, 6), round(dec, 6)],
+                "error_px": round(err, 8) if math.isfinite(err) else None,
+            })
+        except Exception as exc:
+            all_ok = False
+            point_results.append({
+                "label": label,
+                "pixel": [x, y],
+                "error": str(exc),
+            })
+
+    return {
+        "verified": all_ok,
+        "max_closure_error_px": round(max_err, 8) if math.isfinite(max_err) else None,
+        "tolerance_px": tolerance_px,
+        "sample_points_count": len(sample_points),
+        "status": "passed" if all_ok else "failed_tolerance_exceeded",
+        "points": point_results,
+    }
+
+
+def wcs_calc_footprint(header: Mapping[str, Any], width: int, height: int) -> dict[str, Any] | None:
+    """Calculate celestial coordinates for corners, sky bounding box, and position angle."""
+    has_wcs, _ = check_complete_wcs(header)
+    if not has_wcs or width <= 0 or height <= 0:
+        return None
+
+    try:
+        corners_pixels = [
+            (1.0, 1.0, "bottom_left"),
+            (float(width), 1.0, "bottom_right"),
+            (float(width), float(height), "top_right"),
+            (1.0, float(height), "top_left"),
+        ]
+        corners_world = []
+        for x, y, name in corners_pixels:
+            ra, dec = wcs_pix2world(header, x, y)
+            corners_world.append({
+                "corner": name,
+                "pixel": [round(x, 1), round(y, 1)],
+                "ra_deg": round(ra, 6),
+                "dec_deg": round(dec, 6),
+            })
+
+        ra_list = [c["ra_deg"] for c in corners_world]
+        dec_list = [c["dec_deg"] for c in corners_world]
+
+        if max(ra_list) - min(ra_list) > 180.0:
+            norm_ra = [(r - 360.0 if r > 180.0 else r) for r in ra_list]
+            ra_min = min(norm_ra) % 360.0
+            ra_max = max(norm_ra) % 360.0
+        else:
+            ra_min = min(ra_list)
+            ra_max = max(ra_list)
+
+        dec_min = min(dec_list)
+        dec_max = max(dec_list)
+
+        cx, cy = width / 2.0, height / 2.0
+        cra, cdec = wcs_pix2world(header, cx, cy)
+        nx, ny = wcs_world2pix(header, cra, cdec + 0.005)
+        if nx is not None and ny is not None:
+            dx = nx - cx
+            dy = ny - cy
+            pa_deg = math.degrees(math.atan2(dx, dy)) % 360.0
+        else:
+            pa_deg = None
+
+        return {
+            "corners": corners_world,
+            "bounding_box": {
+                "ra_min_deg": round(ra_min, 6),
+                "ra_max_deg": round(ra_max, 6),
+                "dec_min_deg": round(dec_min, 6),
+                "dec_max_deg": round(dec_max, 6),
+            },
+            "position_angle_deg": round(pa_deg, 2) if pa_deg is not None else None,
+        }
+    except Exception:
+        return None
+
+
+def evaluate_framing(
+    target_size_arcmin: float | None,
+    fov_w_arcmin: float | None,
+    fov_h_arcmin: float | None,
+) -> dict[str, Any] | None:
+    """Evaluate target framing and scale ratio within field of view."""
+    if not fov_w_arcmin or not fov_h_arcmin or not target_size_arcmin or target_size_arcmin <= 0:
+        return None
+
+    min_fov = min(fov_w_arcmin, fov_h_arcmin)
+    ratio = target_size_arcmin / min_fov
+
+    if ratio > 0.85:
+        category = "fills_frame"
+        description = "Target occupies majority of field. Protect emission nebula from gray-world neutralisation."
+    elif ratio >= 0.35:
+        category = "balanced"
+        description = "Balanced composition with dominant target and sufficient background."
+    elif ratio >= 0.10:
+        category = "wide_field"
+        description = "Wide-field context framing with abundant stellar background."
+    else:
+        category = "tiny"
+        description = "Small deep-sky target or compact planetary nebula/distant galaxy."
+
+    return {
+        "target_size_arcmin": round(target_size_arcmin, 2),
+        "min_fov_arcmin": round(min_fov, 2),
+        "framing_ratio": round(ratio, 4),
+        "framing_category": category,
+        "description": description,
+    }
+
+
+def generate_troubleshooting_hints(
+    has_wcs: bool,
+    stage4_readiness: str,
+    ref_comp: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Generate concise actionable guidance for Stage 4 astrometry."""
+    hints: list[str] = []
+    if has_wcs:
+        hints.append("Header WCS completeness checks passed. Sky correspondence is not verified; evaluate preservation with sourced geometry evidence, native Siril validation and protocol review.")
+        return hints
+
+    if ref_comp:
+        ref_has_wcs = ref_comp.get("reference_complete_wcs")
+        geom_match = ref_comp.get("geometry_match")
+        if ref_has_wcs and geom_match:
+            hints.append(
+                f"Reference WCS fields are complete and dimensions match; pixel-coordinate correspondence is not verified. Only after confirming the reference-to-master mapping, sync to a new file before init: sync_fits_header.py sync --source <reference> --target <target> --output <new-master>"
+            )
+            return hints
+        elif ref_has_wcs and not geom_match:
+            hints.append(
+                "Reference WCS fields are complete but dimensions differ. Use --center-align only for confirmed center cropping, or --offset-crpix for a known translation. --allow-geometry-mismatch bypasses the size check without validating the mapping."
+            )
+
+    if stage4_readiness == "ready_for_targeted_solve":
+        hints.append(
+            "Coordinate/sampling prior fields are present; validate their values and sources before evaluating native Siril Gaia solving."
+        )
+        hints.append(
+            "Online Gaia is the default; each solving or color script still declares -catalog=gaia|localgaia explicitly. "
+            "An explicit --offline session requires a configured local Gaia catalogue, frozen by probe."
+        )
+    else:
+        hints.append(
+            "Complete WCS or required prior fields are missing. Provide sourced coordinates/sampling evidence; synchronize WCS only from a reference with a confirmed pixel-coordinate mapping."
+        )
+        hints.append(
+            "If solving is unavailable or rejected, evaluate background neutralization only when its channel and sky-region evidence is supported; otherwise skip it."
+        )
+
+    return hints
+
+
+def inspect_fits(
+    path: Path,
+    ref_path: Path | None = None,
+    target_size_arcmin: float | None = None,
+) -> dict[str, Any]:
     """Inspect and report astrometric and observational metadata."""
     reader = FitsHeaderReader(path)
     header = reader.header_dict
@@ -284,13 +644,38 @@ def inspect_fits(path: Path, ref_path: Path | None = None) -> dict[str, Any]:
     # Stage 4 Readiness Classification
     if has_wcs:
         stage4_readiness = "preserved_existing_solution"
-        stage4_note = "WCS is complete. Stage 4 will preserve existing solution with 0 dependencies."
+        stage4_note = "Header WCS completeness checks passed; sky correspondence is not verified. Native Siril output validation and protocol review are still required before adoption."
     elif all(k in header for k in ("RA", "DEC", "FOCALLEN", "XPIXSZ")):
         stage4_readiness = "ready_for_targeted_solve"
-        stage4_note = "Priors (RA/Dec/Focal/Pixel) are present. Siril/ASTAP can solve targeted without blind search."
+        stage4_note = "Coordinate/sampling prior fields are present; validate values and sources before evaluating native Siril Gaia solving under the session network policy."
     else:
         stage4_readiness = "missing_astrometric_evidence"
         stage4_note = "Lacks both complete WCS and required coordinates/sampling priors."
+
+    # Advanced WCS Diagnostics
+    round_trip = wcs_round_trip_check(header, geom["width"], geom["height"])
+    footprint = wcs_calc_footprint(header, geom["width"], geom["height"])
+    framing = evaluate_framing(target_size_arcmin, fov_w_arcmin, fov_h_arcmin)
+
+    ref_comp_dict = None
+    if ref_path:
+        ref_reader = FitsHeaderReader(ref_path)
+        ref_h = ref_reader.header_dict
+        ref_geom = ref_reader.get_geometry()
+        ref_has_wcs, ref_wcs_msg = check_complete_wcs(ref_h)
+        diff_keys_in_ref = [k for k in ref_h if k not in header and not k in STRUCTURAL_KEYS]
+        ref_comp_dict = {
+            "reference_file": str(ref_reader.path),
+            "reference_complete_wcs": ref_has_wcs,
+            "geometry_match": geom["width"] == ref_geom["width"] and geom["height"] == ref_geom["height"],
+            "dimensions": {
+                "target": f"{geom['width']}x{geom['height']}",
+                "reference": f"{ref_geom['width']}x{ref_geom['height']}",
+            },
+            "keys_in_ref_missing_in_target": sorted(diff_keys_in_ref),
+        }
+
+    troubleshooting_hints = generate_troubleshooting_hints(has_wcs, stage4_readiness, ref_comp_dict)
 
     result: dict[str, Any] = {
         "file": str(reader.path),
@@ -318,24 +703,14 @@ def inspect_fits(path: Path, ref_path: Path | None = None) -> dict[str, Any]:
         },
         "wcs_card_count": len(wcs_present),
         "prior_card_count": len(priors_present),
+        "wcs_round_trip": round_trip,
+        "sky_footprint": footprint,
+        "framing": framing,
+        "troubleshooting_hints": troubleshooting_hints,
     }
 
-    if ref_path:
-        ref_reader = FitsHeaderReader(ref_path)
-        ref_h = ref_reader.header_dict
-        ref_geom = ref_reader.get_geometry()
-        ref_has_wcs, ref_wcs_msg = check_complete_wcs(ref_h)
-        diff_keys_in_ref = [k for k in ref_h if k not in header and not k in STRUCTURAL_KEYS]
-        result["reference_comparison"] = {
-            "reference_file": str(ref_reader.path),
-            "reference_complete_wcs": ref_has_wcs,
-            "geometry_match": geom["width"] == ref_geom["width"] and geom["height"] == ref_geom["height"],
-            "dimensions": {
-                "target": f"{geom['width']}x{geom['height']}",
-                "reference": f"{ref_geom['width']}x{ref_geom['height']}",
-            },
-            "keys_in_ref_missing_in_target": sorted(diff_keys_in_ref),
-        }
+    if ref_comp_dict:
+        result["reference_comparison"] = ref_comp_dict
 
     return result
 
@@ -376,7 +751,7 @@ def sync_fits_header(
             f"Geometry mismatch: Source is {src_geom['width']}x{src_geom['height']}, "
             f"Target is {tgt_geom['width']}x{tgt_geom['height']}. "
             "Direct WCS copying without offset may cause astrometric distortion. "
-            "Use --center-align, --offset-crpix dx,dy, or --allow-geometry-mismatch to proceed."
+            "Use --center-align only for confirmed center cropping, or --offset-crpix dx,dy for a known translation. --allow-geometry-mismatch only bypasses this size check; it does not validate the mapping."
         )
 
     # Compute CRPIX offset if needed
@@ -539,6 +914,11 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser = subparsers.add_parser("inspect", help="Inspect astrometric WCS and observational headers.")
     inspect_parser.add_argument("file", help="Path to FITS file to inspect")
     inspect_parser.add_argument("--reference", help="Optional reference FITS to compare headers against")
+    inspect_parser.add_argument(
+        "--target-size-arcmin",
+        type=float,
+        help="Optional celestial target angular size in arcminutes to evaluate framing",
+    )
     inspect_parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
     # sync
@@ -602,7 +982,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "inspect":
         ref = Path(args.reference) if args.reference else None
-        res = inspect_fits(Path(args.file), ref_path=ref)
+        res = inspect_fits(
+            Path(args.file),
+            ref_path=ref,
+            target_size_arcmin=args.target_size_arcmin,
+        )
         if args.json:
             print(json.dumps(res, indent=2, ensure_ascii=False))
         else:
@@ -617,30 +1001,52 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fov = res['field_of_view_arcmin']
                 print(f"Field of View: {fov['width']}' x {fov['height']}'")
             print(f"Complete WCS: {'YES' if res['complete_wcs'] else 'NO'} ({res['wcs_status_message']})")
+            if res.get('wcs_round_trip') and res['wcs_round_trip'].get('max_closure_error_px') is not None:
+                rt = res['wcs_round_trip']
+                print(f"WCS Closure: {'OK' if rt['verified'] else 'FAIL'} (max residual: {rt['max_closure_error_px']} px)")
+            if res.get('sky_footprint'):
+                fp = res['sky_footprint']
+                bbox = fp['bounding_box']
+                print(f"Sky Footprint: RA [{bbox['ra_min_deg']}° .. {bbox['ra_max_deg']}°], Dec [{bbox['dec_min_deg']}° .. {bbox['dec_max_deg']}°]")
+                if fp.get('position_angle_deg') is not None:
+                    print(f"Position Angle: {fp['position_angle_deg']}° (North orientation)")
+            if res.get('framing'):
+                fr = res['framing']
+                print(f"Framing: {fr['framing_category']} (target {fr['target_size_arcmin']}' / min FOV {fr['min_fov_arcmin']}', ratio: {round(fr['framing_ratio']*100, 1)}%)")
+                print(f"  Note: {fr['description']}")
             print(f"Stage 4 Readiness: {res['stage4_readiness']} - {res['stage4_note']}")
+            if res.get('troubleshooting_hints'):
+                print("\n--- Astrometry Guidance & Troubleshooting ---")
+                for i, hint in enumerate(res['troubleshooting_hints'], 1):
+                    print(f"  {i}. {hint}")
             if "reference_comparison" in res:
                 comp = res["reference_comparison"]
                 print(f"\n--- Comparison with Reference ---")
                 print(f"Reference: {comp['reference_file']}")
-                print(f"Geometry Match: {comp['geometry_match']} ({comp['dimensions']['target']} vs {comp['dimensions']['reference']})")
+                print(f"Dimensions Match: {comp['geometry_match']} ({comp['dimensions']['target']} vs {comp['dimensions']['reference']}); pixel-coordinate correspondence is not verified")
                 print(f"Missing in target: {len(comp['keys_in_ref_missing_in_target'])} cards")
         return 0
 
     if args.command == "verify":
         reader = FitsHeaderReader(Path(args.file))
+        geom = reader.get_geometry()
         complete, msg = check_complete_wcs(reader.header_dict)
+        rt = wcs_round_trip_check(reader.header_dict, geom["width"], geom["height"]) if complete else None
         res = {
             "file": str(reader.path),
             "complete_wcs": complete,
             "message": msg,
             "stage4_status": "preserved_existing_solution" if complete else "requires_platesolve",
+            "wcs_round_trip": rt,
         }
         if args.json:
             print(json.dumps(res, indent=2, ensure_ascii=False))
         else:
             print(f"File: {res['file']}")
             print(f"Complete WCS: {'YES' if complete else 'NO'} ({msg})")
-            print(f"Stage 4 Status: {res['stage4_status']}")
+            if rt and rt.get("verified"):
+                print(f"WCS Closure: OK (max residual {rt['max_closure_error_px']} px)")
+            print(f"Stage 4 Status: {res['stage4_status']} (header-based readiness only; sky correspondence is not verified)")
         return 0 if complete else 1
 
     if args.command == "sync":

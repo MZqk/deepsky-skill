@@ -8,19 +8,15 @@ import sys
 import pytest
 
 
-SKILL_ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS_ROOT = SKILL_ROOT / "scripts"
-sys.path.insert(0, str(SCRIPTS_ROOT))
-
 import deep_sky_siril as cli  # noqa: E402
 import deep_sky_siril_artifacts as artifact_rules  # noqa: E402
 import deep_sky_siril_contract as contract  # noqa: E402
 import deep_sky_siril_validation as validation_rules  # noqa: E402
 
 
-def test_public_contract_exposes_four_commands_and_v1(capsys: pytest.CaptureFixture[str]) -> None:
+def test_public_contract_exposes_six_commands_and_v1(capsys: pytest.CaptureFixture[str]) -> None:
     assert contract.CONTRACT_VERSION == "1"
-    assert tuple(cli.PUBLIC_COMMANDS) == ("probe", "init", "run", "finalize")
+    assert tuple(cli.PUBLIC_COMMANDS) == ("probe", "init", "run", "review-check", "confirm-input", "finalize", "status")
 
     exit_code = cli.main(["install-tool"])
 

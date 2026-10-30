@@ -211,6 +211,40 @@ def write_receipt(path: Path, payload: dict[str, Any]) -> None:
     temporary.replace(resolved)
 
 
+def verify_image_precision(image, source: Path) -> dict[str, Any]:
+    """Verify the native identity conversion without writing any pixels."""
+    import numpy as np
+    from deep_sky_siril_artifacts import read_fits_pixels
+    data = np.asarray(image.data)
+    if data.ndim == 2:
+        data = data[None]
+    if data.dtype != np.dtype('float32') or image.bitpix != -32:
+        raise ValueError('Background fitting requires native float32 before sample injection')
+    raw, scale, zero = read_fits_pixels(source)
+    if data.shape != raw.shape:
+        raise ValueError('Native identity conversion changed geometry or channels')
+    if getattr(image, 'top_down', False):
+        data = data[:, ::-1]
+    maximum = 0.0
+    for y in range(0, data.shape[1], 256):
+        reference = raw[:, y:y+256].astype(float)*scale+zero
+        actual = data[:, y:y+256]
+        if not np.isfinite(reference).all() or not np.isfinite(actual).all():
+            raise ValueError('Native identity conversion requires finite scientific pixels')
+        spacing = np.abs(np.spacing(reference.astype(np.float32))).astype(float)
+        error = np.abs(actual.astype(float)-reference)
+        if np.any(error > 2*spacing):
+            raise ValueError('Native identity conversion exceeds two float32 ULP')
+        for endpoint in (0, 1):
+            if np.any(actual[reference == endpoint] != endpoint):
+                raise ValueError('Native identity conversion changed a 0/1 endpoint')
+        maximum = max(maximum, float(error.max()))
+    return {'schema': 'starun-siril.native-float32-identity.v1', 'status': 'verified',
+            'source_sha256': sha256_file(source), 'dtype': 'float32', 'bitpix': -32,
+            'shape': list(raw.shape), 'max_abs_normalized_error': maximum,
+            'tolerance': 'two_float32_ULP', 'endpoints_preserved': True}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     import sirilpy as s  # Supplied by Siril's managed Python environment.
@@ -235,6 +269,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     loaded = Path(str(siril.get_image_filename())).expanduser().resolve()
     if loaded != expected_source:
         raise ValueError("Siril loaded image does not match the declared sample source")
+    precision = verify_image_precision(siril.get_image(), expected_source)
     fit_samples = contract["fit_samples"]
     points = [
         (float(sample["x"]), float(sample["y"]))
@@ -255,6 +290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "sirilpy_version_requirement": SIRILPY_VERSION_REQUIREMENT,
             "requested_count": len(points),
             "requested_positions": [[x, y] for x, y in points],
+            "image_precision": precision,
             **result,
         },
     )

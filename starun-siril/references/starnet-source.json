@@ -1,0 +1,29 @@
+{
+  "schema": "starun-siril.starnet-source.v1",
+  "upstream_url": "https://gitlab.com/free-astro/siril-scripts",
+  "commit": "f6cc0feae8f0f686f1b83f18758eae1ca27392a7",
+  "path": "StarNetAstro/StarNet.py",
+  "upstream_sha256": "6073ae3d2f73eeeb972a57e364a6e741329fcda29e010d4f4d63b6d0e21ea33e",
+  "license": "GPL-3.0-or-later",
+  "adapter_sha256": "083df0e3b4411642f0980c7ba632f3bc858f0b9dd0e948904aa2cd2076f7f583",
+  "unchanged_functions": [
+    "_mtf",
+    "_mtf_scalar",
+    "apply_unlinked_mtf",
+    "apply_unlinked_pseudoinverse_mtf",
+    "build_starnet_argv",
+    "compute_unlinked_mtf_params",
+    "read_image_tiff",
+    "siril_to_working",
+    "tiff_handoff_is_mono",
+    "working_to_siril",
+    "write_starnet_tiff"
+  ],
+  "modifications": [
+    "Retain upstream pixel conversion, TIFF and MTF functions verbatim.",
+    "Replace GUI, sequences, installers, settings and update feeds with hash-bound CLI.",
+    "Fix linear mode, highlight protection and no upsampling; permit only declared strides.",
+    "Limit temporary handoff files to the session; executor removes them only after successful receipt commit.",
+    "Return only starless pixels; Siril computes unclipped additive star residuals."
+  ]
+}

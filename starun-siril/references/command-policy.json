@@ -32,11 +32,13 @@
       "requires",
       "set32bits",
       "load",
+      "fmul",
       "boxselect",
       "stat",
       "pyscript",
       "subsky",
       "save",
+      "mtf",
       "autostretch",
       "savejpg",
       "close"
@@ -46,13 +48,19 @@
       "set32bits",
       "set",
       "load",
+      "fmul",
       "pcc",
       "spcc",
       "stat",
       "save",
       "autostretch",
+      "mtf",
       "savejpg",
-      "close"
+      "close",
+      "spcc_list",
+      "split",
+      "pm",
+      "rgbcomp"
     ],
     "color.map": [
       "requires",
@@ -71,39 +79,46 @@
       "requires",
       "set32bits",
       "load",
+      "fmul",
       "denoise",
       "stat",
       "save",
       "autostretch",
+      "mtf",
       "savejpg",
-      "close"
+      "close",
+      "pyscript"
     ],
     "restoration.deconvolve": [
       "requires",
       "set32bits",
       "load",
+      "fmul",
       "setfindstar",
+      "pyscript",
       "findstar",
       "makepsf",
       "rl",
       "stat",
       "save",
       "autostretch",
+      "mtf",
       "savejpg",
       "close"
     ],
     "stars.separate": [
       "requires",
       "set32bits",
-      "set",
       "load",
-      "starnet",
+      "fmul",
       "stat",
       "save",
       "autostretch",
+      "mtf",
       "savejpg",
       "close",
-      "pm"
+      "pm",
+      "pyscript"
     ],
     "stretch": [
       "requires",
@@ -112,11 +127,19 @@
       "asinh",
       "autostretch",
       "mtf",
+      "icc_assign",
       "stat",
       "save",
       "savejpg",
       "close",
-      "ght"
+      "ght",
+      "split",
+      "pm",
+      "gauss",
+      "rgbcomp",
+      "fmul",
+      "denoise",
+      "crop"
     ],
     "stars.recompose": [
       "requires",
@@ -129,24 +152,54 @@
       "stat",
       "savejpg",
       "asinh",
-      "ght"
+      "ght",
+      "modasinh",
+      "rgbcomp",
+      "update_key"
+    ],
+    "tone.adjust": [
+      "requires",
+      "set32bits",
+      "load",
+      "mtf",
+      "ght",
+      "icc_assign",
+      "stat",
+      "save",
+      "savejpg",
+      "close",
+      "split",
+      "pm",
+      "gauss",
+      "rgbcomp"
     ],
     "color.finish": [
       "requires",
       "set32bits",
       "load",
+      "ght",
+      "invght",
       "satu",
       "rmgreen",
+      "icc_assign",
       "stat",
       "save",
       "savejpg",
-      "close"
+      "close",
+      "split",
+      "pm",
+      "gauss",
+      "rgbcomp",
+      "fill"
     ],
     "delivery.render": [
       "requires",
       "set32bits",
       "load",
+      "fmul",
+      "icc_assign",
       "stat",
+      "save",
       "savejpg",
       "close"
     ],
@@ -173,7 +226,9 @@
       "rgbcomp",
       "stat",
       "savejpg",
-      "close"
+      "close",
+      "wavelet",
+      "wrecons"
     ],
     "restoration.denoise-nonlinear": [
       "requires",
@@ -183,7 +238,12 @@
       "stat",
       "save",
       "savejpg",
-      "close"
+      "close",
+      "epf",
+      "split",
+      "pm",
+      "rgbcomp",
+      "icc_assign"
     ]
   },
   "write_commands": [
@@ -196,6 +256,15 @@
     "makepsf"
   ],
   "pyscript_protocols": {
-    "background.subtract": "siril_background_samples.py"
+    "background.subtract": [
+      "siril_background_samples.py",
+      "siril_background_samples_scientific.py"
+    ],
+    "stars.separate": [
+      "siril_starnet.py",
+      "siril_starnet_linear.py"
+    ],
+    "restoration.deconvolve": "siril_psf_samples.py",
+    "restoration.denoise": "siril_deepsnr.py"
   }
 }

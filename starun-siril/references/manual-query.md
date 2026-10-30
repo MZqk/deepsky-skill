@@ -7,12 +7,14 @@
 
 ## 按需使用
 
+以下辅助工具示例使用 [CLI 合同](cli-contract.md#解释器与入口) 中已验证的 `STARUN_PYTHON`。
+
 执行任务由 `init` 自动完成一次完整 Bundle 验证，并把结果冻结到 session；不要在 `init` 前手动重复
 `--verify-bundle`。纯知识查询等没有 session 的任务首次使用时才显式执行一次。解包验收、发布检查或
 怀疑组件损坏时也可显式验证：
 
 ```bash
-python3 -B scripts/query_siril_manual.py --verify-bundle
+"$STARUN_PYTHON" -B scripts/query_siril_manual.py --verify-bundle
 ```
 
 protocol reference 中已经完整展开、且只替换证据支持的路径和参数占位符的命令，在 session 已冻结 Bundle
@@ -28,16 +30,16 @@ protocol reference 中已经完整展开、且只替换证据支持的路径和�
 查询不熟悉的功能或参数时，先搜索定位，再用结果的 `id`、`path` 或精确命令读取上下文：
 
 ```bash
-python3 -B scripts/query_siril_manual.py "背景提取" --top 5
-python3 -B scripts/query_siril_manual.py "SPCC" --format text
-python3 -B scripts/query_siril_manual.py --read section:<id>
-python3 -B scripts/query_siril_manual.py --read doc/Commands.rst
+"$STARUN_PYTHON" -B scripts/query_siril_manual.py "背景提取" --top 5
+"$STARUN_PYTHON" -B scripts/query_siril_manual.py "SPCC" --format text
+"$STARUN_PYTHON" -B scripts/query_siril_manual.py --read section:<id>
+"$STARUN_PYTHON" -B scripts/query_siril_manual.py --read doc/Commands.rst
 ```
 
 生成或审查包含不确定命令的 `.ssf` 时做精确查询：
 
 ```bash
-python3 -B scripts/query_siril_manual.py --command autostretch
+"$STARUN_PYTHON" -B scripts/query_siril_manual.py --command autostretch
 ```
 
 结果区分官方 `documentation.scriptable` 与本包的 `execution_policy.state`。只有 policy 为 `allowed` 且
@@ -49,11 +51,11 @@ python3 -B scripts/query_siril_manual.py --command autostretch
 若 SSF 实际依赖 `--command` 或 `--read`，让查询器直接原子创建完整 JSON envelope：
 
 ```bash
-python3 -B /abs/starun-siril/scripts/query_siril_manual.py \
+"$STARUN_PYTHON" -B /abs/starun-siril/scripts/query_siril_manual.py \
   --command autostretch \
   --output /abs/session/reports/manual-evidence/090-autostretch.command.json
 
-python3 -B /abs/starun-siril/scripts/query_siril_manual.py \
+"$STARUN_PYTHON" -B /abs/starun-siril/scripts/query_siril_manual.py \
   --read section:<id> \
   --output /abs/session/reports/manual-evidence/090-stretch-section.json
 ```
@@ -68,7 +70,7 @@ provenance 的 command/read evidence，更不得在报告中写成“已查询�
 `status=not_needed`，evidence 必须为空。`--format text` 适合临时阅读，但不能与 `--output` 组合，也不能
 代替 provenance 所需的完整 JSON envelope。
 
-provenance 的 primary reference 必须是所声明协议的 `references/protocols/<protocol-id-with-dashes>.md`；
+provenance 的唯一 primary reference 必须是所声明协议映射的首份阶段文件，其余正文阶段以 supporting 绑定；
 冻结手册文件本身不得作为 reference 条目，手册使用只通过上述 query envelope 记录。这样既能证明 SSF 的
 来源，也不会把手册变成自动 Recipe 或要求每条命令重复检索。
 

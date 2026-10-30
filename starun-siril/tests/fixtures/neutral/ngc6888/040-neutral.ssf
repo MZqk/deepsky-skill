@@ -1,0 +1,21 @@
+requires 1.4.4 1.5.0
+set32bits
+# color-calibration: {"method":"neutral","source_sha256":"52f46aa69ee3bfde21d372750a04ba08fdd436a0a22f6bb8e1ee34674c470aa3","background_regions":"reports/040-neutral/regions.json","background_partition":{"fit":["bg-003","bg-004","bg-006","bg-007","bg-008","bg-009","bg-010","bg-011","bg-012","bg-014","bg-015","bg-018","bg-019","bg-020","bg-021","bg-023","bg-024","bg-027","bg-029"],"validation":["bg-001","bg-002","bg-005","bg-013","bg-016","bg-017","bg-022","bg-025","bg-026","bg-028"]},"white_reference":null,"fallback_reason":"Controlled corpus test of additive neutralization; no photometric color claim."}
+load "__SOURCE__"
+split "__SESSION__/artifacts/raw-r" "__SESSION__/artifacts/raw-g" "__SESSION__/artifacts/raw-b"
+close
+pm "($artifacts/raw-r$ - 0.028679331654840934) * 1 + 0.028702220187685978"
+save "__SESSION__/artifacts/corrected-r.fit" -chksum
+close
+pm "($artifacts/raw-g$ - 0.028686961165789282) * 1 + 0.028702220187685978"
+save "__SESSION__/artifacts/corrected-g.fit" -chksum
+close
+pm "($artifacts/raw-b$ - 0.028702220187685978) * 1 + 0.028702220187685978"
+save "__SESSION__/artifacts/corrected-b.fit" -chksum
+close
+rgbcomp "__SESSION__/artifacts/corrected-r.fit" "__SESSION__/artifacts/corrected-g.fit" "__SESSION__/artifacts/corrected-b.fit" "-out=__SESSION__/artifacts/040-neutral.fit" -nosum
+load "__SESSION__/artifacts/040-neutral.fit"
+stat main
+autostretch -linked -2.8 0.22
+savejpg "__SESSION__/previews/040-neutral" 95
+close

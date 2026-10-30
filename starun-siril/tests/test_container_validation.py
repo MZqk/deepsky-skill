@@ -7,40 +7,17 @@ import os
 from pathlib import Path
 import struct
 import subprocess
-import sys
 from typing import Callable
 import zlib
 
 import pytest
 
 
-SKILL_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SKILL_ROOT / "scripts"))
-
 import deep_sky_siril_artifacts as artifacts  # noqa: E402
 import deep_sky_siril_core as core  # noqa: E402
 import deep_sky_siril_tooling as tooling  # noqa: E402
 
-
-def _fits_card(keyword: str, value: object | None = None) -> bytes:
-    if value is None:
-        text = keyword
-    else:
-        if isinstance(value, bool):
-            encoded = "T" if value else "F"
-        elif isinstance(value, str):
-            encoded = f"'{value}'"
-        else:
-            encoded = str(value)
-        text = f"{keyword:<8}= {encoded:>20}"
-    return text.ljust(80).encode("ascii")
-
-
-def _fits_hdu(cards: list[tuple[str, object]], data: bytes = b"") -> bytes:
-    header = b"".join(_fits_card(key, value) for key, value in cards)
-    header += _fits_card("END")
-    header += b" " * (-len(header) % 2880)
-    return header + data + b"\0" * (-len(data) % 2880)
+from ._fits_bytes import _fits_hdu
 
 
 def _simple_fits() -> bytes:

@@ -128,7 +128,7 @@ class SirilManualBundleTests(unittest.TestCase):
             if target.startswith("command:")
         }
         # The fixed alias index predates the new native policy. Exact command lookup remains available.
-        self.assertLessEqual(allowed, aliased_commands | {"ght", "clahe", "gauss", "platesolve"})
+        self.assertLessEqual(allowed, aliased_commands | {"epf", "ght", "invght", "modasinh", "clahe", "gauss", "platesolve", "spcc_list", "icc_assign", "fmul", "wavelet", "wrecons", "fill", "update_key"})
 
         aliased_pages = {
             target.removeprefix("page:")

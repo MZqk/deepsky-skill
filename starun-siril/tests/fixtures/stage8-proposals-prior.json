@@ -1,0 +1,87 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "agent_proposed_stretch_flow_v25",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2"
+  },
+  "implementation": {
+    "deep_sky_siril_stretch_v2.py": {
+      "sha256": "663ff36520c08a3bf670161618b2ec3fa930048ec253677970e3c129b5107ec3",
+      "size": 47114
+    },
+    "deep_sky_siril_stretch.py": {
+      "sha256": "ea4a97daa122d2b08ac490c0a6a5c8dde9922afe513c21c747c14ba7861517c6",
+      "size": 61557
+    },
+    "deep_sky_siril_stretch_profiles.py": {
+      "sha256": "2bda5b1976d73e5ceca4434e6373a9aaf96f9b66c2509fd56b1cf8c65fe9474a",
+      "size": 20765
+    },
+    "deep_sky_siril_local_contrast.py": {
+      "sha256": "2caf3d692ebbc6e866278581efd71ccb4a117633821176b0edcf0e9de3610633",
+      "size": 44131
+    },
+    "deep_sky_siril_processing.py": {
+      "sha256": "c915f8e34b685586d621ca1a60aef355b0be9cf5ebd1ffa416c212b39594eeec",
+      "size": 136713
+    },
+    "deep_sky_siril_hdr.py": {
+      "sha256": "0f76f18a99412e1261c5e571c48edd6cd158014e0102f6e004a46912f0719e82",
+      "size": 18548
+    },
+    "deep_sky_siril_dualband.py": {
+      "sha256": "126135471d42248c05b39fe7344855dd13ad7cedd23d376a84e7ca8cc38cb3f3",
+      "size": 29895
+    },
+    "deep_sky_siril_core.py": {
+      "sha256": "ebe0571d88faed060e5880f4b66dc2a7755957c2051c691fefe8d0e2d611a884",
+      "size": 137623
+    }
+  },
+  "profiles": {
+    "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+    "size": 3844
+  },
+  "helper": {
+    "sha256": "2caf3d692ebbc6e866278581efd71ccb4a117633821176b0edcf0e9de3610633",
+    "size": 44131
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "c16dd70916d525cb9adf00ce7308b4eb70936c24961176deb937ffcc7ac6a804",
+      "size": 20303
+    },
+    "references/stages/stage-08-starless-enhance.md": {
+      "sha256": "06b5244ed15d4d749071d4bd6e2ac3b9b5ff84c4ee6d4399cbca787ad8fa70d9",
+      "size": 22786
+    },
+    "references/delivery.md": {
+      "sha256": "8bba835c63bae7ffc1c0befe8e50503e6081b49cf2bdc6ef7e531845625250cb",
+      "size": 9792
+    },
+    "CHANGELOG.md": {
+      "sha256": "32e463550a6edf91bf6fb3e00e9edf2de63b59f205bb8594ab680a0950129b96",
+      "size": 31003
+    }
+  }
+}

@@ -1,0 +1,10 @@
+requires 1.4.4 1.5.0
+set32bits
+load "__SOURCE__"
+mtf 0.02 0.015 1
+savejpg "__SESSION__/previews/040-neutral-matched-parent" 95
+close
+load "__SESSION__/artifacts/040-neutral.fit"
+mtf 0.02 0.015 1
+savejpg "__SESSION__/previews/040-neutral-matched-candidate" 95
+close

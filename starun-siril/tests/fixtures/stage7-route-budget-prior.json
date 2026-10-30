@@ -1,0 +1,66 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "subject_priority_stretch_flow_v27",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "stellar_color_assessment_v2",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2",
+    "local_contrast_hdr": "wavelet_only_v1",
+    "subject_enhancement": "benefit_first_v1",
+    "linear_denoise": "agent_proposal_v1",
+    "linear_denoise_backend": "deepsnr_primary_v1",
+    "recomposition_parameters": "agent_proposal_v1",
+    "recomposition_geometry": "fixed_catalog_profiles_v1",
+    "tone_adjustment": "remaining_goal_v1",
+    "color_evaluation": "unmasked_first_v1",
+    "color_region_goals": "explicit_targets_v1",
+    "color_preservation": "vivid_preservation_v1",
+    "chroma_denoise": "chroma_bilateral_v1",
+    "subject_mask": "reviewed_polygons_v1"
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "322c1e90f7c10c048c3adadfc56f7e17833446bcf8de256906a769f3d4d73e2f",
+      "size": 29164
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "860dfce44830fc19583a893c8d66b850d985be61815a69bc9ed6726b1b38554f",
+      "size": 103226
+    },
+    "references/target-morphology-review.md": {
+      "sha256": "718d96be631c93a58a26d51eb0a48cfc6eeb9fbd3598ecc96898b0f19b8d2cfc",
+      "size": 9400
+    },
+    "references/session-contract.md": {
+      "sha256": "e20ae510ab0f7426abccd13af5356e4d483f5f879bbd2b2fb3704574a5c8474b",
+      "size": 48768
+    },
+    "references/cli-contract.md": {
+      "sha256": "59e6f147ee37dd5a4e97b6cba6ccd9daff4dcdbe37535b0865f78ad8e9e8aec6",
+      "size": 64804
+    },
+    "references/stage-sequence.md": {
+      "sha256": "0e8c02808617a14bc12bd35d166aea7872d4771ea9899b2bb0572559b23f8518",
+      "size": 17252
+    }
+  }
+}

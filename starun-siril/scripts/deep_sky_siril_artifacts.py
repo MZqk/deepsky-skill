@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 import zlib
 
 from deep_sky_siril_contract import SCHEMA_PREFIX, ContractError
-from deep_sky_siril_contract import LOG_DIAGNOSTICS_POLICY
+from deep_sky_siril_contract import LOG_DIAGNOSTICS_POLICY, sha256_file
 
 try:
     from PIL import Image
@@ -58,7 +58,40 @@ _JPEG_EXIF_ERROR = "Error: Unable to read EXIF metadata"
 _BROKEN_PIPE_ERROR = "BrokenPipeError: [Errno 32] Broken pipe"
 _BROKEN_PIPE_COMPANION = "Exception ignored while flushing sys.stdout:"
 _DENOISE_COPYFITS_ERROR = "error: no suitable data in src fits"
+_PCC_IMPRECISE_SOLUTION = re.compile(
+    r"^(?:log:\s*)?(?:The photometric color (?:calibration|correction) "
+    r"seems to have found an imprecise solution, consider correcting the image gradient first"
+    r"|测光法色彩校准似乎不能精确校准，考虑先修正图像渐变)[.]?$",
+    re.IGNORECASE,
+)
+_LOG_DIAGNOSTIC_POLICIES = frozenset({"fail_closed_v1", "fail_closed_v2", "fail_closed_v3"})
+# fail_closed_v3 only re-labels severities that v2 already produced, so v2 and v3 agree
+# on the same findings. v1 flagged fewer lines, so it stays distinguishable; mapping v1
+# onto the others would let a receipt replay under rules it was never judged by.
+_LOG_DIAGNOSTIC_CANONICAL_POLICY = {
+    "fail_closed_v1": "fail_closed_v1",
+    "fail_closed_v2": "fail_closed_v2",
+    "fail_closed_v3": "fail_closed_v2",
+}
+# Context-proven runtime messages that carry no scientific signal. Under fail_closed_v3
+# they are still recorded with their exact line and text, but as `benign` rather than
+# `warning`, so they neither set the run-wide status nor compete with a real warning.
+_BENIGN_CODES = frozenset({
+    "post_success_pipe_flush",
+    "denoise_copyfits_nonfatal",
+    "jpeg_exif_unavailable",
+})
 _SCRIPT_SUCCESS = "log: Script execution finished successfully."
+_LOG_PREFIX = re.compile(r"^log:\s*", re.IGNORECASE)
+_SCRIPT_FAILURE = re.compile(
+    r"^(?:Script execution failed[.!]?|progress:\s*Script execution failed[.!]?,\s*"
+    r"(?:100|[0-9]{1,2})(?:\.\d+)?%)$",
+    re.IGNORECASE,
+)
+_CATALOGUE_HTTP_ERROR = re.compile(
+    r"^Server unreachable or unresponsive\s*\(HTTP code [45]\d{2}\b",
+    re.IGNORECASE,
+)
 _AUTOSTRETCH_MTF = re.compile(
     rf"Applying MTF with values\s+"
     rf"(?P<low>{_NUMBER}),\s*(?P<mid>{_NUMBER}),\s*(?P<high>{_NUMBER})",
@@ -92,6 +125,41 @@ def _looks_like_runtime_error(text: str) -> bool:
     )
 
 
+def normalize_log_diagnostics(record: Any) -> Any:
+    """Compare log diagnostics across the benign-severity change without weakening it.
+
+    Receipts written before fail_closed_v3 recorded context-proven runtime messages as
+    `warning`. Recomputing under v3 yields `benign` with a `benign_count`, so an exact
+    comparison would reject every historical receipt. Both shapes reduce to the same
+    canonical form here: identical code, line, text and fatal/warning counts. A fatal
+    finding, a real warning and the policy value itself are never rewritten, so a
+    genuine failure still fails replay exactly as before.
+    """
+    if not isinstance(record, dict):
+        return record
+    findings = record.get("findings")
+    if not isinstance(findings, list):
+        return record
+    normalized = dict(record)
+    normalized.pop("benign_count", None)
+    # A benign finding is exactly a former warning, so it is counted back as one. The
+    # counts are recomputed from the findings rather than copied, so both shapes agree.
+    normalized["findings"] = [
+        {**item, "severity": "warning" if item.get("severity") == "benign" else item.get("severity")}
+        if isinstance(item, dict) else item
+        for item in findings
+    ]
+    fatal_count = sum(1 for item in normalized["findings"]
+                      if isinstance(item, dict) and item.get("severity") == "fatal")
+    warning_count = sum(1 for item in normalized["findings"]
+                        if isinstance(item, dict) and item.get("severity") == "warning")
+    normalized["fatal_count"] = fatal_count
+    normalized["warning_count"] = warning_count
+    normalized["policy"] = _LOG_DIAGNOSTIC_CANONICAL_POLICY.get(record.get("policy"), record.get("policy"))
+    normalized["status"] = "failed" if fatal_count else "warning" if warning_count else "clean"
+    return normalized
+
+
 def diagnose_siril_log(
     output: str,
     *,
@@ -99,23 +167,45 @@ def diagnose_siril_log(
     timed_out: bool,
     execution_valid: bool,
     validated_display_names: Sequence[str] = (),
+    policy: str = LOG_DIAGNOSTICS_POLICY,
 ) -> dict[str, Any]:
     """Classify Siril stderr/stdout without treating exit zero as sufficient.
 
-    The two warning cases are deliberately contextual.  Every other line that
+    Known runtime error exceptions are deliberately contextual. Every other line that
     looks like an error, exception, or traceback remains fatal and visible in
-    the immutable run receipt.
+    the immutable run receipt. Policy selection preserves historical receipt replay.
+
+    Under fail_closed_v3 a context-proven runtime message that carries no scientific
+    signal is recorded as `benign` instead of `warning`. The finding and its line stay in
+    the receipt, so the evidence is never dropped, but it no longer sets the run-wide
+    `status`. Only a fatal finding can fail a run, and a real warning - such as an
+    imprecise photometric fit or a degraded block - still surfaces on its own. This keeps
+    a genuine catalogue or script failure from being read as routine noise.
     """
 
+    if policy not in _LOG_DIAGNOSTIC_POLICIES:
+        raise ValueError(f"Unsupported log diagnostics policy: {policy}")
     lines = output.splitlines()
-    normalized = [line.strip() for line in lines]
+    original = [line.strip() for line in lines]
+    # v3 is v2 plus a benign re-label, so every v2 detection rule applies unchanged.
+    strips_log_prefix = policy != "fail_closed_v1"
+    normalized = (
+        [_LOG_PREFIX.sub("", line, count=1) for line in original]
+        if strips_log_prefix
+        else original
+    )
+    success_marker = (
+        _LOG_PREFIX.sub("", _SCRIPT_SUCCESS, count=1)
+        if strips_log_prefix
+        else _SCRIPT_SUCCESS
+    )
     validated_names = {
         Path(str(name).strip().strip('"')).name for name in validated_display_names
     }
     success_lines = {
         index
         for index, line in enumerate(normalized)
-        if line == _SCRIPT_SUCCESS
+        if line == success_marker
     }
 
     safe_exif_lines: set[int] = set()
@@ -194,17 +284,28 @@ def diagnose_siril_log(
     findings: list[dict[str, Any]] = []
 
     def finding(index: int, *, code: str, severity: str) -> None:
+        if policy == "fail_closed_v3" and severity == "warning" and code in _BENIGN_CODES:
+            severity = "benign"
         findings.append(
             {
                 "code": code,
                 "severity": severity,
                 "line_number": index + 1,
-                "text": normalized[index][:500],
+                "text": original[index][:500],
             }
         )
 
     for index, line in enumerate(normalized):
         if not line:
+            continue
+        if strips_log_prefix and _SCRIPT_FAILURE.fullmatch(line):
+            finding(index, code="siril_script_failed", severity="fatal")
+            continue
+        if strips_log_prefix and _CATALOGUE_HTTP_ERROR.match(line):
+            finding(index, code="catalogue_http_error", severity="fatal")
+            continue
+        if _PCC_IMPRECISE_SOLUTION.fullmatch(line):
+            finding(index, code="pcc_imprecise_solution", severity="warning")
             continue
         if line == _JPEG_EXIF_ERROR:
             if index in safe_exif_lines:
@@ -231,11 +332,13 @@ def diagnose_siril_log(
 
     warning_count = sum(item["severity"] == "warning" for item in findings)
     fatal_count = sum(item["severity"] == "fatal" for item in findings)
+    benign_count = sum(item["severity"] == "benign" for item in findings)
     return {
-        "policy": LOG_DIAGNOSTICS_POLICY,
+        "policy": policy,
         "status": "failed" if fatal_count else "warning" if warning_count else "clean",
         "warning_count": warning_count,
         "fatal_count": fatal_count,
+        **({"benign_count": benign_count} if benign_count else {}),
         "findings": findings,
     }
 
@@ -397,8 +500,8 @@ def parse_siril_reopen_metadata(
 def _parse_fits_value(raw: str) -> Any:
     value = raw.strip()
     if value.startswith("'"):
-        end = value.find("'", 1)
-        return value[1:end].replace("''", "'").strip() if end >= 0 else value[1:].strip()
+        quoted = re.match(r"'((?:[^']|'')*)'", value)
+        return quoted.group(1).replace("''", "'").strip() if quoted else value[1:].strip()
     token = value.split("/", 1)[0].strip()
     if token in {"T", "F"}:
         return token == "T"
@@ -433,6 +536,8 @@ def read_fits_pixels(path: Path):
     import numpy as np
 
     header = read_fits_header(path)
+    if header.get("NAXIS") not in (2, 3):
+        raise ValueError("Scientific pixel reader supports only 2D or channel-first 3D FITS images")
     geometry = fits_geometry(path)
     bitpix = geometry["bitpix"]
     dtypes = {8: ">u1", 16: ">i2", 32: ">i4", -32: ">f4", -64: ">f8"}
@@ -780,11 +885,13 @@ def _validate_xisf_zlib_payload(
     stored_size: int,
     block_bytes: bytes | None,
     expected_size: int,
-) -> None:
+    collect: bool = False,
+) -> bytes | None:
     """Bound zlib expansion and prove the declared uncompressed byte count."""
 
     decompressor = zlib.decompressobj()
     produced = 0
+    decoded = bytearray() if collect else None
 
     def consume(compressed: bytes) -> None:
         nonlocal produced
@@ -798,6 +905,8 @@ def _validate_xisf_zlib_payload(
                     "decompressed_size_mismatch",
                     "XISF zlib payload expands beyond its declared image size",
                 )
+            if decoded is not None:
+                decoded.extend(expanded)
             next_pending = decompressor.unconsumed_tail
             if next_pending and not expanded and next_pending == pending:
                 _artifact_validation_error(
@@ -835,9 +944,11 @@ def _validate_xisf_zlib_payload(
             "XISF zlib payload does not match its declared image size",
         )
 
+    return bytes(decoded) if decoded is not None else None
 
-def inspect_xisf_container(path: Path) -> dict[str, Any]:
-    """Validate a monolithic XISF image block without decoding its pixels."""
+
+def _read_xisf_xml(path: Path) -> tuple[ET.Element, int, int]:
+    """Read bounded XML without permitting external data or entity expansion."""
 
     if path.is_symlink() or not path.is_file():
         _artifact_validation_error("missing_or_empty", f"Unsafe XISF artifact: {path}")
@@ -901,8 +1012,14 @@ def inspect_xisf_container(path: Path) -> dict[str, Any]:
                     "external_reference_forbidden",
                     "External XISF data references are forbidden",
                 )
+    return root, header_length, file_size
+
+
+def inspect_xisf_container(path: Path, *, allow_multiple_images: bool = False) -> dict[str, Any]:
+    """Validate a monolithic XISF image block without decoding its pixels."""
+    root, header_length, file_size = _read_xisf_xml(path)
     images = [child for child in root if _xml_local_name(child.tag) == "Image"]
-    if len(images) != 1:
+    if not images or (len(images) != 1 and not allow_multiple_images):
         _artifact_validation_error(
             "container_invalid", "XISF outputs require exactly one Image"
         )
@@ -1076,6 +1193,150 @@ def inspect_xisf_container(path: Path) -> dict[str, Any]:
     }
 
 
+def read_xisf_pixels(path: Path):
+    """Read Image 0 in declared scientific units, without modifying or clipping pixels."""
+    import numpy as np
+
+    summary = inspect_xisf_container(path, allow_multiple_images=True)
+    root, _, _ = _read_xisf_xml(path)
+    images = [node for node in root if _xml_local_name(node.tag) == "Image"]
+    image = images[0]
+    formats = {"UInt8": "u1", "UInt16": "u2", "UInt32": "u4",
+               "Float32": "f4", "Float64": "f8"}
+    sample_format = summary["sample_format"]
+    if sample_format not in formats:
+        raise ValueError(f"Unsupported scientific XISF sample format: {sample_format}")
+    byte_order = image.attrib.get("byteOrder", "little")
+    storage = image.attrib.get("pixelStorage", "planar")
+    if byte_order not in {"little", "big"} or storage not in {"planar", "normal"}:
+        raise ValueError("Unsupported XISF byte order or pixel storage")
+    dtype = np.dtype(("<" if byte_order == "little" else ">") + formats[sample_format])
+    geometry = summary["geometry"]
+    shape = (geometry["channels"], geometry["height"], geometry["width"])
+    count = math.prod(shape)
+    expected_size = count * dtype.itemsize
+    bounds = None
+    if sample_format.startswith("Float"):
+        try:
+            bounds = [float(value) for value in image.attrib["bounds"].split(":")]
+        except (KeyError, ValueError) as exc:
+            raise ValueError("Floating XISF requires explicit finite bounds") from exc
+        if (len(bounds) != 2 or not all(math.isfinite(value) for value in bounds)
+                or bounds[0] >= bounds[1]):
+            raise ValueError("Floating XISF bounds must be finite and increasing")
+        width = bounds[1] - bounds[0]
+        if not math.isfinite(width):
+            raise ValueError("Floating XISF bounds span is not finite")
+        scale, zero = 1 / width, -bounds[0] / width
+        if not all(math.isfinite(value) for value in (scale, zero)) or scale <= 0:
+            raise ValueError("Floating XISF bounds cannot be represented in measurement units")
+    else:
+        scale, zero = 1 / np.iinfo(dtype).max, 0
+
+    block = None
+    offset = None
+    if summary["location"] == "embedded":
+        block = _decode_xisf_embedded(image)
+        stored_size = len(block)
+    else:
+        _, offset_value, size_value = image.attrib["location"].split(":")
+        offset, stored_size = int(offset_value), int(size_value)
+    if summary["compression"]:
+        block = _validate_xisf_zlib_payload(path, attachment_offset=offset,
+            stored_size=stored_size, block_bytes=block, expected_size=expected_size, collect=True)
+        if summary["compression"].endswith("+sh"):
+            block = np.frombuffer(block, dtype=np.uint8).reshape(dtype.itemsize, count).T.copy().tobytes()
+    raw = (np.frombuffer(block, dtype=dtype, count=count) if block is not None else
+           np.memmap(path, dtype=dtype, mode="r", offset=offset, shape=(count,)))
+    layers = (raw.reshape(shape) if storage == "planar" else
+              raw.reshape(shape[1], shape[2], shape[0]).transpose(2, 0, 1))
+    layers.flags.writeable = False
+    selection = {"source_format": "XISF", "image_index": 0,
+                 "image_id": image.attrib.get("id"), "image_count": len(images),
+                 "sample_format": sample_format, "byte_order": byte_order,
+                 "pixel_storage": storage, "bounds": bounds}
+    return layers, scale, zero, selection
+
+
+
+def read_scientific_header(path: Path) -> dict[str, Any]:
+    """Read Image 0 FITS keywords, never interpret private PixInsight properties."""
+    if path.suffix.lower() in {'.fit', '.fits', '.fts'}:
+        return read_fits_header(path)
+    if path.suffix.lower() != '.xisf':
+        raise ContractError('artifact_invalid', 'Scientific metadata requires FITS or XISF')
+    before = sha256_file(path)
+    try:
+        summary = inspect_xisf_container(path, allow_multiple_images=True)
+        root, _, _ = _read_xisf_xml(path)
+    except _ArtifactValidationError as exc:
+        raise ContractError('artifact_invalid', str(exc)) from exc
+    image = next(node for node in root if _xml_local_name(node.tag) == 'Image')
+    header: dict[str, Any] = {}
+    numeric = re.compile(r'(?:CRPIX|CRVAL|CDELT)\d+|(?:CD|PC)\d+_\d+|(?:A|B|AP|BP)_(?:ORDER|\d+_\d+)')
+    for node in image:
+        if _xml_local_name(node.tag) != 'FITSKeyword':
+            continue
+        name = node.attrib.get('name', '').strip().upper()
+        if not name or 'value' not in node.attrib:
+            raise ContractError('artifact_invalid', 'XISF FITSKeyword requires a name and value')
+        if name in {'HISTORY', 'COMMENT'}:
+            continue
+        value = _parse_fits_value(node.attrib['value'])
+        if numeric.fullmatch(name) or name in {'RA', 'DEC', 'FOCALLEN', 'XPIXSZ', 'YPIXSZ', 'XBINNING', 'YBINNING'}:
+            try:
+                valid = not isinstance(value, bool) and math.isfinite(float(value))
+            except (TypeError, ValueError, OverflowError):
+                valid = False
+            if not valid:
+                raise ContractError('artifact_invalid', f'XISF {name} requires a finite number')
+        if name in header and header[name] != value:
+            raise ContractError('artifact_invalid', f'Conflicting XISF FITSKeyword: {name}')
+        header[name] = value
+    # Structural FITS keywords can describe a pre-crop image; XML is authoritative.
+    geometry = summary['geometry']
+    header.update(NAXIS=2 if geometry['channels'] == 1 else 3,
+                  NAXIS1=geometry['width'], NAXIS2=geometry['height'])
+    if geometry['channels'] == 1:
+        header.pop('NAXIS3', None)
+    else:
+        header['NAXIS3'] = geometry['channels']
+    if sha256_file(path) != before:
+        raise ContractError('artifact_invalid', 'XISF changed while reading scientific metadata')
+    return header
+
+
+def read_scientific_pixels(path: Path):
+    """Read supported scientific pixels in FITS bottom-origin channel/y/x order."""
+    import numpy as np
+    before = sha256_file(path)
+    if path.suffix.lower() == '.xisf':
+        raw, scale, zero, selection = read_xisf_pixels(path)
+        if selection['bounds'] is not None:
+            low, high = selection['bounds']
+            values = (np.asarray(raw, dtype=float) - low) / (high - low)
+            units = 'declared_bounds'
+        else:
+            values = np.asarray(raw, dtype=float) * scale + zero
+            units = 'unsigned_type_full_scale'
+        values = values[:, ::-1]
+        metadata = {**selection, 'source_row_order': 'top_down', 'units': units}
+    elif path.suffix.lower() in {'.fit', '.fits', '.fts'}:
+        raw, scale, zero = read_fits_pixels(path)
+        values = np.asarray(raw, dtype=float) * scale + zero
+        metadata = {'source_format': 'FITS', 'image_index': 0, 'image_id': None,
+                    'sample_format': str(raw.dtype), 'scale': scale, 'zero': zero,
+                    'source_row_order': 'bottom_up', 'units': 'fits_scaled_siril_normalized'}
+    else:
+        raise ValueError('Scientific pixels require supported FITS or XISF; no display fallback')
+    if values.ndim != 3 or values.shape[0] not in (1, 3):
+        raise ValueError('Scientific pixels require mono/RGB channel/y/x geometry')
+    if sha256_file(path) != before:
+        raise ValueError('Scientific source changed during pixel decoding')
+    metadata.update(sha256=before, shape=list(values.shape), row_order='fits_bottom_up')
+    values.flags.writeable = False
+    return values, metadata
+
 def validate_display(path: Path) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file() or path.stat().st_size < 4:
         return {"passed": False, "reason": "missing_or_empty"}
@@ -1108,5 +1369,8 @@ __all__ = (
     "parse_siril_reopen_metadata",
     "parse_statistics_samples",
     "read_fits_header",
+    "read_scientific_header",
+    "read_xisf_pixels",
+    "read_scientific_pixels",
     "validate_display",
 )

@@ -1,0 +1,216 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "roi_protected_selection_v2",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "morphology_default_stretch_flow_v26",
+    "stretch_parameters": "agent_proposal_v1",
+    "stretch_noise": "diagnostic_only_v1",
+    "stretch_strategy": "morphology_chain_comparison_v1",
+    "starless_stretch": "subject_only_full_diagnostic_v1",
+    "dualband": "hoo_proxy_rgb_stars_v1",
+    "color_curve": "masked_saturation_ghs_v1",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "wavelet_clahe_competition_v2",
+    "local_contrast_hdr": "wavelet_only_v1",
+    "subject_enhancement": "benefit_first_v1",
+    "linear_denoise": "agent_proposal_v1",
+    "linear_denoise_backend": "deepsnr_primary_v1",
+    "recomposition_parameters": "agent_proposal_v1",
+    "recomposition_geometry": "fixed_catalog_profiles_v1",
+    "tone_adjustment": "remaining_goal_v1",
+    "color_evaluation": "unmasked_first_v1"
+  },
+  "implementation": {
+    "deep_sky_siril_stretch_v2.py": {
+      "sha256": "a7380cbc55f97fb55757aee30221a5f04003ccd9c3c56df2e60db3a425eeb18b",
+      "size": 101603
+    },
+    "deep_sky_siril_stretch.py": {
+      "sha256": "cc750a8143d9c023e00a0270b5927eadb6651d88159b95ed31ccc61c75ac4256",
+      "size": 62787
+    },
+    "deep_sky_siril_stretch_profiles.py": {
+      "sha256": "0438905bdc4cb60a2de25c4886ab8df922f3a5b7b34aa2a5bd08f4a8a3eeb2f8",
+      "size": 21428
+    },
+    "deep_sky_siril_local_contrast.py": {
+      "sha256": "9b0540240ef697ca6d62cb8a73f74002809465187e83c14dda673792e625c8fa",
+      "size": 53758
+    },
+    "deep_sky_siril_processing.py": {
+      "sha256": "a50489a7d8e683e972d4e363d1faca05b569500b4718b9b91d51fb2ef354f400",
+      "size": 143475
+    },
+    "deep_sky_siril_hdr.py": {
+      "sha256": "cb04cb794abe750fa02deb5d6e7b9216400d6573b87fba969e82d195bc5eefe6",
+      "size": 18934
+    },
+    "deep_sky_siril_dualband.py": {
+      "sha256": "a6b566b4c2eafc74304291acbb5846ef19becafdfcf7574bb4ef5903219c09a8",
+      "size": 42748
+    },
+    "deep_sky_siril_core.py": {
+      "sha256": "0c298e1dc5de01cde5b3dc433bbd8acaca0b386ac679ac8a27dd00ad2cfc83ac",
+      "size": 143651
+    },
+    "deep_sky_siril_visibility.py": {
+      "sha256": "2f45e019b39d42a5719d2dff0d6598d2dd21e84206e9c7443cb823bc01ffd052",
+      "size": 31804
+    },
+    "deep_sky_siril_denoise.py": {
+      "sha256": "e444c9a63d8918e8c670dc2f8cda8321bb2d1d6a330d0314f0a2b355e4b009ef",
+      "size": 34179
+    },
+    "deep_sky_siril_tone.py": {
+      "sha256": "ff88711dbb03c4517150fdd88bc9c702ab0abd6acf77b39847a7c053fc0fb622",
+      "size": 13176
+    },
+    "deep_sky_siril_color.py": {
+      "sha256": "5639da7745af5e73d4bdbf46e8f3d018f6cdf5667ff4c3965ca0e9aff890770f",
+      "size": 54506
+    },
+    "deep_sky_siril_psf.py": {
+      "sha256": "b463f6b0575cfe2cbe5a08964e82a212ad1c953f8a858db835ca3af858eb2350",
+      "size": 44340
+    },
+    "deep_sky_star_reduction.py": {
+      "sha256": "502a1dae3df000c880d4cf523d4267fcbad8e027a87b1163bc61eb3cfb2946a4",
+      "size": 64618
+    },
+    "siril_psf_samples.py": {
+      "sha256": "694e4d34869331ca776827c2442da24c4a0d0fd3e9ab8e75cefae9083a0cd721",
+      "size": 15655
+    },
+    "siril_deepsnr.py": {
+      "sha256": "7c69036810fca9bc6b36f9f0473d93c228442fb00732c60ea91b19b1fd84373a",
+      "size": 13259
+    }
+  },
+  "profiles": {
+    "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+    "size": 3844
+  },
+  "documents": {
+    "SKILL.md": {
+      "sha256": "15ea8d989d9e6c23360dd35a0b5070896e52b9dbc2654cb216668b89fd913952",
+      "size": 26496
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "356a6f1ec481f1dfb13d0be1c6a8da62500588860da74429f54b9857330e31e8",
+      "size": 77082
+    },
+    "references/stage-sequence.md": {
+      "sha256": "596501dc12125c471c35a74c8bf053a00217f5826ec5175820db304961e10be7",
+      "size": 15471
+    },
+    "references/protocol-index.md": {
+      "sha256": "3a8ae78a842af50a0ee1292ffddb200ccfdfd524f1528430e33ca86aaabdc018",
+      "size": 3890
+    },
+    "references/cli-contract.md": {
+      "sha256": "9d735fce83d7dc8ff2fc2b2727e470cb6bafcc18b15045b9ab52b655482eb045",
+      "size": 61861
+    },
+    "references/session-contract.md": {
+      "sha256": "8148ad3e93d4764d3b93e3c773c8afe719a31ecf871a86cfe749e4941deaf5db",
+      "size": 45582
+    },
+    "references/target-morphology-review.md": {
+      "sha256": "9816eb278b6f7ea2c8ab1ecadf3e7fa1fab65123ee962cf92264c5c96513af2d",
+      "size": 9106
+    },
+    "references/command-policy.json": {
+      "sha256": "95b55398f313982a0e5b21f31aee5c6a2085e16aac9ea575a9de0f6a2cd8a0f3",
+      "size": 4315
+    },
+    "references/stretch-profiles.json": {
+      "sha256": "50d85c5751f150bc5c4723babf2a8638d6ce99585b5c7c92511d814dbd897163",
+      "size": 3844
+    },
+    "scripts/deep_sky_siril_contract.py": {
+      "sha256": "a5441a04115544183f4e98d702ad32271aaf7429f9f07b49293a95588f95a8a7",
+      "size": 17841
+    },
+    "scripts/deep_sky_siril_session.py": {
+      "sha256": "05d0c3b8358c24959f8a8d2640b2e83d5f2b98ce94c8c37b096d2887672943bf",
+      "size": 301872
+    },
+    "scripts/deep_sky_siril_stretch_v2.py": {
+      "sha256": "a7380cbc55f97fb55757aee30221a5f04003ccd9c3c56df2e60db3a425eeb18b",
+      "size": 101603
+    },
+    "scripts/deep_sky_siril_stretch.py": {
+      "sha256": "cc750a8143d9c023e00a0270b5927eadb6651d88159b95ed31ccc61c75ac4256",
+      "size": 62787
+    },
+    "scripts/deep_sky_siril_stretch_profiles.py": {
+      "sha256": "0438905bdc4cb60a2de25c4886ab8df922f3a5b7b34aa2a5bd08f4a8a3eeb2f8",
+      "size": 21428
+    },
+    "scripts/deep_sky_siril_local_contrast.py": {
+      "sha256": "9b0540240ef697ca6d62cb8a73f74002809465187e83c14dda673792e625c8fa",
+      "size": 53758
+    },
+    "scripts/deep_sky_siril_processing.py": {
+      "sha256": "a50489a7d8e683e972d4e363d1faca05b569500b4718b9b91d51fb2ef354f400",
+      "size": 143475
+    },
+    "scripts/deep_sky_siril_hdr.py": {
+      "sha256": "cb04cb794abe750fa02deb5d6e7b9216400d6573b87fba969e82d195bc5eefe6",
+      "size": 18934
+    },
+    "scripts/deep_sky_siril_dualband.py": {
+      "sha256": "a6b566b4c2eafc74304291acbb5846ef19becafdfcf7574bb4ef5903219c09a8",
+      "size": 42748
+    },
+    "scripts/deep_sky_siril_core.py": {
+      "sha256": "0c298e1dc5de01cde5b3dc433bbd8acaca0b386ac679ac8a27dd00ad2cfc83ac",
+      "size": 143651
+    },
+    "scripts/deep_sky_siril_visibility.py": {
+      "sha256": "2f45e019b39d42a5719d2dff0d6598d2dd21e84206e9c7443cb823bc01ffd052",
+      "size": 31804
+    },
+    "scripts/deep_sky_siril_denoise.py": {
+      "sha256": "e444c9a63d8918e8c670dc2f8cda8321bb2d1d6a330d0314f0a2b355e4b009ef",
+      "size": 34179
+    },
+    "scripts/deep_sky_siril_tone.py": {
+      "sha256": "ff88711dbb03c4517150fdd88bc9c702ab0abd6acf77b39847a7c053fc0fb622",
+      "size": 13176
+    },
+    "scripts/deep_sky_siril_color.py": {
+      "sha256": "5639da7745af5e73d4bdbf46e8f3d018f6cdf5667ff4c3965ca0e9aff890770f",
+      "size": 54506
+    },
+    "scripts/deep_sky_siril_psf.py": {
+      "sha256": "b463f6b0575cfe2cbe5a08964e82a212ad1c953f8a858db835ca3af858eb2350",
+      "size": 44340
+    },
+    "scripts/deep_sky_star_reduction.py": {
+      "sha256": "502a1dae3df000c880d4cf523d4267fcbad8e027a87b1163bc61eb3cfb2946a4",
+      "size": 64618
+    },
+    "scripts/siril_psf_samples.py": {
+      "sha256": "694e4d34869331ca776827c2442da24c4a0d0fd3e9ab8e75cefae9083a0cd721",
+      "size": 15655
+    },
+    "scripts/siril_deepsnr.py": {
+      "sha256": "7c69036810fca9bc6b36f9f0473d93c228442fb00732c60ea91b19b1fd84373a",
+      "size": 13259
+    }
+  }
+}

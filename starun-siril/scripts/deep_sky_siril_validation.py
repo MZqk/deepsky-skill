@@ -17,6 +17,7 @@ import query_siril_manual as manual_query
 from deep_sky_siril_contract import (
     CONTRACT_VERSION,
     HASH_PATTERN,
+    PROTOCOL_STAGE_REFERENCES,
     RUN_ID_PATTERN,
     SCHEMA_PREFIX,
     SKILL_ROOT,
@@ -27,6 +28,7 @@ from deep_sky_siril_contract import (
     fingerprint,
     fingerprint_matches,
     load_json,
+    protocol_reference_bindings,
     relative_session_path,
     session_path,
     sha256_file,
@@ -89,8 +91,9 @@ def _normalized_write(command: str, value: str) -> Path:
         path = path.with_suffix(".jpg")
     elif command == "savetif32" and path.suffix.lower() not in {".tif", ".tiff"}:
         path = path.with_suffix(".tif")
-    elif command == "split" and not path.suffix:
-        path = path.with_suffix(".fit")
+    elif command == "split":
+        # Siril appends its FITS extension even when the supplied stem has a suffix.
+        path = Path(str(path) + ".fit")
     return path.resolve(strict=False)
 
 
@@ -150,19 +153,12 @@ def _validate_background_sample_contract(
     ):
         raise ContractError("unsafe_siril_script", "Background source dimensions are invalid")
     try:
-        if source.suffix.lower() in {".fit", ".fits", ".fts"}:
-            geometry = artifacts.fits_geometry(source)
-        elif source.suffix.lower() == ".xisf":
-            geometry = artifacts.inspect_xisf_container(source)["geometry"]
-        else:
-            raise ContractError(
-                "unsafe_siril_script",
-                "Background source must be a FITS or XISF image",
-            )
-    except artifacts._ArtifactValidationError as exc:
+        pixels, _ = artifacts.read_scientific_pixels(source)
+        geometry = {'width': pixels.shape[2], 'height': pixels.shape[1]}
+    except (artifacts._ArtifactValidationError, ValueError, OSError) as exc:
         raise ContractError(
             "unsafe_siril_script",
-            "Background source geometry cannot be verified",
+            "Background source geometry cannot be verified: " + str(exc),
         ) from exc
     if geometry["width"] != width or geometry["height"] != height:
         raise ContractError("unsafe_siril_script", "Background source dimensions changed")
@@ -208,21 +204,29 @@ def _validate_pyscript(
     session: Path,
     source: Path,
     policy: dict[str, Any],
+    probe: dict[str, Any] | None = None,
+    replaying: bool = False,
+    run_id: str | None = None,
+    execution_policy: dict[str, Any] | None = None,
 ) -> Path:
     expected_name = policy["pyscript_protocols"].get(protocol)
     if not expected_name or len(tokens) != 10:
         raise ContractError("unsafe_siril_script", f"pyscript is forbidden for {protocol}")
+    if Path(tokens[1]).expanduser().is_symlink():
+        raise ContractError("unsafe_siril_script", "Pinned bridge cannot be a symlink")
     adapter = Path(tokens[1]).expanduser().resolve(strict=False)
-    expected_name_path = Path(expected_name)
-    if expected_name_path.is_absolute() or expected_name_path.name != expected_name:
+    expected_names = expected_name if isinstance(expected_name, list) else [expected_name]
+    if any(not isinstance(name, str) or Path(name).is_absolute() or Path(name).name != name for name in expected_names):
         raise ContractError("unsafe_siril_script", "pyscript adapter is not the bundled audited bridge")
-    expected = SCRIPTS_ROOT / expected_name
+    expected = SCRIPTS_ROOT / adapter.name
+    if adapter.name not in expected_names:
+        raise ContractError("unsafe_siril_script", "pyscript adapter is not the bundled audited bridge")
     if adapter != expected or not expected.is_file() or expected.is_symlink():
         raise ContractError("unsafe_siril_script", "pyscript adapter is not the bundled audited bridge")
     option_names = tokens[2::2]
     required_options = ["--contract", "--contract-sha256", "--expected-source", "--receipt"]
     if option_names != required_options:
-        raise ContractError("unsafe_siril_script", "Background bridge options are incomplete or reordered")
+        raise ContractError("unsafe_siril_script", "Pinned bridge options are incomplete or reordered")
     values = dict(zip(option_names, tokens[3::2], strict=True))
     contract_path = session_path(
         session,
@@ -231,14 +235,63 @@ def _validate_pyscript(
         allowed_roots=("reports",),
     )
     receipt_path = session_path(session, values["--receipt"], allowed_roots=("reports",))
-    if receipt_path.parent != contract_path.parent or receipt_path.exists() or receipt_path.is_symlink():
-        raise ContractError("unsafe_siril_script", "Background receipt path is unsafe or already exists")
+    if receipt_path.parent != contract_path.parent:
+        raise ContractError("unsafe_siril_script", "Bridge contract and receipt directories differ")
+    if (receipt_path.exists() and not replaying) or receipt_path.is_symlink():
+        raise ContractError("unsafe_siril_script", "Bridge receipt path is unsafe or already exists")
+    if protocol == "stars.separate" and contract_path.parent.name != run_id:
+        raise ContractError("unsafe_siril_script", "StarNet contract directory must match the SSF run ID")
     contract_sha = values["--contract-sha256"]
     if HASH_PATTERN.fullmatch(contract_sha) is None or sha256_file(contract_path) != contract_sha:
-        raise ContractError("unsafe_siril_script", "Background contract SHA-256 is missing or changed")
+        raise ContractError("unsafe_siril_script", "Bridge contract SHA-256 is missing or changed")
     if Path(values["--expected-source"]).expanduser().resolve(strict=False) != source.resolve():
-        raise ContractError("unsafe_siril_script", "Background bridge source differs from run source")
-    _validate_background_sample_contract(contract_path, source)
+        raise ContractError("unsafe_siril_script", "Bridge source differs from run source")
+    if protocol == "background.subtract":
+        background_policy = (execution_policy or {}).get('background', 'heldout_material_gate_v3')
+        required_name = ('siril_background_samples_scientific.py' if background_policy in {'heldout_material_gate_v4', 'heldout_review_gate_v5'}
+                         else 'siril_background_samples.py')
+        if adapter.name != required_name:
+            raise ContractError('unsafe_siril_script', 'Background bridge differs from the frozen policy route')
+        _validate_background_sample_contract(contract_path, source)
+    elif protocol == 'restoration.denoise':
+        if (execution_policy or {}).get('linear_denoise_backend') != 'deepsnr_primary_v1':
+            raise ContractError('unsafe_siril_script', 'DeepSNR bridge requires the frozen Stage 5 backend policy')
+        from siril_deepsnr import validate_contract
+        try:
+            document = load_json(contract_path)
+            validate_contract(document, source, (probe or {}).get('tools', {}).get('deepsnr', {}),
+                              session, run_id, replaying=replaying)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ContractError('unsafe_siril_script', str(exc)) from exc
+    elif protocol == 'restoration.deconvolve':
+        from siril_psf_samples import validate_contract
+        try:
+            document = validate_contract(load_json(contract_path), source, contract_path.parent)
+            from deep_sky_siril_artifacts import fits_geometry
+            if source.suffix.lower() in {'.fit', '.fits', '.fts'}:
+                geometry = fits_geometry(source)
+                if any(geometry[k] != document['source'][k] for k in ('width', 'height', 'channels')):
+                    raise ValueError('PSF contract geometry differs from the scientific source')
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            raise ContractError('unsafe_siril_script', str(exc)) from exc
+        if contract_path.parent.name != run_id:
+            raise ContractError('unsafe_siril_script', 'PSF contract directory must match the SSF run ID')
+    else:
+        runtime = (probe or {}).get("tools", {}).get("starnet", {})
+        native = runtime.get("version") == "2.6.2"
+        required_adapter = SCRIPTS_ROOT / ("siril_starnet_linear.py" if native else "siril_starnet.py")
+        if adapter != required_adapter or runtime.get("adapter", {}).get("path") != str(adapter):
+            raise ContractError("unsafe_siril_script", "StarNet bridge differs from the frozen version route")
+        if native:
+            from siril_starnet_linear import validate_contract, load_json as load_starnet_json
+        else:
+            from siril_starnet import validate_contract
+            load_starnet_json = load_json
+        try:
+            document = load_starnet_json(contract_path)
+            validate_contract(document, source, (probe or {})["tools"]["starnet"], session, contract_path.parent.name, replaying=replaying)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ContractError("unsafe_siril_script", str(exc)) from exc
     return receipt_path
 
 
@@ -261,47 +314,11 @@ def _validate_runtime_setting(
         if not local.get("compatible"):
             raise ContractError("local_gaia_astro_missing", "Local Gaia astrometric catalogue is unavailable")
         expected = local.get("path")
-    elif protocol == "stars.separate" and key in {"core.starnet_exe", "core.starnet_weights"}:
-        starnet = probe.get("tools", {}).get("starnet", {})
-        if not isinstance(starnet, dict) or starnet.get("compatible") is not True:
-            raise ContractError(
-                "runtime_dependency_missing",
-                "StarNet protocol requires a frozen executable and model",
-                missing_dependencies=("starnet2", "StarNet2 model"),
-            )
-        record_name = "executable" if key == "core.starnet_exe" else "model"
-        record = starnet.get(record_name)
-        expected = record.get("path") if isinstance(record, dict) else None
     else:
         raise ContractError("unsafe_siril_script", f"Setting {key or '<empty>'} is forbidden for {protocol}")
     if not isinstance(expected, str) or Path(value).expanduser().resolve(strict=False) != Path(expected).resolve():
         raise ContractError("unsafe_siril_script", f"Setting {key} differs from the frozen probe")
     return key
-
-
-def _validate_starnet_command(tokens: Sequence[str], probe: dict[str, Any]) -> None:
-    starnet = probe.get("tools", {}).get("starnet", {})
-    if not isinstance(starnet, dict) or starnet.get("compatible") is not True:
-        raise ContractError(
-            "runtime_dependency_missing",
-            "StarNet protocol requires a frozen executable and model",
-            missing_dependencies=("starnet2", "StarNet2 model"),
-        )
-    options = tokens[1:]
-    if len(options) != len(set(options)):
-        raise ContractError("unsafe_siril_script", "StarNet options are duplicated")
-    stride = [value for value in options if value.startswith("-stride=")]
-    if (
-        "-stretch" not in options
-        or "-nostarmask" not in options
-        or len(stride) != 1
-        or stride[0] not in {"-stride=128", "-stride=256", "-stride=512"}
-        or any(value not in {"-stretch", "-nostarmask", *stride} for value in options)
-    ):
-        raise ContractError(
-            "unsafe_siril_script",
-            "StarNet must use -stretch, -nostarmask, and a bounded stride without upsampling",
-        )
 
 
 def _provenance_text(value: Any, label: str, maximum: int) -> str:
@@ -378,6 +395,8 @@ def validate_ssf_provenance(
     script_fingerprint: dict[str, Any],
     commands: Sequence[str],
     policy_fingerprint: dict[str, Any],
+    replaying: bool = False,
+    script_text: str | None = None,
 ) -> dict[str, Any]:
     """Validate one Agent-authored sidecar without generating or repairing it."""
 
@@ -446,6 +465,7 @@ def validate_ssf_provenance(
     if not isinstance(raw_references, list) or not 1 <= len(raw_references) <= 32:
         raise ContractError("ssf_provenance_invalid", "SSF provenance references are invalid")
     reference_records: list[dict[str, Any]] = []
+    committed_replay_references: list[dict[str, Any]] = []
     seen_references: set[str] = set()
     primary_paths: list[str] = []
     for index, raw_reference in enumerate(raw_references):
@@ -464,6 +484,11 @@ def validate_ssf_provenance(
             )
         seen_references.add(folded)
         captured = _capture_reference(path, role=str(role))
+        if replaying and raw_reference.get("sha256") != captured["sha256"]:
+            previous = session_state.committed_replay_reference(session, session_payload, script.stem, raw_reference, protocol)
+            if previous is not None:
+                captured = previous
+                committed_replay_references.append(previous)
         if _provenance_hash(raw_reference.get("sha256"), f"references[{index}].sha256") != captured["sha256"]:
             raise ContractError(
                 "ssf_provenance_invalid",
@@ -472,12 +497,34 @@ def validate_ssf_provenance(
         reference_records.append(captured)
         if role == "primary":
             primary_paths.append(path)
-    expected_primary = f"references/protocols/{protocol.replace('.', '-')}.md"
+    expected_primary = PROTOCOL_STAGE_REFERENCES[protocol][0]
+    if replaying and protocol == 'restoration.denoise-nonlinear' and not session_payload.get('execution_policy', {}).get('chroma_denoise'):
+        expected_primary = 'references/stages/stage-10-delivery-finishing.md'
     if primary_paths != [expected_primary]:
         raise ContractError(
             "ssf_provenance_invalid",
             f"SSF provenance requires exactly one primary reference: {expected_primary}",
         )
+
+    required_supporting = list(PROTOCOL_STAGE_REFERENCES[protocol][1:])
+    if protocol == 'stretch' and session_payload.get('execution_policy', {}).get('stage7_references') == 'split_variants_v1':
+        from deep_sky_siril_hdr import declaration as hdr_declaration
+        from deep_sky_siril_dualband import declaration as hoo_declaration
+        text = script.read_text(encoding='utf-8') if script_text is None else script_text
+        hdr = hdr_declaration(text)
+        hoo = hoo_declaration(text)
+        if hdr is not None and hoo is not None:
+            raise ContractError('ssf_provenance_invalid', 'A stretch script cannot combine HDR and HOO variants')
+        variant = 'hdr' if hdr is not None else 'hoo' if hoo is not None else None
+        if variant:
+            required_supporting.extend(record['path'] for record in protocol_reference_bindings(protocol, variant=variant)[1:])
+    for stage_path in required_supporting:
+        if not any(record["path"] == stage_path and record["role"] == "supporting"
+                   for record in reference_records):
+            raise ContractError(
+                "ssf_provenance_invalid",
+                f"SSF provenance requires a supporting stage body: {stage_path}",
+            )
 
     manual_lookup = document.get("manual_lookup")
     if not isinstance(manual_lookup, dict) or set(manual_lookup) != {"status", "reason", "evidence"}:
@@ -599,6 +646,7 @@ def validate_ssf_provenance(
     knowledge = session_state._knowledge_record(session_payload)
     return {
         "script_provenance": provenance_record,
+        **({"committed_replay_references": committed_replay_references} if committed_replay_references else {}),
         "knowledge_validation": {
             **knowledge,
             "references": reference_records,
@@ -653,6 +701,8 @@ def knowledge_bindings_unchanged(
             capture = read_skill_file(SKILL_ROOT, record["path"])
         except BundleError:
             return False
+        if record in validation.get("committed_replay_references", []):
+            return True
         return capture.sha256 == record.get("sha256") and capture.size_bytes == record.get("size")
 
     provenance_record = validation.get("script_provenance")
@@ -684,6 +734,7 @@ def validate_script_file(
     probe: dict[str, Any],
     provenance: Path | None = None,
     session_payload: dict[str, Any] | None = None,
+    replaying: bool = False,
 ) -> dict[str, Any]:
     provenance = provenance if provenance is not None else script.with_suffix(".provenance.json")
     session_payload = (
@@ -695,7 +746,8 @@ def validate_script_file(
     allowed = policy.get("protocol_commands", {}).get(protocol)
     if not isinstance(allowed, list):
         raise ContractError("protocol_unknown", f"Unknown protocol: {protocol}")
-    protocol_runtime = tooling._require_protocol_runtime_dependency(protocol, probe)
+    protocol_runtime = (None if protocol == 'restoration.deconvolve'
+                        else tooling._require_protocol_runtime_dependency(protocol, probe))
     if script.is_symlink() or not script.is_file():
         raise ContractError("script_missing", f"Siril script is missing or unsafe: {script}")
     raw = script.read_bytes()
@@ -707,6 +759,9 @@ def validate_script_file(
         raise ContractError("unsafe_siril_script", "Siril script is not UTF-8") from exc
     if "\0" in text or "\r" in text:
         raise ContractError("unsafe_siril_script", "Siril script contains control characters")
+    from deep_sky_siril_processing import local_saturation_declaration
+    local_parameters = local_saturation_declaration(text) if protocol == 'color.finish' else None
+    local_saturation = local_parameters is not None
     lines = _effective_lines(text)
     prefix = policy["required_prefix"]
     if lines[: len(prefix)] != prefix:
@@ -720,6 +775,24 @@ def validate_script_file(
     expected = {path.resolve(strict=False) for path in expected_outputs}
     generated: set[Path] = set()
     verified_inputs = session_state._verified_run_outputs(session)
+    if session_payload.get("input", {}).get("path"):
+        verified_inputs.add(Path(session_payload["input"]["path"]).resolve())
+    if protocol == 'stars.recompose':
+        from deep_sky_star_reduction import contour_input, bound_file
+        contour = contour_input(session, session_payload, text)
+        if contour:
+            verified_inputs.add(bound_file(session, contour[0]['weights']))
+    spatial_reference = local_parameters.get('subject_mask') if local_parameters else None
+    if protocol == 'structure.local-contrast':
+        declarations = [row.split(':',1)[1] for row in text.splitlines() if row.startswith('# local-contrast:')]
+        if len(declarations) == 1:
+            declared = strict_json_bytes(declarations[0].encode(),document='local contrast declaration')
+            if isinstance(declared,dict):
+                spatial_reference = declared.get('subject_mask')
+    if spatial_reference is not None:
+        from deep_sky_siril_subject_mask import load as load_subject_mask
+        spatial = load_subject_mask(session,source,spatial_reference)[0]
+        verified_inputs.add(session_path(session,spatial['mask']['path'],must_exist=True,allowed_roots=('reports',)))
     commands: list[str] = []
     runtime_settings: set[str] = set()
     adapters: list[dict[str, Any]] = []
@@ -732,7 +805,7 @@ def validate_script_file(
             continue
         command = tokens[0].lower()
         from deep_sky_siril_processing import validate_parameters
-        validate_parameters(tokens, protocol)
+        validate_parameters(tokens, protocol, local_saturation=local_saturation)
         commands.append(command)
         if command not in allowed:
             raise ContractError("unsafe_siril_script", f"Command {command} is forbidden for {protocol}")
@@ -787,6 +860,9 @@ def validate_script_file(
             session_path(session, target, allowed_roots=("reports",))
             generated.add(target)
         elif command == "pyscript":
+            if protocol in {'restoration.deconvolve', 'restoration.denoise'}:
+                protocol_runtime = tooling._require_protocol_runtime_dependency(protocol, probe,
+                    native_denoise=protocol == 'restoration.denoise')
             generated.add(
                 _validate_pyscript(
                     protocol,
@@ -794,12 +870,22 @@ def validate_script_file(
                     session=session,
                     source=source,
                     policy=policy,
+                    probe=probe,
+                    replaying=replaying,
+                    run_id=script.stem,
+                    execution_policy=session_payload.get("execution_policy"),
                 )
             )
+            if protocol == 'restoration.deconvolve':
+                document = load_json(Path(tokens[3]))
+                for value in (document['stars_tsv'], document['psf']['path']):
+                    generated.add(session_path(session, value, allowed_roots=('reports',)))
             adapters.append(
                 fingerprint(
                     Path(tokens[1]).expanduser().resolve(),
-                    role="background_sample_adapter",
+                    role={'background.subtract': 'background_sample_adapter',
+                          'restoration.denoise': 'deepsnr_adapter',
+                          'restoration.deconvolve': 'psf_sample_adapter'}.get(protocol, 'starnet_adapter'),
                 )
             )
         elif command == "set":
@@ -807,13 +893,13 @@ def validate_script_file(
             if key in runtime_settings:
                 raise ContractError("unsafe_siril_script", f"Setting {key} is duplicated")
             runtime_settings.add(key)
-        elif command == "starnet":
-            _validate_starnet_command(tokens, probe)
         elif command == "pm":
             for value in _PIXELMATH_PATH.findall(line):
-                if Path(value).is_absolute() or ".." in Path(value).parts:
+                absolute_parent = (local_parameters is not None and 'D' in local_parameters
+                                   and value == source.with_suffix('').as_posix())
+                if (Path(value).is_absolute() and not absolute_parent) or ".." in Path(value).parts:
                     raise ContractError("unsafe_siril_script", "PixelMath path escaped the session")
-                base = session_path(session, session / value)
+                base = source if absolute_parent else session_path(session, session / value)
                 candidates = {base.resolve(strict=False)}
                 if not base.suffix:
                     candidates.update(
@@ -830,12 +916,13 @@ def validate_script_file(
     if commands.count("requires") != 1 or commands.count("set32bits") != 1:
         raise ContractError("unsafe_siril_script", "The contract prefix commands must appear exactly once")
     if protocol == "stars.separate":
-        required_settings = {"core.starnet_exe", "core.starnet_weights"}
-        if runtime_settings != required_settings or commands.count("starnet") != 1:
-            raise ContractError("unsafe_siril_script", "StarNet protocol lacks its frozen settings or single invocation")
+        if runtime_settings or commands.count("pyscript") != 1:
+            raise ContractError("unsafe_siril_script", "StarNet protocol requires one pinned Python invocation without global settings")
 
-    if protocol == "astrometry.solve" and commands.count("platesolve") and "core.catalogue_gaia_astro" not in runtime_settings:
-        raise ContractError("unsafe_siril_script", "Local astrometry lacks its frozen catalogue setting")
+    if protocol == "astrometry.solve":
+        local_astro = any(shlex.split(line)[0] == "platesolve" and "-catalog=localgaia" in shlex.split(line) for line in lines)
+        if local_astro != ("core.catalogue_gaia_astro" in runtime_settings):
+            raise ContractError("unsafe_siril_script", "Local astrometry requires exactly one frozen catalogue setting; remote astrometry forbids it")
     session_offline = bool(session_payload.get("context", {}).get("offline"))
     if session_state.execution_policy_is_current(session_payload):
         network = classify_siril_network(
@@ -862,7 +949,11 @@ def validate_script_file(
     undeclared = generated - expected
     if undeclared:
         names = ", ".join(sorted(relative_session_path(session, path) for path in undeclared))
-        raise ContractError("unsafe_siril_script", f"Script writes undeclared outputs: {names}")
+        arguments = " ".join(shlex.join(["--expect", str(path)]) for path in sorted(undeclared))
+        raise ContractError(
+            "unsafe_siril_script",
+            f"Script writes undeclared outputs: {names}. Add to the run command: {arguments}",
+        )
     if not generated:
         raise ContractError("unsafe_siril_script", "Siril script declares no image or report output")
     script_record = {
@@ -898,6 +989,8 @@ def validate_script_file(
         script_fingerprint=script_record,
         commands=commands,
         policy_fingerprint=policy_fingerprint,
+        replaying=replaying,
+        script_text=text,
     )
     result = {
         "script_sha256": script_record["sha256"],

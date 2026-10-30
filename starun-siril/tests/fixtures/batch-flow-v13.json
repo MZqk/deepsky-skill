@@ -1,0 +1,389 @@
+{
+  "execution_policy": {
+    "log_diagnostics": "fail_closed_v3",
+    "network": "online_default_gaia_catalog_explicit_v3",
+    "starnet": "versioned_linear_bridge_v2",
+    "background": "heldout_material_gate_v4",
+    "star_diagnostics": "subject_roi_residual_v2",
+    "psf_provenance": "native_star_samples_v2",
+    "reporting": "isolated_metrics_v1",
+    "neutral": "scientific_native_flow_v2",
+    "stretch": "masked_dual_v1",
+    "visual_review": "subject_visibility_v1",
+    "guidance": "stage_ai_morphology_measurement_v13",
+    "local_saturation": "luminance_peak_mask_v1",
+    "delivery": "paired_fits_jpeg_v2",
+    "recomposition_review": "fixed_materials_v1",
+    "filter_metadata": "dwarf_explicit_filters_v1",
+    "background_sampling": "protected_regions_v1",
+    "restoration": "assessed_scientific_flow_v1",
+    "local_contrast": "texture_hf_review_v1"
+  },
+  "references": {
+    "SKILL.md": {
+      "sha256": "73c7483fb0d05e631bf985845524e44748c78a7591b4ff08402f46be65c3b031",
+      "size": 13922,
+      "code_blocks": []
+    },
+    "CHANGELOG.md": {
+      "sha256": "8156663e3e50009ad7490a2d67f63d2f80266a83061ab871a91517196c0b3d3a",
+      "size": 23835,
+      "code_blocks": []
+    },
+    "RELEASING.md": {
+      "sha256": "7ab2266fa2c41994443c738cb199cdd59080065cc5a1abca5fcb3b87f159fd64",
+      "size": 13839,
+      "code_blocks": [
+        "```bash\n\"$STARUN_PYTHON\" -m venv starun-siril/.venv\nSTARUN_PYTHON=\"$PWD/starun-siril/.venv/bin/python\"\n\"$STARUN_PYTHON\" -m pip install -r starun-siril/requirements-dev.txt\n\"$STARUN_PYTHON\" scripts/validate_repository.py --skill starun-siril\n\"$STARUN_PYTHON\" -B -m pytest -p no:cacheprovider starun-siril/tests\n\"$STARUN_PYTHON\" starun-siril/scripts/query_siril_manual.py --verify-bundle\n\"$STARUN_PYTHON\" starun-siril/scripts/package_release.py --check\nRELEASE_DIR=\"$(\"$STARUN_PYTHON\" -c 'import tempfile; from pathlib import Path; print(Path(tempfile.mkdtemp(prefix=\"starun-siril-release-\")).resolve())')\"\n\"$STARUN_PYTHON\" starun-siril/scripts/package_release.py \\\n  --output \"$RELEASE_DIR/starun-siril-0.3.3.zip\"\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B -m pytest -q -p no:cacheprovider \\\n  starun-siril/tests/test_knowledge_contract.py \\\n  starun-siril/tests/test_native_processing.py \\\n  starun-siril/tests/test_tone_adjust.py \\\n  -k \"knowledge_contract or recompos or shadow_threshold or real_siril_mtf_asinh_ghs_closure\"\n```"
+      ]
+    },
+    "references/astrometry-source-preservation.md": {
+      "sha256": "6104b3f068e896f37730144bd23891ebf93362cf653061cbb54878d1a9b403f7",
+      "size": 5736,
+      "code_blocks": [
+        "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/sync_fits_header.py inspect /abs/master_stacked.fit \\\n  --reference /abs/reference.fit \\\n  --target-size-arcmin 60.0\n```",
+        "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/sync_fits_header.py sync \\\n  --source /abs/reference_with_wcs.fit \\\n  --target /abs/master_stacked.fit \\\n  --output /abs/master_with_wcs.fit \\\n  --mode wcs-and-priors\n```",
+        "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/sync_fits_header.py verify /abs/master_with_wcs.fit --json\n```"
+      ]
+    },
+    "references/cli-contract.md": {
+      "sha256": "be2482ef973c9443e1a5fa6c905b11d15dc6d91a615c4dbeeb0b1fc457ffe8be",
+      "size": 51608,
+      "code_blocks": [
+        "```bash\nSTARUN_PYTHON=/opt/homebrew/bin/python3\n\"$STARUN_PYTHON\" -B -c 'import sys; from pathlib import Path; print(Path(sys.executable).resolve()); print(sys.base_prefix)'\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py probe [--offline] [--output /abs/probe.json]\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py init INPUT --session SESSION \\\n  [context options] [--container-validation siril|strict]\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py confirm-input \\\n  --session SESSION --run-id 010-inspect \\\n  --input-state linear --channel-mode broadband \\\n  --state-evidence 'user confirmed input_state=linear; channel_mode=broadband; stacked, unstretched master'\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py run \\\n  --session SESSION --protocol PROTOCOL_ID --script SESSION/scripts/NNN-name.ssf \\\n  --source CURRENT_PARENT --expect SESSION/artifacts/result.fit \\\n  --expect SESSION/previews/result.jpg [--timeout 1800] [--validate-only]\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/deep_sky_siril_metrics.py \\\n  --session /abs/session --run-id 010-input\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py review-check \\\n  --session SESSION --run-id RUN_ID [--review SESSION/reviews/RUN_ID.json]\n```",
+        "```bash\n\"$STARUN_PYTHON\" scripts/deep_sky_siril.py finalize \\\n  --session SESSION --selection SESSION/final-selection.json [--keep-intermediates]\n```",
+        "```json\n{\n  \"schema\": \"starun-siril.color-decision.v1\",\n  \"session_sha256\": \"SESSION_SHA256\",\n  \"source\": {\"path\": \"@input\", \"sha256\": \"PARENT_SHA256\", \"size\": 123456},\n  \"action\": \"skip\",\n  \"reason\": \"No independently verified sky is available; retain the current parent.\"\n}\n```",
+        "```json\n{\n  \"schema\": \"starun-siril.restoration-decision.v1\",\n  \"session_sha256\": \"SESSION_SHA256\",\n  \"source\": {\"path\": \"@input\", \"sha256\": \"PARENT_SHA256\", \"size\": 123456},\n  \"denoise\": {\"action\": \"skip\", \"reason\": \"Reviewed noise does not justify denoising.\"},\n  \"deconvolve\": {\"action\": \"skip\", \"reason\": \"No reliable PSF is available; retain the parent.\"}\n}\n```"
+      ]
+    },
+    "references/delivery.md": {
+      "sha256": "d13776a07016ff36cf18600b496f5e0dce973d8e38c62df5ad8a80498581ac81",
+      "size": 7490,
+      "code_blocks": []
+    },
+    "references/manual-query.md": {
+      "sha256": "9900294086fda831a226976c2644f8a20d562cf30068c9c39db871310a5f4124",
+      "size": 5237,
+      "code_blocks": [
+        "```bash\n\"$STARUN_PYTHON\" -B scripts/query_siril_manual.py --verify-bundle\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B scripts/query_siril_manual.py \"\u80cc\u666f\u63d0\u53d6\" --top 5\n\"$STARUN_PYTHON\" -B scripts/query_siril_manual.py \"SPCC\" --format text\n\"$STARUN_PYTHON\" -B scripts/query_siril_manual.py --read section:<id>\n\"$STARUN_PYTHON\" -B scripts/query_siril_manual.py --read doc/Commands.rst\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B scripts/query_siril_manual.py --command autostretch\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/query_siril_manual.py \\\n  --command autostretch \\\n  --output /abs/session/reports/manual-evidence/090-autostretch.command.json\n\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/query_siril_manual.py \\\n  --read section:<id> \\\n  --output /abs/session/reports/manual-evidence/090-stretch-section.json\n```"
+      ]
+    },
+    "references/protocol-index.md": {
+      "sha256": "7564810c332ef62e5672f5e5e5d6c9b388808c38f3d3f763269dc942bfaf0aad",
+      "size": 2957,
+      "code_blocks": []
+    },
+    "references/quality.md": {
+      "sha256": "c4abf2f6e4678197bffc149920493c7585277181676800725cd4c31b7f3d1f45",
+      "size": 24989,
+      "code_blocks": [
+        "```json\n{\n  \"schema\": \"starun-siril.regions.v1\",\n  \"reference\": {\"sha256\": \"<parent-scientific-sha256>\", \"width\": 1024, \"height\": 768},\n  \"regions\": [{\"id\": \"background-a\", \"role\": \"background\", \"rect\": [20, 30, 100, 110]}]\n}\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/deep_sky_siril_metrics.py \\\n  --run-id 070-stretch --protocol stretch \\\n  --parent /abs/current-parent.fit --candidate /abs/session/artifacts/070-stretch.fit \\\n  --regions /abs/session/reports/070-stretch/regions.json \\\n  --output /abs/session/reports/070-stretch/region-metrics.json\n```"
+      ]
+    },
+    "references/session-contract.md": {
+      "sha256": "b0bf9eaa53128a7d8ba2021794f8e445eb0bddb43b97cd645f4bb3f819bae896",
+      "size": 29141,
+      "code_blocks": [
+        "```text\nsession/\n\u251c\u2500\u2500 session.json\n\u251c\u2500\u2500 manifest.json\n\u251c\u2500\u2500 final-selection.json\n\u251c\u2500\u2500 scripts/\n\u2502   \u251c\u2500\u2500 <run-id>.ssf\n\u2502   \u2514\u2500\u2500 <run-id>.provenance.json\n\u251c\u2500\u2500 runs/\n\u251c\u2500\u2500 reviews/\n\u251c\u2500\u2500 artifacts/\n\u251c\u2500\u2500 previews/\n\u251c\u2500\u2500 reports/\n\u2502   \u2514\u2500\u2500 manual-evidence/\n\u2502       \u2514\u2500\u2500 bundle-verification.json\n\u251c\u2500\u2500 logs/\n\u251c\u2500\u2500 runtime/decode-validation/\n\u251c\u2500\u2500 runtime/siril-configs/\n\u2514\u2500\u2500 outputs/\n    \u251c\u2500\u2500 reference.jpg\n    \u2514\u2500\u2500 final.jpg\n```"
+      ]
+    },
+    "references/shared-protocols/color-finish.md": {
+      "sha256": "630a020497ea3d45343e37b7675beff6585eb760271f61dd4138aada5715df9b",
+      "size": 8318,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/100-color-finish-parent\" 95\nsatu 0.10 1 6\nstat main\nsave \"/abs/session/artifacts/100-color-finish\" -chksum\nsavejpg \"/abs/session/previews/100-color-finish-candidate\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# local-saturation: {\"amount\":0.08,\"low_start\":0.03,\"low_end\":0.08,\"high_start\":0.65,\"high_end\":0.90,\"sigma\":2}\nload \"/abs/session/artifacts/085-tone.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/088-local-saturation-parent\" 95\nsplit \"/abs/session/artifacts/088-r\" \"/abs/session/artifacts/088-g\" \"/abs/session/artifacts/088-b\"\npm \"0.2126 * $artifacts/088-r$ + 0.7152 * $artifacts/088-g$ + 0.0722 * $artifacts/088-b$\" -nosum\nsave \"/abs/session/artifacts/088-luminance\" -chksum\npm \"max($artifacts/088-r$, max($artifacts/088-g$, $artifacts/088-b$))\" -nosum\nsave \"/abs/session/artifacts/088-peak\" -chksum\npm \"(min(1, max(0, ($artifacts/088-luminance$ - 0.03) / 0.05))^2 * (3 - 2 * min(1, max(0, ($artifacts/088-luminance$ - 0.03) / 0.05)))) * (1 - min(1, max(0, ($artifacts/088-peak$ - 0.65) / 0.25))^2 * (3 - 2 * min(1, max(0, ($artifacts/088-peak$ - 0.65) / 0.25))))\" -nosum\nsave \"/abs/session/artifacts/088-mask-base\" -chksum\ngauss 2\nsave \"/abs/session/artifacts/088-mask-smoothed\" -chksum\npm \"$artifacts/088-mask-smoothed$ * $artifacts/088-mask-base$\" -nosum\nsave \"/abs/session/artifacts/088-mask\" -chksum\nicc_assign sRGB\nsavejpg \"/abs/session/previews/088-local-saturation-mask\" 95\nrgbcomp \"/abs/session/artifacts/088-mask.fit\" \"/abs/session/artifacts/088-mask.fit\" \"/abs/session/artifacts/088-mask.fit\" -out=/abs/session/artifacts/088-mask-rgb -nosum\nload \"/abs/session/artifacts/085-tone.fit\"\nsatu 0.08 0 6\nsave \"/abs/session/artifacts/088-saturated\" -chksum\npm \"$artifacts/085-tone$ + $artifacts/088-mask-rgb$ * ($artifacts/088-saturated$ - $artifacts/085-tone$)\" -nosum\nicc_assign sRGB\nstat main\nsave \"/abs/session/artifacts/088-local-saturation\" -chksum\nsavejpg \"/abs/session/previews/088-local-saturation-candidate\" 95\nclose\n```"
+      ]
+    },
+    "references/shared-protocols/tone-adjust.md": {
+      "sha256": "7a1c4d4a2e268087315b254dba802280bace88177adc694927156634a9b8a829",
+      "size": 6915,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/085-tone-mtf-parent\" 95\nmtf 0 0.55 1\nstat main\nsave \"/abs/session/artifacts/085-tone-mtf\" -chksum\nsavejpg \"/abs/session/previews/085-tone-mtf-candidate\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/086-tone-ghs-parent\" 95\nght -D=0.2 -B=0 -LP=0.02 -SP=0.15 -HP=0.90 -human -clipmode=rgbblend\nstat main\nsave \"/abs/session/artifacts/086-tone-ghs\" -chksum\nsavejpg \"/abs/session/previews/086-tone-ghs-candidate\" 95\nclose\n```"
+      ]
+    },
+    "references/siril-manual/MODIFICATIONS.md": {
+      "sha256": "7be34c8f36e6d650e9b90d9dba820568522cc1184e8d47c035f736fd6da6cb1c",
+      "size": 1497,
+      "code_blocks": []
+    },
+    "references/siril-manual/NOTICE.md": {
+      "sha256": "431b458f16d46f787d0b07fe21a789eb072dcaa45be234b65d5f77955f86b513",
+      "size": 1293,
+      "code_blocks": []
+    },
+    "references/siril-safety.md": {
+      "sha256": "864464c63d870fe4646b4661aa87ddfe14d0d49bb7cb5853329152101c9dd00b",
+      "size": 7624,
+      "code_blocks": []
+    },
+    "references/stage-sequence.md": {
+      "sha256": "78779c47a0ceb2eff277b76be3a02c8fdb393b04c61c32668bab619ca2f6ae85",
+      "size": 8415,
+      "code_blocks": []
+    },
+    "references/stages/stage-01-input-inspect.md": {
+      "sha256": "24cda2d75f8bbc5845a71affc5817d23648a5e1c2085932fee7535800d548507",
+      "size": 8541,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/master.fit\"\nstat main\nsavejpg \"/abs/session/previews/010-input-direct\" 95\nclose\nload \"/abs/master.fit\"\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/010-input-autostretch\" 95\nclose\n```"
+      ]
+    },
+    "references/stages/stage-02-geometry.md": {
+      "sha256": "0bc566a37f00e8618451fe4358f5405b9368ac51ead561ed08eeeb0c3ba56e95",
+      "size": 3745,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\ncrop X Y WIDTH HEIGHT\nstat main\nsave \"/abs/session/artifacts/020-crop\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/020-crop\" 95\nclose\n```"
+      ]
+    },
+    "references/stages/stage-03-background.md": {
+      "sha256": "776bacc1127c8c05f3d8862ccc81226c53a2ac011f73c1de898b8bcd145a7975",
+      "size": 20833,
+      "code_blocks": [
+        "  ```bash\n  \"$STARUN_PYTHON\" /abs/starun-siril/scripts/siril_auto_samples.py \\\n    --source \"/abs/current-parent.fit\" \\\n    --output \"/abs/session/reports/030-background/background-sample-contract.json\" \\\n    --report \"/abs/session/reports/030-background/sampling-report.json\" \\\n    --exclude-regions \"/abs/session/reports/030-background/regions.json\" \\\n    --target-type [emission_nebula|galaxy|cluster|general]\n  ```",
+        "```ssf\nrequires 1.4.4 1.5.0\n# background-validation: {\"regions\":\"reports/030-background/regions.json\",\"sha256\":\"REGIONS_SHA256\"}\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\npyscript \"/abs/starun-siril/scripts/siril_background_samples_scientific.py\" --contract \"/abs/session/reports/030-background/background-sample-contract.json\" --contract-sha256 HASH --expected-source \"/abs/current-parent.fit\" --receipt \"/abs/session/reports/030-background/sample-injection-receipt.json\"\nsubsky 1 -existing\nstat main\nsave \"/abs/session/artifacts/030-background\" -chksum\nclose\nload \"/abs/current-parent.fit\"\nmtf 0 0.006 1\nsavejpg \"/abs/session/previews/030-background-parent\" 95\nclose\nload \"/abs/session/artifacts/030-background.fit\"\nmtf 0 0.006 1\nsavejpg \"/abs/session/previews/030-background-candidate\" 95\nclose\n```"
+      ]
+    },
+    "references/stages/stage-04-astrometry-color.md": {
+      "sha256": "d1fd672d41e81986bfebf664ac82bdff5537a4aeee1a60ae014dc4814585463e",
+      "size": 27624,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nplatesolve -catalog=gaia -noflip -nocrop\nsave \"/abs/session/artifacts/040-solved\" -chksum\nstat main\nsavejpg \"/abs/session/previews/040-solved\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# color-calibration: {\"method\":\"pcc\",\"source_sha256\":\"CURRENT_SOURCE_SHA256\",\"equipment\":{\"pcc_compatibility\":{\"value\":\"standard_rgb\",\"source\":\"acquisition\",\"evidence\":\"Actual RGB passbands and IR-blocking record\"}}}\nset \"core.catalogue_gaia_photo=/abs/local-gaia\"\nload \"/abs/current-parent.fit\"\npcc -catalog=localgaia\nstat main\nsave \"/abs/session/artifacts/040-color\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/040-color\" 95\nclose\n```",
+        "```json\n{\"value\":\"standard_rgb\",\"source\":\"acquisition\",\"evidence\":\"Confirmed ordinary RGB passbands and appropriate IR blocking in the acquisition record\"}\n```",
+        "```json\n{\"source\":\"policy_default\",\"evidence\":\"Use the explicit Average Spiral Galaxy reference\"}\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/siril_auto_samples.py \\\n  --source \"/abs/current-pre-calibration-parent.fit\" \\\n  --output \"/abs/session/reports/046-neutral/regions.json\" \\\n  --regions --samples 36 --region-size 16 --target-type emission_nebula \\\n  --report \"/abs/session/reports/046-neutral/sampling.json\"\n```",
+        "```json\n{\"fit\":[\"bg-001\",\"bg-002\",\"bg-003\"],\"validation\":[\"bg-004\",\"bg-005\",\"bg-006\"]}\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# color-calibration: {\"method\":\"neutral\",\"source_sha256\":\"SOURCE_SHA256\",\"background_regions\":\"reports/040-neutral/regions.json\",\"background_partition\":{\"fit\":[\"bg-001\",\"bg-002\",\"bg-003\"],\"validation\":[\"bg-004\",\"bg-005\",\"bg-006\"]},\"white_reference\":null}\nload \"/abs/current-parent.xisf\"\nfmul 1\nsplit \"/abs/session/artifacts/040-raw-r\" \"/abs/session/artifacts/040-raw-g\" \"/abs/session/artifacts/040-raw-b\"\nclose\npm \"($artifacts/040-raw-r$ - 0.02) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-r.fit\" -chksum\nclose\npm \"($artifacts/040-raw-g$ - 0.04) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-g.fit\" -chksum\nclose\npm \"($artifacts/040-raw-b$ - 0.03) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-b.fit\" -chksum\nclose\nrgbcomp \"/abs/session/artifacts/040-corrected-r.fit\" \"/abs/session/artifacts/040-corrected-g.fit\" \"/abs/session/artifacts/040-corrected-b.fit\" \"-out=/abs/session/artifacts/040-neutral.fit\" -nosum\nclose\nload \"/abs/current-parent.xisf\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/040-neutral-parent\" 95\nclose\nload \"/abs/session/artifacts/040-neutral.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/040-neutral-candidate\" 95\nclose\n```"
+      ]
+    },
+    "references/stages/stage-05-linear-restoration.md": {
+      "sha256": "b564778c390f9d6e4bfa4420d940c95440546d66723dbaca82d86810b15dd420",
+      "size": 19812,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\ndenoise -mod=0.35\nstat main\nsave \"/abs/session/artifacts/050-denoise\" -chksum\nclose\nload \"/abs/current-parent.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/050-denoise-parent\" 95\nclose\nload \"/abs/session/artifacts/050-denoise.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/050-denoise-candidate\" 95\nclose\n```",
+        "```json\n{\n  \"schema\": \"starun-siril.psf-samples-contract.v1\",\n  \"source\": {\n    \"path\": \"/abs/current-parent.fit\",\n    \"sha256\": \"<actual-parent-sha256>\",\n    \"width\": 384,\n    \"height\": 384,\n    \"channels\": 3\n  },\n  \"detection\": {\n    \"setfindstar\": [\"reset\", \"-moffat\", \"-sigma=1.00\", \"-roundness=0.35\", \"-minA=0.01\", \"-maxA=0.95\"],\n    \"layer\": 1,\n    \"maxstars\": 500\n  },\n  \"stars_tsv\": \"/abs/session/reports/055-deconvolve/before.tsv\",\n  \"psf\": {\n    \"path\": \"/abs/session/reports/055-deconvolve/psf.fit\",\n    \"kernel_size\": 31,\n    \"symmetric\": false\n  }\n}\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\nsetfindstar reset -moffat -sigma=1.00 -roundness=0.35 -minA=0.01 -maxA=0.95\npyscript \"/abs/starun-siril/scripts/siril_psf_samples.py\" --contract \"/abs/session/reports/055-deconvolve/contract.json\" --contract-sha256 <actual-contract-sha256> --expected-source \"/abs/current-parent.fit\" --receipt \"/abs/session/reports/055-deconvolve/bridge.json\"\nrl \"-loadpsf=/abs/session/reports/055-deconvolve/psf.fit\" -iters=6 -tv -alpha=3000.0\nstat main\nsave \"/abs/session/artifacts/055-deconvolve\" -chksum\nclose\nload \"/abs/session/artifacts/055-deconvolve.fit\"\nsetfindstar reset -moffat -sigma=1.00 -roundness=0.35 -minA=0.01 -maxA=0.95\nfindstar -layer=1 -maxstars=500 \"-out=/abs/session/reports/055-deconvolve/after.tsv\"\nclose\nload \"/abs/current-parent.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/055-deconvolve-parent\" 95\nclose\nload \"/abs/session/artifacts/055-deconvolve.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/055-deconvolve-candidate\" 95\nclose\n```"
+      ]
+    },
+    "references/stages/stage-06-stars-separation.md": {
+      "sha256": "8d01c4b1c236b6aaf99b487a762529107b8b4d1d5aa1cfec7866221673dd1afe",
+      "size": 17006,
+      "code_blocks": [
+        "```json\n{\n  \"schema\": \"starun-siril.starnet-contract.v2\",\n  \"source\": {\"path\": \"/abs/current-parent.fit\", \"sha256\": \"<source-sha256>\"},\n  \"runtime\": \"<replace with the complete tools.starnet object from the frozen probe>\",\n  \"stride\": 256,\n  \"work_dir\": \"/abs/session/runtime/starnet/060-stars\",\n  \"input_fits\": \"/abs/session/artifacts/060-full-source.fit\",\n  \"linear_stretch\": {\"shadows_clipping\": -2.8, \"target_background\": 0.25}\n}\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\nsave \"/abs/session/artifacts/060-full-source\" -chksum\nload \"/abs/current-parent.fit\"\nfmul 1\npyscript \"/abs/starun-siril/scripts/siril_starnet_linear.py\" --contract \"/abs/session/reports/060-stars/contract.json\" --contract-sha256 CONTRACT_SHA256 --expected-source \"/abs/current-parent.fit\" --receipt \"/abs/session/reports/060-stars/bridge.json\"\nstat main\nsave \"/abs/session/artifacts/060-starless\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/060-starless\" 95\nclose\npm \"$artifacts/060-full-source$ - $artifacts/060-starless$\"\nsave \"/abs/session/artifacts/060-star-layer\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/060-star-layer\" 95\nclose\n```",
+        "```ssf\nload \"/abs/session/artifacts/060-full-source.fit\"\nmtf 0 0.1 1\nsavejpg \"/abs/session/previews/060-full-fixed\" 95\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.1 1\nsavejpg \"/abs/session/previews/060-starless-fixed\" 95\nclose\n```",
+        "```bash\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/deep_sky_siril_metrics.py \\\n  --run-id 060-stars --protocol stars.separate \\\n  --parent /abs/current-parent.fit \\\n  --candidate /abs/session/artifacts/060-starless.fit \\\n  --star-layer /abs/session/artifacts/060-star-layer.fit \\\n  --regions /abs/session/reports/060-stars/regions.json \\\n  --output /abs/session/reports/060-stars/subject-metrics.json\n```"
+      ]
+    },
+    "references/stages/stage-07-stretch.md": {
+      "sha256": "cb9110ea4b4cf1e5a91558f05238ddca017c95686d9a10a4931ffb091505c26c",
+      "size": 22923,
+      "code_blocks": [
+        "```\nm = 1 / (D + 2)\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nautostretch -linked -4.50 0.120\nicc_assign sRGB\nstat main\nsave \"/abs/session/artifacts/070-stretch\" -chksum\nsavejpg \"/abs/session/previews/070-stretch\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.01 1\nasinh -human 2 0 -clipmode=rgbblend\nght -D=0.2 -B=0 -LP=0 -SP=0.2 -HP=1 -human -clipmode=rgbblend\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-explicit-stretch\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-explicit-stretch\" 95\nclose\n```",
+        "```json\n{\n  \"schema\": \"starun-siril.stretch-request.v1\",\n  \"source\": {\"path\": \"artifacts/060-starless.fit\", \"sha256\": \"<source-sha256>\"},\n  \"regions\": {\"path\": \"reports/070-stretch/regions.json\", \"sha256\": \"<regions-sha256>\"},\n  \"operators\": [{\n    \"method\": \"ght\",\n    \"purpose\": \"Reveal faint structure while retaining core hierarchy\",\n    \"landmarks\": {\n      \"LP\": {\"region\": \"background-a\", \"statistic\": \"p99\"},\n      \"SP\": {\"region\": \"faint-a\", \"statistic\": \"median\"},\n      \"HP\": {\"region\": \"core-a\", \"statistic\": \"p01\"}\n    },\n    \"constraints\": [\n      {\"region\": \"background-a\", \"statistic\": \"median\", \"min\": 0.05, \"max\": 0.12},\n      {\"region\": \"faint-a\", \"statistic\": \"median\", \"min\": 0.18, \"max\": 0.35},\n      {\"region\": \"core-a\", \"statistic\": \"span\", \"min\": 0.05, \"max\": 0.5}\n    ]\n  }],\n  \"manual_lookup\": {\n    \"status\": \"performed\",\n    \"reason\": \"Read the pinned GHS command semantics\",\n    \"evidence\": [{\"path\": \"reports/manual-evidence/070-ght.command.json\", \"sha256\": \"<evidence-sha256>\"}]\n  }\n}\n```",
+        "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py solve \\\n  --session /abs/session --request /abs/session/reports/070-stretch/request.json \\\n  --run-id 070-stretch --timeout 1800\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py generate \\\n  --session /abs/session --parameters /abs/session/reports/070-stretch/stretch-parameters.json\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nsplit \"/abs/session/artifacts/070-gentle-r\" \"/abs/session/artifacts/070-gentle-g\" \"/abs/session/artifacts/070-gentle-b\"\npm \"0.2126 * $artifacts/070-gentle-r$ + 0.7152 * $artifacts/070-gentle-g$ + 0.0722 * $artifacts/070-gentle-b$\" -nosum\nsave \"/abs/session/artifacts/070-luminance\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\nrgbcomp \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"-out=/abs/session/artifacts/070-mask-rgb\" -nosum\npm \"$artifacts/070-gentle$ * $artifacts/070-mask-rgb$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nclose\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\npm \"$artifacts/070-gentle$ * $artifacts/070-mask$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```"
+      ]
+    },
+    "references/stages/stage-08-starless-enhance.md": {
+      "sha256": "2dd2315acfe1d6aff6c82b0c4a2182df626f13c43f5b02e62ee84a47b1e0d0a3",
+      "size": 16637,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# local-contrast: {\"low_start\": 0.03, \"low_end\": 0.08, \"high_start\": 0.65, \"high_end\": 0.90, \"cliplimit\": 1.5, \"grid\": 8, \"strength\": 0.20, \"sigma\": 2, \"regions\": \"reports/080-local-contrast-regions.json\"}\nload \"/abs/current-starless.fit\"\nsavejpg \"/abs/session/previews/080-parent\" 95\nsplit \"/abs/session/artifacts/080-r\" \"/abs/session/artifacts/080-g\" \"/abs/session/artifacts/080-b\"\npm \"0.2126 * $artifacts/080-r$ + 0.7152 * $artifacts/080-g$ + 0.0722 * $artifacts/080-b$\"\nsave \"/abs/session/artifacts/080-l\" -chksum\nclahe 1.5 8\nsave \"/abs/session/artifacts/080-l-enhanced\" -chksum\npm \"(min(1, max(0, ($artifacts/080-l$ - 0.03) / 0.05))^2 * (3 - 2 * min(1, max(0, ($artifacts/080-l$ - 0.03) / 0.05)))) * (1 - min(1, max(0, ($artifacts/080-l$ - 0.65) / 0.25))^2 * (3 - 2 * min(1, max(0, ($artifacts/080-l$ - 0.65) / 0.25))))\"\ngauss 2\nsave \"/abs/session/artifacts/080-mask\" -chksum\nsavejpg \"/abs/session/previews/080-mask\" 95\npm \"1 + 0.20 * $artifacts/080-mask$ * ($artifacts/080-l-enhanced$ - $artifacts/080-l$) / max($artifacts/080-l$, 0.000001)\"\nsave \"/abs/session/artifacts/080-gain\" -chksum\npm \"$artifacts/080-r$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-r-enhanced\" -chksum\npm \"$artifacts/080-g$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-g-enhanced\" -chksum\npm \"$artifacts/080-b$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-b-enhanced\" -chksum\nrgbcomp \"/abs/session/artifacts/080-r-enhanced.fit\" \"/abs/session/artifacts/080-g-enhanced.fit\" \"/abs/session/artifacts/080-b-enhanced.fit\" -out=/abs/session/artifacts/080-local-contrast\nload \"/abs/session/artifacts/080-local-contrast.fit\"\nstat main\nsavejpg \"/abs/session/previews/080-local-contrast\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nsplit \"/abs/session/artifacts/080-red\" \"/abs/session/artifacts/080-green\" \"/abs/session/artifacts/080-blue\"\nclose\nrgbcomp \"/abs/session/artifacts/080-red.fit\" \"/abs/session/artifacts/080-green.fit\" \"/abs/session/artifacts/080-green.fit\" \"-out=/abs/session/artifacts/080-hoo.fit\" -nosum\nload \"/abs/session/artifacts/080-hoo.fit\"\nstat main\nsavejpg \"/abs/session/previews/080-hoo\" 95\nclose\n```"
+      ]
+    },
+    "references/stages/stage-09-stars-recompose.md": {
+      "sha256": "454abd59409f268edf9ba5a22ac45c21063f98a1a20097cb4bc6b706b8074438",
+      "size": 18515,
+      "code_blocks": [
+        "```bash\npython3 /abs/starun-siril/scripts/deep_sky_star_reduction.py generate \\\n  --session /abs/session \\\n  --source artifacts/080-reviewed-detail.fit\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/session/artifacts/055-deconvolved.fit\"\nmtf 0 0.01 1\nsave \"/abs/session/artifacts/090-full-baseline\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.01 1\nsave \"/abs/session/artifacts/090-original-starless\" -chksum\nclose\npm \"$artifacts/090-full-baseline$ - $artifacts/090-original-starless$\"\nsave \"/abs/session/artifacts/090-display-stars\" -chksum\nclose\npm \"$artifacts/080-local-contrast$ + 1.0 * $artifacts/090-display-stars$\"\nsave \"/abs/session/artifacts/090-recomposed\" -chksum\nstat main\nsavejpg \"/abs/session/previews/090-recomposed\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# HDR replay uses the frozen Stage 7 RGB mask.\nload \"/abs/session/artifacts/055-deconvolved.fit\"\nmtf 0 0.2 1\nsave \"/abs/session/artifacts/090-ig\" -chksum\nclose\nload \"/abs/session/artifacts/055-deconvolved.fit\"\nmtf 0 0.06 1\nsave \"/abs/session/artifacts/090-if\" -chksum\nclose\npm \"$artifacts/090-ig$ * $artifacts/070-mask-rgb$ + $artifacts/090-if$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nsave \"/abs/session/artifacts/090-full\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.2 1\nsave \"/abs/session/artifacts/090-ag\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.06 1\nsave \"/abs/session/artifacts/090-af\" -chksum\nclose\npm \"$artifacts/090-ag$ * $artifacts/070-mask-rgb$ + $artifacts/090-af$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nsave \"/abs/session/artifacts/090-base\" -chksum\nclose\npm \"$artifacts/090-full$ - $artifacts/090-base$\" -nosum\nsave \"/abs/session/artifacts/090-stars\" -chksum\nclose\npm \"$artifacts/080-local-contrast$ + 1.0 * $artifacts/090-stars$\" -nosum\nsave \"/abs/session/artifacts/090-final\" -chksum\nstat main\nsavejpg \"/abs/session/previews/090-final\" 95\nclose\n```",
+        "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_star_reduction.py generate --session /abs/path/to/session\n```"
+      ]
+    },
+    "references/stages/stage-10-delivery-finishing.md": {
+      "sha256": "56159c044b644da83c8715e31be54b1a39fde8de950ce33d9c97c54d087ff6fc",
+      "size": 8186,
+      "code_blocks": [
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\ndenoise -nocosmetic -mod=0.20\nstat main\nsave \"/abs/session/artifacts/100-denoise-nonlinear\" -chksum\nsavejpg \"/abs/session/previews/100-denoise-nonlinear\" 95\nclose\n```",
+        "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/110-final-candidate.fit\" -chksum\nclose\nload \"/abs/session/artifacts/110-final-candidate.fit\"\nstat main\nsavejpg \"/abs/session/artifacts/110-final-candidate\" 95\nclose\nload \"/abs/session/artifacts/110-final-candidate.jpg\"\nstat main\nclose\n```"
+      ]
+    },
+    "references/target-morphology-review.md": {
+      "sha256": "a45078fdd3c57138e20cfd76242ae9c9d7e0d3b6d6acf8a248d26274bb402127",
+      "size": 7943,
+      "code_blocks": []
+    },
+    "references/troubleshooting.md": {
+      "sha256": "2c153148e2d65c3d7042904bd7fb23dbcb7a363ea6e6bbd4c2e5a3192508a699",
+      "size": 7719,
+      "code_blocks": []
+    }
+  },
+  "runtime": {
+    "scripts/deep_sky_siril_validation.py": {
+      "sha256": "e8a24aab2ebfd40bfb691dca9facecbf822d0bab3373bf714dd033263674257e",
+      "size": 42268
+    },
+    "scripts/deep_sky_siril_metrics.py": {
+      "sha256": "027732e7ec7a8bff81dab96c0a9d2e5d577ed16999645c24b630027422be427a",
+      "size": 30447
+    },
+    "scripts/siril_psf_samples.py": {
+      "sha256": "694e4d34869331ca776827c2442da24c4a0d0fd3e9ab8e75cefae9083a0cd721",
+      "size": 15655
+    },
+    "scripts/deep_sky_siril_artifacts.py": {
+      "sha256": "3c22f06fe68a71ffe6dc5b41aecd8f6c4406601b6d4e9c88fd6b6556b073e30a",
+      "size": 56744
+    },
+    "scripts/batch_starun_runner.py": {
+      "sha256": "454aecf71826ed3832832824b884aa822d20532caef6921ac28461469619d1d6",
+      "size": 49727
+    },
+    "scripts/deep_sky_siril_processing.py": {
+      "sha256": "9bfdc3aed7f4b8a455b2fd14338decfd98964a50dc1b2e83a620bbab387d78a8",
+      "size": 131679
+    },
+    "scripts/deep_sky_siril_geometry.py": {
+      "sha256": "ccbf6130e5190c4b5912dac586574f13087bff2eb6f4d2b2ad625adb477d5bcb",
+      "size": 12174
+    },
+    "scripts/deep_sky_siril_neutral.py": {
+      "sha256": "0b71b4d981a1fd3b67b610c0319ee0541e4b6deb61d06827dcdaee6fe994c003",
+      "size": 12451
+    },
+    "scripts/deep_sky_siril_stretch.py": {
+      "sha256": "7aef5ef49905a9a9679cb706ca2d6105c2b870dda8f8c9b1f4e99d1f1c028ead",
+      "size": 52190
+    },
+    "scripts/query_siril_manual.py": {
+      "sha256": "f52dee4b356eb05a015536e5960a482511bb755082ac10d3b12d9a8096631538",
+      "size": 72678
+    },
+    "scripts/deep_sky_siril_contract.py": {
+      "sha256": "67628706290f66276bf24fa4c692496e4e7f5993679714416570ec7d68371bab",
+      "size": 17137
+    },
+    "scripts/deep_sky_siril_hdr.py": {
+      "sha256": "2c803eed47f4edeab161313c2a63d525b17000688122818b546b91057859898d",
+      "size": 16096
+    },
+    "scripts/filter_metadata.py": {
+      "sha256": "3024f4db772dba1ecad7fb94d2151c60677fc35584e3bcef1d5abbb4b851ef71",
+      "size": 5909
+    },
+    "scripts/siril_auto_samples.py": {
+      "sha256": "599eade9a932bd080f71736ec67af9292af36db40e67556787d6f0da2b572533",
+      "size": 36167
+    },
+    "scripts/deep_sky_siril_session.py": {
+      "sha256": "8e99d8e3d349609847851b32cf38618def4ee9211c6aba2cc71b56e4f647abf2",
+      "size": 140188
+    },
+    "scripts/siril_background_samples_scientific.py": {
+      "sha256": "a3ec4d493b15f72f42a77b0ce3f00888656ecb4d8855fa9072304ab642e93601",
+      "size": 4895
+    },
+    "scripts/deep_sky_siril_local_contrast.py": {
+      "sha256": "53e2a4e940f8e7216d5e7d10d359704affb14b6abac8747cb655baef527c2379",
+      "size": 15203
+    },
+    "scripts/siril_starnet.py": {
+      "sha256": "083df0e3b4411642f0980c7ba632f3bc858f0b9dd0e948904aa2cd2076f7f583",
+      "size": 15280
+    },
+    "scripts/deep_sky_siril_background.py": {
+      "sha256": "78a9b446b12004e074cc06b85e9992b7752ecb0fcab6bff459e8fc18b560cd2d",
+      "size": 15032
+    },
+    "scripts/siril_background_samples.py": {
+      "sha256": "f01ea5649f165ce4cf1d4ca2e3ca2ed501a7e7e293945ba5a68ee025e6c35b36",
+      "size": 12197
+    },
+    "scripts/deep_sky_siril_tooling.py": {
+      "sha256": "32d901fbcd90aad08fe7970291bd54ba09b69974d9f55dbb397994d68e23f59c",
+      "size": 20996
+    },
+    "scripts/sync_fits_header.py": {
+      "sha256": "c0beb76a59ced1dcb0ed0e8d8cdc53f73ce72afac3a48a35b0c6bf0a495168df",
+      "size": 44865
+    },
+    "scripts/build_siril_manual.py": {
+      "sha256": "ab56dc1bdd2ed78c1add56b49d2b1883c394e62d5e636f54f5dfbfe5cca924cc",
+      "size": 70607
+    },
+    "scripts/siril_manual_bundle.py": {
+      "sha256": "cf533ce6eecec44fef89c9a10da8b43f0772dd9598b85638f4c9180653117afa",
+      "size": 46445
+    },
+    "scripts/deep_sky_siril.py": {
+      "sha256": "564b4853987b6ad2da0e6647aea34a62d862f14aea2933960e1be9fec8ae23df",
+      "size": 9435
+    },
+    "scripts/siril_starnet_linear.py": {
+      "sha256": "d37a0e68f231599eeb89b24e7d431dbbd18a0a28fc812edb9c84a4d4a37e4240",
+      "size": 13148
+    },
+    "scripts/deep_sky_star_reduction.py": {
+      "sha256": "ea696a35235ddf30020fbea1d27b99cf2769b671ff38df53429020ed5b28790d",
+      "size": 21997
+    },
+    "scripts/deep_sky_siril_core.py": {
+      "sha256": "037e45beba8edc20237e9a92b544926a7d0058f6c0d1f62a5f16647120462f1d",
+      "size": 133809
+    },
+    "scripts/deep_sky_siril_psf.py": {
+      "sha256": "b463f6b0575cfe2cbe5a08964e82a212ad1c953f8a858db835ca3af858eb2350",
+      "size": 44340
+    },
+    "scripts/package_release.py": {
+      "sha256": "0db746339388579a2076b8641d24242c79d194f17cc35cec550d28689e0ef41d",
+      "size": 43817
+    }
+  },
+  "scientific_blocks": [
+    "  ```bash\n  \"$STARUN_PYTHON\" /abs/starun-siril/scripts/siril_auto_samples.py \\\n    --source \"/abs/current-parent.fit\" \\\n    --output \"/abs/session/reports/030-background/background-sample-contract.json\" \\\n    --report \"/abs/session/reports/030-background/sampling-report.json\" \\\n    --exclude-regions \"/abs/session/reports/030-background/regions.json\" \\\n    --target-type [emission_nebula|galaxy|cluster|general]\n  ```",
+    "```ssf\nrequires 1.4.4 1.5.0\n# background-validation: {\"regions\":\"reports/030-background/regions.json\",\"sha256\":\"REGIONS_SHA256\"}\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\npyscript \"/abs/starun-siril/scripts/siril_background_samples_scientific.py\" --contract \"/abs/session/reports/030-background/background-sample-contract.json\" --contract-sha256 HASH --expected-source \"/abs/current-parent.fit\" --receipt \"/abs/session/reports/030-background/sample-injection-receipt.json\"\nsubsky 1 -existing\nstat main\nsave \"/abs/session/artifacts/030-background\" -chksum\nclose\nload \"/abs/current-parent.fit\"\nmtf 0 0.006 1\nsavejpg \"/abs/session/previews/030-background-parent\" 95\nclose\nload \"/abs/session/artifacts/030-background.fit\"\nmtf 0 0.006 1\nsavejpg \"/abs/session/previews/030-background-candidate\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nplatesolve -catalog=gaia -noflip -nocrop\nsave \"/abs/session/artifacts/040-solved\" -chksum\nstat main\nsavejpg \"/abs/session/previews/040-solved\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# color-calibration: {\"method\":\"pcc\",\"source_sha256\":\"CURRENT_SOURCE_SHA256\",\"equipment\":{\"pcc_compatibility\":{\"value\":\"standard_rgb\",\"source\":\"acquisition\",\"evidence\":\"Actual RGB passbands and IR-blocking record\"}}}\nset \"core.catalogue_gaia_photo=/abs/local-gaia\"\nload \"/abs/current-parent.fit\"\npcc -catalog=localgaia\nstat main\nsave \"/abs/session/artifacts/040-color\" -chksum\nautostretch -linked -2.8 0.22\nsavejpg \"/abs/session/previews/040-color\" 95\nclose\n```",
+    "```json\n{\"value\":\"standard_rgb\",\"source\":\"acquisition\",\"evidence\":\"Confirmed ordinary RGB passbands and appropriate IR blocking in the acquisition record\"}\n```",
+    "```json\n{\"source\":\"policy_default\",\"evidence\":\"Use the explicit Average Spiral Galaxy reference\"}\n```",
+    "```bash\n\"$STARUN_PYTHON\" -B /abs/starun-siril/scripts/siril_auto_samples.py \\\n  --source \"/abs/current-pre-calibration-parent.fit\" \\\n  --output \"/abs/session/reports/046-neutral/regions.json\" \\\n  --regions --samples 36 --region-size 16 --target-type emission_nebula \\\n  --report \"/abs/session/reports/046-neutral/sampling.json\"\n```",
+    "```json\n{\"fit\":[\"bg-001\",\"bg-002\",\"bg-003\"],\"validation\":[\"bg-004\",\"bg-005\",\"bg-006\"]}\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# color-calibration: {\"method\":\"neutral\",\"source_sha256\":\"SOURCE_SHA256\",\"background_regions\":\"reports/040-neutral/regions.json\",\"background_partition\":{\"fit\":[\"bg-001\",\"bg-002\",\"bg-003\"],\"validation\":[\"bg-004\",\"bg-005\",\"bg-006\"]},\"white_reference\":null}\nload \"/abs/current-parent.xisf\"\nfmul 1\nsplit \"/abs/session/artifacts/040-raw-r\" \"/abs/session/artifacts/040-raw-g\" \"/abs/session/artifacts/040-raw-b\"\nclose\npm \"($artifacts/040-raw-r$ - 0.02) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-r.fit\" -chksum\nclose\npm \"($artifacts/040-raw-g$ - 0.04) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-g.fit\" -chksum\nclose\npm \"($artifacts/040-raw-b$ - 0.03) * 1 + 0.04\"\nsave \"/abs/session/artifacts/040-corrected-b.fit\" -chksum\nclose\nrgbcomp \"/abs/session/artifacts/040-corrected-r.fit\" \"/abs/session/artifacts/040-corrected-g.fit\" \"/abs/session/artifacts/040-corrected-b.fit\" \"-out=/abs/session/artifacts/040-neutral.fit\" -nosum\nclose\nload \"/abs/current-parent.xisf\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/040-neutral-parent\" 95\nclose\nload \"/abs/session/artifacts/040-neutral.fit\"\nmtf 0 0.15 1\nsavejpg \"/abs/session/previews/040-neutral-candidate\" 95\nclose\n```",
+    "```\nm = 1 / (D + 2)\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nautostretch -linked -4.50 0.120\nicc_assign sRGB\nstat main\nsave \"/abs/session/artifacts/070-stretch\" -chksum\nsavejpg \"/abs/session/previews/070-stretch\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.01 1\nasinh -human 2 0 -clipmode=rgbblend\nght -D=0.2 -B=0 -LP=0 -SP=0.2 -HP=1 -human -clipmode=rgbblend\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-explicit-stretch\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-explicit-stretch\" 95\nclose\n```",
+    "```json\n{\n  \"schema\": \"starun-siril.stretch-request.v1\",\n  \"source\": {\"path\": \"artifacts/060-starless.fit\", \"sha256\": \"<source-sha256>\"},\n  \"regions\": {\"path\": \"reports/070-stretch/regions.json\", \"sha256\": \"<regions-sha256>\"},\n  \"operators\": [{\n    \"method\": \"ght\",\n    \"purpose\": \"Reveal faint structure while retaining core hierarchy\",\n    \"landmarks\": {\n      \"LP\": {\"region\": \"background-a\", \"statistic\": \"p99\"},\n      \"SP\": {\"region\": \"faint-a\", \"statistic\": \"median\"},\n      \"HP\": {\"region\": \"core-a\", \"statistic\": \"p01\"}\n    },\n    \"constraints\": [\n      {\"region\": \"background-a\", \"statistic\": \"median\", \"min\": 0.05, \"max\": 0.12},\n      {\"region\": \"faint-a\", \"statistic\": \"median\", \"min\": 0.18, \"max\": 0.35},\n      {\"region\": \"core-a\", \"statistic\": \"span\", \"min\": 0.05, \"max\": 0.5}\n    ]\n  }],\n  \"manual_lookup\": {\n    \"status\": \"performed\",\n    \"reason\": \"Read the pinned GHS command semantics\",\n    \"evidence\": [{\"path\": \"reports/manual-evidence/070-ght.command.json\", \"sha256\": \"<evidence-sha256>\"}]\n  }\n}\n```",
+    "```bash\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py solve \\\n  --session /abs/session --request /abs/session/reports/070-stretch/request.json \\\n  --run-id 070-stretch --timeout 1800\n\"$STARUN_PYTHON\" /abs/starun-siril/scripts/deep_sky_siril_stretch.py generate \\\n  --session /abs/session --parameters /abs/session/reports/070-stretch/stretch-parameters.json\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nsplit \"/abs/session/artifacts/070-gentle-r\" \"/abs/session/artifacts/070-gentle-g\" \"/abs/session/artifacts/070-gentle-b\"\npm \"0.2126 * $artifacts/070-gentle-r$ + 0.7152 * $artifacts/070-gentle-g$ + 0.0722 * $artifacts/070-gentle-b$\" -nosum\nsave \"/abs/session/artifacts/070-luminance\" -chksum\nclose\nload \"/abs/session/artifacts/060-starless.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-luminance$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\nrgbcomp \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"/abs/session/artifacts/070-mask.fit\" \"-out=/abs/session/artifacts/070-mask-rgb\" -nosum\npm \"$artifacts/070-gentle$ * $artifacts/070-mask-rgb$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask-rgb$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# hdr-stretch: {\"mask_low\": 0.15, \"mask_high\": 0.75, \"sigma\": 2}\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.2 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-gentle\" -chksum\nsavejpg \"/abs/session/previews/070-gentle\" 95\nclose\nload \"/abs/current-linear-parent.fit\"\nmtf 0 0.06 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-faint\" -chksum\nsavejpg \"/abs/session/previews/070-faint\" 95\nclose\npm \"min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6))^2 * (3 - 2 * min(1, max(0, ($artifacts/070-gentle$ - 0.15) / 0.6)))\" -nosum\ngauss 2\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-mask\" -chksum\nsavejpg \"/abs/session/previews/070-mask\" 95\npm \"$artifacts/070-gentle$ * $artifacts/070-mask$ + $artifacts/070-faint$ * (1 - $artifacts/070-mask$)\" -nosum\nicc_assign sRGB\nsave \"/abs/session/artifacts/070-hdr\" -chksum\nstat main\nsavejpg \"/abs/session/previews/070-hdr\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# local-contrast: {\"low_start\": 0.03, \"low_end\": 0.08, \"high_start\": 0.65, \"high_end\": 0.90, \"cliplimit\": 1.5, \"grid\": 8, \"strength\": 0.20, \"sigma\": 2, \"regions\": \"reports/080-local-contrast-regions.json\"}\nload \"/abs/current-starless.fit\"\nsavejpg \"/abs/session/previews/080-parent\" 95\nsplit \"/abs/session/artifacts/080-r\" \"/abs/session/artifacts/080-g\" \"/abs/session/artifacts/080-b\"\npm \"0.2126 * $artifacts/080-r$ + 0.7152 * $artifacts/080-g$ + 0.0722 * $artifacts/080-b$\"\nsave \"/abs/session/artifacts/080-l\" -chksum\nclahe 1.5 8\nsave \"/abs/session/artifacts/080-l-enhanced\" -chksum\npm \"(min(1, max(0, ($artifacts/080-l$ - 0.03) / 0.05))^2 * (3 - 2 * min(1, max(0, ($artifacts/080-l$ - 0.03) / 0.05)))) * (1 - min(1, max(0, ($artifacts/080-l$ - 0.65) / 0.25))^2 * (3 - 2 * min(1, max(0, ($artifacts/080-l$ - 0.65) / 0.25))))\"\ngauss 2\nsave \"/abs/session/artifacts/080-mask\" -chksum\nsavejpg \"/abs/session/previews/080-mask\" 95\npm \"1 + 0.20 * $artifacts/080-mask$ * ($artifacts/080-l-enhanced$ - $artifacts/080-l$) / max($artifacts/080-l$, 0.000001)\"\nsave \"/abs/session/artifacts/080-gain\" -chksum\npm \"$artifacts/080-r$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-r-enhanced\" -chksum\npm \"$artifacts/080-g$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-g-enhanced\" -chksum\npm \"$artifacts/080-b$ * $artifacts/080-gain$\"\nsave \"/abs/session/artifacts/080-b-enhanced\" -chksum\nrgbcomp \"/abs/session/artifacts/080-r-enhanced.fit\" \"/abs/session/artifacts/080-g-enhanced.fit\" \"/abs/session/artifacts/080-b-enhanced.fit\" -out=/abs/session/artifacts/080-local-contrast\nload \"/abs/session/artifacts/080-local-contrast.fit\"\nstat main\nsavejpg \"/abs/session/previews/080-local-contrast\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nsplit \"/abs/session/artifacts/080-red\" \"/abs/session/artifacts/080-green\" \"/abs/session/artifacts/080-blue\"\nclose\nrgbcomp \"/abs/session/artifacts/080-red.fit\" \"/abs/session/artifacts/080-green.fit\" \"/abs/session/artifacts/080-green.fit\" \"-out=/abs/session/artifacts/080-hoo.fit\" -nosum\nload \"/abs/session/artifacts/080-hoo.fit\"\nstat main\nsavejpg \"/abs/session/previews/080-hoo\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\ndenoise -nocosmetic -mod=0.20\nstat main\nsave \"/abs/session/artifacts/100-denoise-nonlinear\" -chksum\nsavejpg \"/abs/session/previews/100-denoise-nonlinear\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nfmul 1\nicc_assign sRGB\nsave \"/abs/session/artifacts/110-final-candidate.fit\" -chksum\nclose\nload \"/abs/session/artifacts/110-final-candidate.fit\"\nstat main\nsavejpg \"/abs/session/artifacts/110-final-candidate\" 95\nclose\nload \"/abs/session/artifacts/110-final-candidate.jpg\"\nstat main\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/085-tone-mtf-parent\" 95\nmtf 0 0.55 1\nstat main\nsave \"/abs/session/artifacts/085-tone-mtf\" -chksum\nsavejpg \"/abs/session/previews/085-tone-mtf-candidate\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-nonlinear-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/086-tone-ghs-parent\" 95\nght -D=0.2 -B=0 -LP=0.02 -SP=0.15 -HP=0.90 -human -clipmode=rgbblend\nstat main\nsave \"/abs/session/artifacts/086-tone-ghs\" -chksum\nsavejpg \"/abs/session/previews/086-tone-ghs-candidate\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\nload \"/abs/current-parent.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/100-color-finish-parent\" 95\nsatu 0.10 1 6\nstat main\nsave \"/abs/session/artifacts/100-color-finish\" -chksum\nsavejpg \"/abs/session/previews/100-color-finish-candidate\" 95\nclose\n```",
+    "```ssf\nrequires 1.4.4 1.5.0\nset32bits\n# local-saturation: {\"amount\":0.08,\"low_start\":0.03,\"low_end\":0.08,\"high_start\":0.65,\"high_end\":0.90,\"sigma\":2}\nload \"/abs/session/artifacts/085-tone.fit\"\nicc_assign sRGB\nstat main\nsavejpg \"/abs/session/previews/088-local-saturation-parent\" 95\nsplit \"/abs/session/artifacts/088-r\" \"/abs/session/artifacts/088-g\" \"/abs/session/artifacts/088-b\"\npm \"0.2126 * $artifacts/088-r$ + 0.7152 * $artifacts/088-g$ + 0.0722 * $artifacts/088-b$\" -nosum\nsave \"/abs/session/artifacts/088-luminance\" -chksum\npm \"max($artifacts/088-r$, max($artifacts/088-g$, $artifacts/088-b$))\" -nosum\nsave \"/abs/session/artifacts/088-peak\" -chksum\npm \"(min(1, max(0, ($artifacts/088-luminance$ - 0.03) / 0.05))^2 * (3 - 2 * min(1, max(0, ($artifacts/088-luminance$ - 0.03) / 0.05)))) * (1 - min(1, max(0, ($artifacts/088-peak$ - 0.65) / 0.25))^2 * (3 - 2 * min(1, max(0, ($artifacts/088-peak$ - 0.65) / 0.25))))\" -nosum\nsave \"/abs/session/artifacts/088-mask-base\" -chksum\ngauss 2\nsave \"/abs/session/artifacts/088-mask-smoothed\" -chksum\npm \"$artifacts/088-mask-smoothed$ * $artifacts/088-mask-base$\" -nosum\nsave \"/abs/session/artifacts/088-mask\" -chksum\nicc_assign sRGB\nsavejpg \"/abs/session/previews/088-local-saturation-mask\" 95\nrgbcomp \"/abs/session/artifacts/088-mask.fit\" \"/abs/session/artifacts/088-mask.fit\" \"/abs/session/artifacts/088-mask.fit\" -out=/abs/session/artifacts/088-mask-rgb -nosum\nload \"/abs/session/artifacts/085-tone.fit\"\nsatu 0.08 0 6\nsave \"/abs/session/artifacts/088-saturated\" -chksum\npm \"$artifacts/085-tone$ + $artifacts/088-mask-rgb$ * ($artifacts/088-saturated$ - $artifacts/085-tone$)\" -nosum\nicc_assign sRGB\nstat main\nsave \"/abs/session/artifacts/088-local-saturation\" -chksum\nsavejpg \"/abs/session/previews/088-local-saturation-candidate\" 95\nclose\n```"
+  ]
+}
