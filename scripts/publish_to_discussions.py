@@ -13,11 +13,6 @@ Prerequisites
 
 Usage
 -----
-  # One-shot, write the body inline
-  GH_TOKEN=xxx python3 scripts/publish_to_discussions.py \
-      --repo MZqk/deepsky-skill --category "Show and tell" \
-      --title "deep-sky-capture-advisor 1.0.3 released" --body-file announce.md
-
   # Auto-generate body + title from a skill dir's SKILL.md frontmatter
   GH_TOKEN=xxx python3 scripts/publish_to_discussions.py \
       --repo MZqk/deepsky-skill --category "Announcements" \

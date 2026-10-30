@@ -8,13 +8,68 @@ venv/
 venv_*/
 .antigravitycli/
 .superpowers/
-/.workbuddy/
-/.workbuddy-ai/
+.workbuddy/
+.workbuddy-ai/
 /.codex/
 /.zcode/
 /siril-mosaic/dev-runs/
 /dist/
 /reports/
+
+# Workspace & execution artifacts
+**/workspace/
+**/workspaces/
+**/outputs/
+**/artifacts/
+**/dev-runs/
+**/batch_runs/
+**/sessions/
+
+# Astronomy & heavy raw data
+*.fit
+*.fits
+*.fit.fz
+*.fits.fz
+*.fts
+*.xisf
+*.tif
+*.tiff
+*.cr2
+*.cr3
+*.nef
+*.arw
+*.dng
+*.ser
+*.avi
+
+# Video & rendered media outputs
+*.mp4
+*.mov
+*.webm
+**/output/
+
+# Machine learning models & weights
+*.pth
+*.pt
+*.onnx
+*.safetensors
+*.bin
+*.tflite
+
+# Node.js dependencies & caches
+node_modules/
+.remotion/
+
+# Binary & archive packages
+*.so
+*.dylib
+*.dll
+*.exe
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.whl
 
 # Editor & temporary files
 *.swp

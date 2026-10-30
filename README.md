@@ -15,7 +15,7 @@
 | [`deep-sky-advisor`](deep-sky-advisor/) | 分析 FITS、XISF、TIFF、PNG 或 JPEG 深空图像，并给出有证据支持的后期建议 | 诊断数据、预览图、处理建议报告 |
 | [`deep-sky-processor`](deep-sky-processor/) | 在真实性约束下，通过分阶段审查完成深空图像后期 | 自然版和增强版 JPG，可选 TIFF 母版 |
 | [`pws-stacking`](pws-stacking/) | 无界面运行 PWS 分区加权叠加，开跑前强制预检已校准/已对齐前提 | 线性 Float32 XISF 成品、逐帧权重表与诊断场 |
-| [`siril-astra-stacking`](siril-astra-stacking/) | 使用 Siril 1.4 CLI 按 FITS 头签名识别设备并推导校准、配准与堆栈参数，无头叠加 FITS 序列 | 32bit 线性母版 FITS、MTF 预览 PNG 与可审计报告 |
+| [`siril-astra-stacking`](siril-astra-stacking/) | 使用 Siril 1.4 CLI 叠加 FITS，支持多滤镜批处理与整桶续跑、外部 FITS/XISF 母版导入、六种通道合成及可选共同裁切与背景 MTF | 线性 Float32 FITS 或非线性 LRGB／HaLRGB、合成准备包、PNG 预览与覆盖及质量报告 |
 | [`siril-moon-stacking`](siril-moon-stacking/) | 融合 Siril 1.4.4 CLI 与亚像素频域配准，完成月面幸运成像堆叠与矿物月处理 | 32 位 FITS、TIFF 与高质量 JPG 成片 |
 | [`siril-mosaic`](siril-mosaic/) | 使用 Siril 自动解算、配准并拼接已堆栈天文面板 | 线性 32-bit FITS、显示预览和审计记录 |
 | [`starun-siril`](starun-siril/) | 以独立、可审计的 Siril CLI 会话处理已堆栈深空 master | 可审计的 .ssf 脚本与真实像素审查产物 |

@@ -96,7 +96,9 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          if [ -d "${SKILL}/tests" ]; then
+          if [ "${SKILL}" = "siril-astra-stacking" ]; then
+            "${SKILL}/.venv/bin/python" -B "${SKILL}/scripts/selftest.py"
+          elif [ -d "${SKILL}/tests" ]; then
             "${SKILL}/.venv/bin/python" -B -m pytest -p no:cacheprovider "${SKILL}/tests"
           else
             echo "${SKILL} has no tests directory; structure and release checks still apply."
