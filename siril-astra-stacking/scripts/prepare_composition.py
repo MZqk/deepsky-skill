@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 
 from astra_stack import find_siril, siril_version, write_report
 from fits_probe import (
@@ -24,6 +25,7 @@ from fits_probe import (
     read_fits_header_with_warnings, read_seq_regdata,
 )
 from siril_script_gen import ScriptBuilder
+from composition_quality import edge_coverage
 
 IDENTITY = (1, 0, 0, 0, 1, 0, 0, 0, 1)
 EXPOSURE_KEYS = ("FILTER", "OBJECT", "STACKCNT", "EXPTIME", "LIVETIME")
@@ -72,7 +74,7 @@ def inspect_pixels(path):
         raise FitsError("%s: invalid FITS scaling" % path)
     count = width * height * planes
     remaining = count * 4
-    zeros = 0
+    zeros = ones = below_zero = above_one = 0
     minimum, maximum = math.inf, -math.inf
     with open(path, "rb") as handle:
         handle.seek(data_offset(str(path)))
@@ -86,11 +88,16 @@ def inspect_pixels(path):
                 if not math.isfinite(value):
                     raise FitsError("%s: non-finite pixel" % path)
                 zeros += value == 0
+                ones += value == 1
+                below_zero += value < 0
+                above_one += value > 1
                 minimum = min(minimum, value)
                 maximum = max(maximum, value)
     return header, {
         "pixel_count": count, "all_pixels_finite": True,
         "zero_pct": 100 * zeros / count, "min": minimum, "max": maximum,
+        "range_counts": {"below_zero": below_zero, "above_one": above_one,
+                         "equal_zero": zeros, "equal_one": ones},
         "medians": estimate_channel_medians(str(path)),
     }, warnings
 
@@ -188,6 +195,122 @@ def run_script(siril, directory, name, builder, timeout):
         raise RuntimeError("%s failed (exit %d); see %s.log" % (name, result.returncode, name))
 
 
+def external_metadata(path):
+    """Read provenance only; Siril decodes all image pixels."""
+    metadata = {"format": path.suffix.lower().lstrip("."), "reported_frames": None,
+                "frames_evidence": [], "processing_classes": []}
+    if path.suffix.lower() != ".xisf":
+        header, _ = read_fits_header_with_warnings(str(path))
+        if header.get("BITPIX") != -32 or header.get("NAXIS") != 2 or header.get("BAYERPAT"):
+            raise FitsError("external masters must be Float32 mono without BAYERPAT")
+        return header, metadata
+    with path.open("rb") as handle:
+        if handle.read(8) != b"XISF0100":
+            raise FitsError("invalid XISF signature: %s" % path)
+        prefix = handle.read(8)
+        if len(prefix) != 8:
+            raise FitsError("truncated XISF header: %s" % path)
+        size = struct.unpack("<II", prefix)[0]
+        document = ET.fromstring(handle.read(size))
+    images = [element for element in document if element.tag.rsplit("}", 1)[-1] == "Image"]
+    if len(images) != 1:
+        raise FitsError("expected one image per external master")
+    image = images[0]
+    if (image.get("sampleFormat") != "Float32" or image.get("colorSpace") != "Gray"
+            or len(image.get("geometry", "").split(":")) != 3
+            or image.get("geometry", "").split(":")[-1] != "1"):
+        raise FitsError("external XISF masters must be Float32 mono")
+    header, evidence = {}, []
+    for element in image:
+        tag = element.tag.rsplit("}", 1)[-1]
+        if tag == "FITSKeyword":
+            key, text = element.get("name"), element.get("value", "").strip()
+            if text.startswith("'") and text.endswith("'"):
+                value = text[1:-1].replace("''", "'").rstrip()
+            else:
+                try:
+                    value = float(text)
+                    if math.isfinite(value) and value.is_integer():
+                        value = int(value)
+                except ValueError:
+                    value = text
+            header[key] = value
+            comment = element.get("comment", "")
+            if re.fullmatch(r"(?:DrizzleIntegration|ImageIntegration)\.numberOfImages: \d+", comment):
+                evidence.append(comment)
+        elif element.get("id") == "PixInsight:ProcessingHistory" and element.text:
+            history = ET.fromstring(element.text)
+            metadata["processing_classes"] = [item.get("class") for item in history.iter("instance")]
+    if header.get("BAYERPAT"):
+        raise FitsError("external masters must not contain a Bayer mosaic")
+    counts = {int(item.rsplit(":", 1)[1]) for item in evidence}
+    metadata["frames_evidence"] = evidence
+    metadata["reported_frames"] = counts.pop() if len(counts) == 1 else None
+    if metadata["reported_frames"] is not None and metadata["reported_frames"] < 1:
+        raise FitsError("external integration history has invalid frame count")
+    return header, metadata
+
+
+def collect_external_inputs(siril, work, args):
+    directory = Path(args.run_dir).resolve()
+    paths = sorted(path for path in directory.iterdir() if path.is_file()
+                   and path.suffix.lower() in (".fit", ".fits", ".fts", ".xisf"))
+    if not 2 <= len(paths) <= 8:
+        raise FitsError("expected 2 to 8 external monochrome masters")
+    conversion = work / "external"
+    conversion.mkdir()
+    builder = ScriptBuilder()
+    builder.add("setext", ["fit"])
+    builder.add("set32bits")
+    layers = []
+    for index, path in enumerate(paths):
+        source_hash = sha256_file(path)
+        header, metadata = external_metadata(path)
+        label = str(header.get("FILTER") or "").strip().upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9_-]*", label):
+            raise FitsError("external master has missing or unsafe FILTER: %s" % path)
+        if header.get("OBJECT") and str(header["OBJECT"]).strip() != args.target:
+            raise FitsError("external OBJECT disagrees with --target: %s" % path)
+        for key in ("EXPTIME", "LIVETIME"):
+            value = header.get(key)
+            if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value <= 0):
+                raise FitsError("external master has invalid %s" % key)
+        count = header.get("STACKCNT")
+        if count is not None and (type(count) is not int or count < 1):
+            raise FitsError("external master has invalid STACKCNT")
+        alias = "source_%04d%s" % (index, path.suffix.lower())
+        (conversion / alias).symlink_to(path.resolve())
+        builder.add("load", [alias])
+        builder.add("update_key", ["OBJECT", "'" + args.target.replace("'", "''") + "'"])
+        builder.add("update_key", ["FILTER", "'" + label + "'"])
+        for key in ("EXPTIME", "STACKCNT", "LIVETIME"):
+            if header.get(key) is None:
+                builder.add("update_key", ["-delete", key])
+        builder.add("save", ["converted_%04d" % index])
+        metadata["object_assigned"] = not bool(header.get("OBJECT"))
+        warnings = ["external master: upstream calibration and rejection were not revalidated",
+                    "external master: linear state explicitly confirmed by operator"]
+        if count is None and metadata["reported_frames"] is None:
+            warnings.append("external master: stacked frame count unknown")
+        if header.get("LIVETIME") is None:
+            warnings.append("external master: total exposure unknown; EXPTIME times frame count not assumed")
+        layers.append({"filter": label, "source": str(path.resolve()), "source_sha256": source_hash,
+                       "source_report": None, "source_report_sha256": None,
+                       "conversion_source": str(conversion / ("converted_%04d.fit" % index)),
+                       "conversion": "external_native_import", "external_metadata": metadata,
+                       "quality_warnings": warnings})
+    if len({layer["filter"] for layer in layers}) != len(layers):
+        raise FitsError("duplicate FILTER in external masters")
+    run_script(siril, conversion, "import_external", builder, args.timeout)
+    for layer in layers:
+        header, pixels, warnings = inspect_pixels(layer["conversion_source"])
+        if header["NAXIS"] != 2 or header.get("BAYERPAT"):
+            raise FitsError("native import did not produce a monochrome master")
+        layer.update(header=header, source_pixels=pixels)
+        layer["quality_warnings"].extend(warnings)
+    return layers
+
+
 def prepare_mono(siril, work, layers, timeout):
     conversion = work / "conversion"
     mono = work / "mono"
@@ -198,7 +321,7 @@ def prepare_mono(siril, work, layers, timeout):
     builder.add("set32bits")
     for index, layer in enumerate(layers):
         alias = "source_%04d.fit" % index
-        (conversion / alias).symlink_to(layer["source"])
+        (conversion / alias).symlink_to(layer.get("conversion_source", layer["source"]))
         builder.add("load", [alias])
         if layer["header"]["NAXIS"] == 3:
             names = ["plane_%d_%s" % (index, channel) for channel in ("r", "g", "b")]
@@ -208,6 +331,8 @@ def prepare_mono(siril, work, layers, timeout):
             builder.add("update_key", ["-delete", "BAYERPAT"])
         # SPLIT may replace FILTER with a plane name; restore source provenance.
         for key in EXPOSURE_KEYS:
+            if key not in layer["header"]:
+                continue
             value = layer["header"][key]
             if isinstance(value, str):
                 value = "'" + value.replace("'", "''") + "'"
@@ -285,6 +410,17 @@ def publish(work, out):
 
 
 def prepare(args):
+    external = bool(getattr(args, "external_masters", False))
+    if not external and (getattr(args, "linear", False) or getattr(args, "target", None)):
+        raise FitsError("--linear and --target apply only to --external-masters")
+    if external and (not getattr(args, "linear", False) or not getattr(args, "target", None)):
+        raise FitsError("--external-masters requires --linear and --target")
+    if external:
+        args.target = args.target.strip()
+        if not args.target:
+            raise FitsError("--target must not be empty")
+    if external and any(ord(char) < 32 or ord(char) > 126 or char == '"' for char in args.target):
+        raise FitsError("--target must contain printable ASCII without double quotes")
     out = Path(args.out).absolute()
     if out.exists() or out.is_symlink():
         raise FileExistsError("output already exists: %s" % out)
@@ -299,15 +435,19 @@ def prepare(args):
     out.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix=".composition-", dir=str(out.parent)))
     manifest = {
-        "schema_version": "1.0", "status": "failed", "failed_stage": "collect",
+        "schema_version": "1.1" if external else "1.0", "status": "failed", "failed_stage": "collect",
         "run_dir": str(Path(args.run_dir).absolute()),
         "monochrome_confirmed": True, "siril": {"path": siril, "version": version},
     }
+    if external:
+        manifest.update(origin="external_masters", linear_confirmed=True, target=args.target)
     try:
-        layers = collect_inputs(args.run_dir)
+        layers = collect_external_inputs(siril, work, args) if external else collect_inputs(args.run_dir)
         print("[composition] collect: %d filters" % len(layers), file=sys.stderr, flush=True)
         manifest["failed_stage"] = "mono"
         mono = prepare_mono(siril, work, layers, args.timeout)
+        for layer in layers:
+            layer.pop("conversion_source", None)
         print("[composition] mono: complete", file=sys.stderr, flush=True)
         manifest["failed_stage"] = "registration"
         regdata, identity = align_layers(siril, work, layers, mono, args.timeout)
@@ -323,11 +463,15 @@ def prepare(args):
             shapes.add((header["NAXIS1"], header["NAXIS2"]))
             layer["output"] = str(out / target.name)
             layer["output_pixels"] = pixels
+            _, layer["coverage"] = edge_coverage(target)
+            if layer["coverage"]["edge_zero_count"]:
+                warnings.append("edge-zero padding candidate; geometric framing does not prove valid coverage")
             layer["transform"] = regdata["frames"][index]["h"]
             layer["quality_warnings"] = list(dict.fromkeys(layer["quality_warnings"] + warnings))
             layer["quality_status"] = "warning" if layer["quality_warnings"] else "not_assessed"
             layer["format_ready"] = True
-            if sha256_file(layer["source"]) != layer["source_sha256"] or sha256_file(layer["source_report"]) != layer["source_report_sha256"]:
+            if (sha256_file(layer["source"]) != layer["source_sha256"] or (
+                    layer.get("source_report") and sha256_file(layer["source_report"]) != layer["source_report_sha256"])):
                 raise FitsError("source master or report changed during preparation")
         if len(shapes) != 1:
             raise FitsError("composition images do not share a common shape")
@@ -335,12 +479,12 @@ def prepare(args):
         manifest["layers"] = layers
         diagnostics = work / "diagnostics"
         diagnostics.mkdir()
-        for directory in (work / "conversion", work / "alignment"):
+        for directory in (work / "external", work / "conversion", work / "alignment"):
             if directory.exists():
                 for path in directory.iterdir():
                     if path.suffix in (".sir", ".log", ".seq"):
                         shutil.move(str(path), diagnostics / path.name)
-        for directory in (work / "conversion", work / "alignment", work / "mono"):
+        for directory in (work / "external", work / "conversion", work / "alignment", work / "mono"):
             if directory.exists():
                 shutil.rmtree(directory)
 
@@ -396,6 +540,9 @@ def main(argv=None):
     parser.add_argument("run_dir", help="directory containing filter reports (flat or in subdirectories)")
     parser.add_argument("--out", required=True, help="new directory for composition inputs")
     parser.add_argument("--monochrome", action="store_true", help="confirm a monochrome sensor")
+    parser.add_argument("--external-masters", action="store_true", help="explicitly import external Float32 mono FITS/XISF masters")
+    parser.add_argument("--linear", action="store_true", help="confirm external masters have not been stretched")
+    parser.add_argument("--target", help="explicit OBJECT for external masters; conflicts are refused")
     parser.add_argument(
         "--bundle", action="store_true",
         help="package into a structured 3-tier delivery bundle "
@@ -406,6 +553,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
+    if args.external_masters and (not args.linear or not args.target):
+        parser.error("--external-masters requires --linear and --target")
+    if not args.external_masters and (args.linear or args.target):
+        parser.error("--linear and --target apply only to --external-masters")
     try:
         prepare(args)
     except (Exception, KeyboardInterrupt) as exc:

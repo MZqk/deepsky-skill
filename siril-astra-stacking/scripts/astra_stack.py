@@ -1607,9 +1607,15 @@ def _commit_and_publish(report, args, started, work_dir, out_dir, target_name,
     _stage("commit", "%d artifact(s) published" % len(published))
 
     if not args.keep_work:
-        shutil.rmtree(work_dir, ignore_errors=True)
-    # Idempotent rewrite: identical payload, as a safety net for the case where
-    # the rename above published a report that has since gone stale.
+        try:
+            shutil.rmtree(work_dir)
+        except BaseException as exc:  # Cleanup cannot undo a completed commit.
+            message = "scratch cleanup failed at %s: %s: %s" % (
+                work_dir, type(exc).__name__, exc)
+            report["work_dir"] = work_dir
+            report["notes"].append(message)
+            _warn(message)
+    # Usually identical; cleanup failures add diagnostics to the final report.
     _emit_final(report, out_dir, target_name)
     return EXIT_OK
 
@@ -1899,8 +1905,8 @@ def _registration_report(pipeline, transform_summary):
     if pipeline["chain"] == "drizzle":
         report["flat_used"] = "none"
         report["flat_note"] = (
-            "drizzle ran without -flat= because this device produces no flat "
-            "frames; residual vignetting weighting is absent"
+            "drizzle flat weighting is not enabled: seqapplyreg has no -flat=; "
+            "calibration flat-field correction is recorded separately in calibration.flat"
         )
     if transform_summary:
         report["observed_after_run"] = {

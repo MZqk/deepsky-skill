@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 
@@ -368,7 +369,7 @@ def match_master(light_header, master_header, tolerance, optional_keys=None):
 
 
 def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=None,
-                             allow_missing_dark=False):
+                             allow_missing_dark=False, strict=False):
     """Decide which calibration frames to apply for a light sequence.
 
     Args:
@@ -382,6 +383,8 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
             thermal signal and hot pixels; this flag does not remove that
             consequence, it only records the decision and keeps the rest of the
             calibration (bias, flat) in force.
+        strict: Batch preflight: require compatible geometry and known settings,
+            reject tied matches and unlabelled flat fallbacks.
 
     Returns:
         Dict with ``bias``, ``dark``, ``flat`` (paths or ``None``), ``cc`` and
@@ -436,7 +439,7 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
     else:
         plan["dark"] = _pick_master(
             calibration_dir, "dark", light_header, tolerance,
-            optional_keys=optional_keys,
+            optional_keys=optional_keys, strict=strict,
         )
         if plan["dark"] is None:
             if not allow_missing_dark:
@@ -463,6 +466,7 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
         plan["flat"] = _pick_master(
             calibration_dir, "flat", light_header, exposure_free_tolerance,
             optional_keys=optional_keys, require_filter_match=True,
+            strict=strict,
         )
         if plan["flat"] is None:
             warnings.append(
@@ -479,14 +483,14 @@ def resolve_calibration_plan(light_header, device, calibration_dir, tolerance=No
     # -bias="=64*$OFFSET" when the offset is known from the header instead.
     plan["bias"] = _pick_master(
         calibration_dir, "bias", light_header, exposure_free_tolerance,
-        optional_keys=optional_keys,
+        optional_keys=optional_keys, strict=strict,
     )
 
     return plan
 
 
 def _pick_master(directory, kind, light_header, tolerance, optional_keys=None,
-                 require_filter_match=False):
+                 require_filter_match=False, strict=False):
     """Return the best-matching master of ``kind``, or ``None``.
 
     With ``require_filter_match=True`` (used for flats) a master whose
@@ -505,6 +509,8 @@ def _pick_master(directory, kind, light_header, tolerance, optional_keys=None,
 
     best = None
     best_score = None
+    tied = []
+    unlabelled = []
     for name in sorted(os.listdir(directory)):
         if not name.lower().endswith((".fit", ".fits", ".fts")):
             continue
@@ -521,16 +527,36 @@ def _pick_master(directory, kind, light_header, tolerance, optional_keys=None,
             master_header = read_fits_header(path)
         except Exception:  # noqa: BLE001 - skip unusable master frame
             continue
+        if strict:
+            if (master_header.get("NAXIS") != 2 or any(
+                    master_header.get(key) != light_header.get(key)
+                    for key in ("NAXIS1", "NAXIS2", "XBINNING", "YBINNING", "OFFSET"))):
+                continue
+            if any(header.get(key) is not None and (value is None or not math.isfinite(value))
+                   for header in (light_header, master_header)
+                   for key in tolerance for value in (_float(header.get(key)),)):
+                continue
+        master_filter = master_header.get("FILTER")
+        master_filter = str(master_filter).strip().upper() if master_filter else None
         if require_filter_match and light_filter:
-            master_filter = master_header.get("FILTER")
-            master_filter = (str(master_filter).strip().upper()
-                             if master_filter else None)
             if master_filter and master_filter != light_filter:
                 continue
         matched, score, _deltas = match_master(
             light_header, master_header, tolerance,
             optional_keys=optional_keys,
         )
-        if matched and (best_score is None or score < best_score):
+        if strict and matched and require_filter_match and not master_filter:
+            unlabelled.append(path)
+            continue
+        if strict and matched and best_score is not None and math.isclose(
+                score, best_score, rel_tol=1e-12, abs_tol=1e-12):
+            tied.append(path)
+        elif matched and (best_score is None or score < best_score):
             best, best_score = path, score
+            tied = [path]
+    if strict and len(tied) > 1:
+        raise CalibrationMissing("ambiguous %s masters with equal scores" % kind, kind, tied)
+    if strict and best is None and unlabelled:
+        raise CalibrationMissing("compatible flat master(s) missing FILTER; label them explicitly",
+                                 kind, unlabelled)
     return best

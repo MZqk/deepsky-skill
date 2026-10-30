@@ -1,15 +1,15 @@
 ---
 name: siril-astra-stacking
 description: >-
-  Headless Siril 1.4 astrophotography stacking pipeline. Identifies capture devices (ZWO Seestar series and traditional setups) from FITS headers to derive calibration, registration, and stacking parameters. Publishes 32-bit linear master FITS, MTF preview PNG, and JSON report. Supports Siril rejection stacking and Partition-Weighted Stacking (--stack-engine=pws). Use when stacking raw FITS sequences, calibrating and registering deep-sky frames, or processing Seestar captures. Do NOT use for planetary/lunar imaging (see siril-moon-stacking) or mosaic stitching (see siril-mosaic).
-  基于 Siril 1.4 CLI 的天文图像自动化无头叠加流水线。依据 FITS 头元数据识别设备（ZWO Seestar 与传统望远镜）并自动推导校准、配准与堆栈参数，交付 32-bit 线性母版 FITS、MTF 预览 PNG 与可审计 JSON 报告。支持原生拒绝法与 PWS 分区权重叠加（--stack-engine=pws）。当需要叠图、堆栈、校准对齐原始 FITS 序列或处理 Seestar 数据时触发。不适用于行星/月面幸运成像（见 siril-moon-stacking）或马赛克拼接（见 siril-mosaic）。
+  Headless Siril 1.4 deep-sky FITS calibration, registration, stacking, resumable monochrome multi-filter batches, and RGB/SHO/HOO, LRGB, or explicit HaRGB/HaLRGB composition of prepared masters. Identifies supported Seestar and traditional devices from FITS headers; supports native rejection stacking and optional PWS. Delivers linear masters or nonlinear LRGB/HaLRGB after automatic MTF pre-stretch, plus PNG previews and auditable JSON. Use for raw FITS stacking, Seestar preprocessing, multi-filter batches, or prepared filter-channel composition. Excludes planetary/lunar lucky imaging and mosaic stitching.
+  使用 Siril 1.4 CLI 按设备元数据叠加 FITS 序列，支持原生拒绝法、可选 PWS、单色多滤镜分桶批处理与整桶续跑，以及已准备母版的 RGB／SHO／HOO、LRGB 或显式比例 HaRGB／HaLRGB 合成。交付线性母版或自动预拉伸后的非线性 LRGB／HaLRGB、PNG 预览与报告。用于深空叠图、Seestar 预处理、多滤镜批处理或通道合成；不用于行星/月面幸运成像或马赛克拼接。
 license: Proprietary
 compatibility: "Requires siril-cli 1.4.x and Python 3.9+. Optional PWS mode requires sibling pws-stacking skill."
 metadata:
   slug: siril-astra-stacking
-  version: "1.4.4"
+  version: "1.10.2"
   displayName: Siril Astra Stacking
-  summary: 使用 Siril 1.4 CLI 按设备元数据推导校准、配准与堆栈参数，无头叠加 FITS 序列，交付 32bit 线性母版、MTF 预览与可审计报告。
+  summary: 使用 Siril 1.4 CLI 叠加 FITS，支持多滤镜批处理与整桶续跑、六种通道合成、可选覆盖裁切与背景拉伸，交付母版、预览与报告。
   tags: "astronomy, siril, stacking, fits, seestar"
   homepage: https://github.com/MZqk/deepsky-skill
 ---
@@ -22,8 +22,8 @@ Siril 1.4 无头叠加流水线。按设备元数据推导参数，而非按图�
 
 1. **只信 FITS 头。** 设备识别仅使用 `TELESCOP` / `INSTRUME` / `CREATOR` / `PRODUCER` 签名表与显式配置覆盖。**禁止**用宽高比、位深、像素数推断设备——误判会静默套用错误的校准与叠加参数，而拒绝只是让用户改一行配置。
 2. **拒绝优于猜测。** 视频、SER、8bit 预览图、未列入签名表的设备、缺失的校准帧，一律明确报错退出。绝不降级、绝不伪造。
-3. **失败不污染产物。** 所有中间文件在 `<target>.work/`，三件套全部成功后才原子改名发布。中断或失败时上一份完好的母版保持不变；崩溃兜底报告也不会覆盖已发布的成功报告。
-4. **一次运行一个滤镜。** probe 阶段逐帧读取 FILTER 并分组，目录内混放多种滤镜直接拒绝（退出码 6），并按滤镜给出帧数分桶清单——混叠会把第一帧的平场套给所有帧，且不可分通道回收。
+3. **失败不污染产物。** 原始帧叠加的中间文件在 `<target>.work/`，三件套全部成功后才原子改名发布。中断或失败时上一份完好的母版保持不变；崩溃兜底报告也不会覆盖已发布的成功报告。通道合成在输出父目录的临时目录完成后整目录发布，拒绝覆盖已有输出。
+4. **一次叠加一个滤镜。** 单桶入口在 probe 阶段逐帧读取 FILTER 并分组，目录内混放多种滤镜直接拒绝（退出码 6），并按滤镜给出帧数分桶清单——混叠会把第一帧的平场套给所有帧，且不可分通道回收。多滤镜批处理入口负责外层分桶调度；合成入口只消费准备完成的独立滤镜母版。
 
 ## 环境要求
 
@@ -62,6 +62,23 @@ python3 scripts/astra_stack.py /data/M42 --out ./results --quiet
 python3 scripts/astra_stack.py /data/M31 --out ./results --stack-engine pws
 ```
 
+## 多滤镜批处理与整桶续跑
+
+已确认单色传感器、同一目标和设备的混滤镜原始帧，使用独立外层入口自动分桶、匹配母帧、串行叠加，再统一生成合成准备包：
+
+```bash
+python3 scripts/batch_filters.py /data/NGC6946/lights \
+  --out /data/NGC6946/batch --monochrome --calibration-dir /data/masters
+
+# 同一批输入、母帧及参数下重用已完成桶
+python3 scripts/batch_filters.py /data/NGC6946/lights \
+  --out /data/NGC6946/batch --monochrome --calibration-dir /data/masters --resume
+```
+
+仅扫描输入第一层 FITS，要求 2–8 个滤镜、每桶至少两帧；同一桶混合曝光、增益、OFFSET、像素格式或校准计划时预检拒绝。严格校准拒绝并列最佳候选和无明确 FILTER 的平场回退。任一桶失败立即停止，保留已完成母版及诊断，不继续准备；完整批处理状态以 `batch_report.json` 为准。
+
+输出为 `stacks/<FILTER>/` 三件套、`composition_inputs/` 精简准备包、`diagnostics/` 和批处理报告。`--resume` 仅复用成功检查点及产物哈希均通过的桶，失败桶从头执行并归档旧尝试；输入、选中母帧或参数变化必须使用新目录。准备包可直接交给下方合成入口，批处理本身不选择配色。范围、校准和续跑契约见 [05-output-contract.md §5.13](references/05-output-contract.md#513-多滤镜批处理与整桶续跑)。
+
 ## 多滤镜母版的合成准备
 
 已确认黑白传感器的多滤镜任务，按 FILTER 分桶独立叠加后，必须调用 [prepare_composition.py](scripts/prepare_composition.py) 生成 Siril RGB 合成输入。复用成功报告中的母版，不重新校准、叠加或修改原三件套；普通彩色相机不得传入黑白确认参数。
@@ -83,6 +100,67 @@ python3 scripts/prepare_composition.py /data/NGC6946/run \
 **产物**：`<target>_stacked_32bit.fits`、`<target>.png`、`<target>_report.json`。
 
 **运行输出**：stderr 每阶段一行进度，末行给出结论（含退出码与报告路径）；`--dry-run` 额外把 `.sir` 脚本正文写到 stdout。`--quiet` 只抑制进度行，结论行始终输出。**脚本层请读 `<target>_report.json`，不要解析 stderr。**详见 `references/07-failure-and-resume.md` §7.6。
+
+## RGB／SHO／HOO、LRGB 与 Hα 混合
+
+已由其他软件叠加的线性 Float32 单色 FITS／XISF 母版，应显式导入，不能当作原始帧重新叠加或伪造 Astra 成功报告：
+
+```bash
+python3 scripts/prepare_composition.py /data/M51/masters \
+  --out /data/M51/composition_inputs --monochrome --bundle \
+  --external-masters --linear --target M51
+```
+
+FILTER 来自文件元数据；缺失 OBJECT 由显式 target 标记，已有目标冲突时拒绝。该入口仍会执行配准与公共裁切，保留原文件和外部来源。外部准备清单使用 schema 1.1；未知曝光总量保持 null，不用帧数乘单帧曝光补造。详细来源及兼容契约见 [05-output-contract.md §5.14](references/05-output-contract.md#514-显式外部母版导入)。
+
+RGB／SHO／HOO 模式从已准备目录生成三通道线性母版：
+
+```bash
+python3 scripts/compose_channels.py /data/M42/composition_inputs \
+  --mode sho --out /data/M42/composed_sho
+```
+
+| `--mode` | R | G | B |
+|---|---|---|---|
+| `rgb` | R | G | B |
+| `sho` | SII | Hα | OIII |
+| `hoo` | Hα | OIII | OIII |
+
+输入支持普通准备目录和 `--bundle` 交付包，必须保留成功的 `composition_manifest.json`。可消费原叠加准备 schema 1.0 或显式外部母版 schema 1.1。上述三种模式只做固定映射，不重新配准、不匹配强度、不拉伸母版；需要的通道缺失或别名冲突时拒绝，额外通道不参与。输入必须保持准备时的线性状态，不能用普通彩色 RGB 替代单色滤镜文件。
+
+准备目录同时具有 L/R/G/B 时，可使用自动预拉伸的 LRGB 融合：
+
+```bash
+python3 scripts/compose_channels.py /data/M42/composition_inputs \
+  --mode lrgb --out /data/M42/composed_lrgb
+```
+
+LRGB 先合成线性 RGB，再分别对 L 与 RGB 推导并执行 MTF，最后调用 Siril 原生亮度融合。**LRGB 的 Float32 FITS 为非线性图像**，报告与 FITS COMMENT 均明确标记；PNG 直接导出，不做二次拉伸。源线性文件保持不变。自动 MTF 是可复现的显示起点，不代替校色或最终审美调整；首版只接受已准备的四个单色通道，不接受独立 L＋彩色 RGB 文件。详细处理和报告契约见 [05-output-contract.md §5.11](references/05-output-contract.md#511-lrgb-自动预拉伸与融合)。
+
+准备目录具有真实 Hα、R、G、B 时，`hargb` 可按显式比例混合红通道；`halrgb` 另外要求 L，并接续现有亮度融合：
+
+```bash
+python3 scripts/compose_channels.py /data/M42/composition_inputs \
+  --mode hargb --ha-weight 0.25 --ha-scale 1.0 --out /data/M42/composed_hargb
+```
+
+固定公式为 `R_HA=(1-weight)*R+weight*scale*HA`，G/B 不变。`--ha-weight` 与 `--ha-scale` 均必填、无默认值，分别要求有限的 `[0,1]` 权重和正标度；其他模式传入这两项会报错。**HaRGB 为线性 FITS；HaLRGB 为非线性 FITS**，其 MTF 从混合后的 RGB 实测，PNG 直接导出。L 不加入 Hα，仍按原亮度融合流程预拉伸。混合会影响恒星颜色，不等于连续谱扣除或校色；报告保存完整公式、系数及四／五份独立来源。详细契约见 [05-output-contract.md §5.12](references/05-output-contract.md#512-hargbhalrgb-显式-hα-混合)。
+
+输出为 `composed_<mode>_32bit.fits`、`composed_<mode>.png`、`composition_report.json` 与 `diagnostics/`。HOO 的 OIII 只记录一次来源；合成 FITS 不保留第一滤镜的曝光与帧数，各通道实值在报告中。输出目录必须不存在，全部验证完成后整目录发布。完整输入、别名与报告契约见 [05-output-contract.md §5.10](references/05-output-contract.md#510-rgbshohoo-通道合成)。
+
+### 可选覆盖裁切与背景拉伸
+
+六种模式均可显式选择共同候选区域裁切及背景目标拉伸：
+
+```bash
+python3 scripts/compose_channels.py /data/M51/composition_inputs \
+  --mode halrgb --ha-weight 0.25 --ha-scale 1.0 \
+  --stretch background --target-bg 0.15 --crop common --out /data/M51/halrgb_v110
+```
+
+默认 `--stretch legacy --crop none` 保持原像素与预览行为。覆盖诊断仅识别逐行首尾连续的精确零值；内部零值和有限负值不会按亮度阈值排除。它是边缘填零启发式，不是真实曝光覆盖掩膜。`--crop common` 仅裁切所选来源的临时副本，保留原始输入；额外通道不限制画幅，Hα 零／满权重只考虑实际贡献通道。
+
+`background` 使用共同候选区域的中位数及 MAD 推导黑点，再求显式 MTF；`--target-bg` 默认 0.15，仅该策略可用，要求有限且位于 `(0,1)`。RGB／SHO／HOO／HaRGB 仅改变 PNG；LRGB／HaLRGB 的临时预拉伸和非线性 FITS 会改变，PNG 仍直接导出。目标约束预拉伸参考值，不保证最终融合背景或颜色。报告 schema 1.4 记录候选及实际裁切、统计区域、MTF、范围计数和 Hα 混合变化；执行成功不代表质量验收通过。完整公式及边界见 [05-output-contract.md §5.15](references/05-output-contract.md#515-覆盖诊断可选裁切与背景拉伸)。
 
 ## 渐进式加载
 
@@ -205,6 +283,9 @@ R0 <fwhm> <wfwhm> <roundness> <quality> <background> <nbstars> H <h00..h22> <pai
 python3 scripts/selftest.py           # 第一层，无需 Siril
 python3 scripts/selftest.py --real    # 加真实 Siril 端到端
 python3 scripts/test_prepare_composition.py --real # 合成准备的真实 Siril 夹具
+python3 scripts/test_compose_channels.py --real    # Native composition and H-alpha mixture fixtures
+python3 scripts/test_external_masters.py --real   # Native external FITS/XISF import fixtures
+python3 scripts/test_composition_quality.py --real # Native coverage, crop and background MTF fixtures
 ```
 
 ## 已知局限

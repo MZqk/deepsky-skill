@@ -484,7 +484,7 @@ def data_offset(path):
     for offset in range(0, len(header), CARD_SIZE):
         card = header[offset:offset + CARD_SIZE].decode("ascii", "replace")
         if card.startswith("END") and card[3:].strip() == "":
-            return ((offset + BLOCK_SIZE - 1) // BLOCK_SIZE) * BLOCK_SIZE
+            return ((offset + CARD_SIZE + BLOCK_SIZE - 1) // BLOCK_SIZE) * BLOCK_SIZE
     raise FitsError("%s: no END card found in the first %d bytes" % (path, len(header)))
 
 

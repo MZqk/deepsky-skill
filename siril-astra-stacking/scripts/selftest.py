@@ -1132,6 +1132,45 @@ def test_mono_report_contract():
           structure["is_cfa"] and structure["frame_kind"] == "cfa", structure)
 
 
+def test_drizzle_flat_report():
+    section("drizzle flat weights are independent of calibration flats")
+    import astra_stack as entry
+
+    observed = {"span_x": 10.0, "span_y": 10.0, "span": 14.14,
+                "rotation_max_deg": 12.0, "scale_dev_max": 0.0,
+                "median_scale": 1.0, "frame_count": 4}
+    for label, available, flat in (("no-flat-device", False, None),
+                                    ("missing-master", True, None),
+                                    ("with-master", True, "/test/master flat.fit")):
+        device = dict(RGB_DEVICE, profile=dict(RGB_DEVICE["profile"], flats_available=available))
+        calibration = dict(MONO_CALIBRATION, flat=flat)
+        pipeline = derive_pipeline(MONO_HEADER, device, calibration, observed)
+        builder, _ = entry.build_script("/test", "flat-report", pipeline, calibration,
+                                         "/test/master.fits")
+        calibrate = next(args for _, command, args in builder.commands if command == "calibrate")
+        apply = next(args for _, command, args in builder.commands if command == "seqapplyreg")
+        check(label + " retains calibration flat selection",
+              [arg for arg in calibrate if arg.startswith("-flat=")]
+              == (["-flat=" + flat] if flat else []), calibrate)
+        check(label + " keeps drizzle weights disabled",
+              "-drizzle" in apply and not any(arg.startswith("-flat=") for arg in apply), apply)
+        for phase, summary in (("planned", None), ("executed", observed)):
+            report = entry._registration_report(pipeline, summary)
+            note = report["flat_note"]
+            check(label + " " + phase + " reports weights separately",
+                  report["flat_used"] == "none" and "seqapplyreg has no -flat=" in note
+                  and "calibration.flat" in note, report)
+            check(label + " " + phase + " avoids device and execution claims",
+                  "device" not in note and "ran" not in note, note)
+        check(label + " preserves degradation policy",
+              report["degradations"] == pipeline["chain_info"]["degradations"])
+    for chain in ("mono", "debayer"):
+        pipeline = derive_pipeline(MONO_HEADER, MONO_DEVICE, MONO_CALIBRATION, force_chain=chain)
+        report = entry._registration_report(pipeline, None)
+        check(chain + " adds no drizzle flat fields",
+              "flat_used" not in report and "flat_note" not in report, report)
+
+
 def test_pipeline_branches(tmp):
     section("chain and parameter derivation")
     cfa_header, _ = read_fits_header_with_warnings(
@@ -1486,10 +1525,7 @@ def test_preprocessing_reuse(tmp):
         ("recalibrate-missing-master", 2, None, True, 12, False, 2, 2, "ap_c_flow"),
         ("later-timeout", 2, None, False, 12, False, 1, 1, "ap_c_flow"),
         ("pws-gate-refused", 2, None, False, 12, False, 1, 1, None),
-        # Runs without --keep-work and with the work-directory cleanup
-        # interrupted, reproducing the real-world case where an external
-        # deletion guard kills the process during commit. The published
-        # report must already be final at that point.
+        # An interruption during post-commit cleanup must not undo success.
         ("commit-interrupted", 2, None, False, 12, False, 1, 1, "ap_c_flow"),
     ]
     for name, naxis, force, flat, rotation, dry, n_cal, n_reg, applied in cases:
@@ -1590,8 +1626,7 @@ def test_preprocessing_reuse(tmp):
             Path(out, "flow_stacked_32bit.fits").write_bytes(b"previous good master")
         args = [source, "--out", out, "--target", "flow", "--keep-work"]
         if name == "commit-interrupted":
-            # Drop --keep-work so the run reaches the scratch cleanup, then let
-            # that cleanup abort the way a deletion guard would.
+            # Drop --keep-work so the run reaches the scratch cleanup.
             args = [source, "--out", out, "--target", "flow"]
         if force:
             args += ["--force-chain", force]
@@ -1616,15 +1651,11 @@ def test_preprocessing_reuse(tmp):
                      "gains_applied": None, "background_equalization": {"requested": a.rgb_equal,
                      "applied": bool(a.rgb_equal and not a.dry_run)}, "notes": []}}):
             if name == "commit-interrupted":
-                # Simulate an external deletion guard killing the process during
-                # scratch cleanup: everything the run published must already be
-                # final, because the cleanup is the last thing it does. Only the
-                # commit-stage removal is blocked -- stage_workdir also uses
-                # rmtree to rebuild, and that must keep working.
+                # Block only post-commit cleanup; stage_workdir also uses rmtree.
                 real_rmtree = entry.shutil.rmtree
 
                 def guarded_rmtree(path, *unused, **kwargs):
-                    if str(path).endswith(".work") and kwargs.get("ignore_errors"):
+                    if str(path).endswith(".work") and Path(out, "flow_report.json").is_file():
                         raise KeyboardInterrupt("blocked")
                     return real_rmtree(path, *unused, **kwargs)
 
@@ -1654,11 +1685,10 @@ def test_preprocessing_reuse(tmp):
                   and len(completed_cc) == 1 and not unconfirmed_cc, cc_notes)
             continue
         if name == "commit-interrupted":
-            # The scratch cleanup is the last thing a successful run does. When
-            # an external guard kills the process there, everything already
-            # published must still be final: the snapshot renamed into place by
-            # atomic_publish carries the complete report, not a partial one.
-            check(name + " aborts when cleanup is interrupted", rc == 5, rc)
+            check(name + " succeeds when cleanup is interrupted", rc == 0, rc)
+            check(name + " warns about the interruption",
+                  "warning: scratch cleanup failed" in stderr_text
+                  and "KeyboardInterrupt: blocked" in stderr_text, stderr_text)
             published = report["artifacts"]
             check(name + " publishes the complete artifact set",
                   set(published) == {"master", "preview", "report"}
@@ -2473,6 +2503,100 @@ def test_atomic_commit(tmp):
           predicted)
 
 
+def test_commit_cleanup(tmp):
+    section("post-commit cleanup cannot turn success into failure")
+    from unittest.mock import patch
+
+    import astra_stack as entry
+
+    cases = [
+        ("normal", None), ("keep", None),
+        ("oserror", OSError("permission denied")),
+        ("guard", RuntimeError("deletion refused by file policy")),
+        ("interrupt", KeyboardInterrupt("cleanup interrupted")),
+        ("exit", SystemExit("cleanup stopped")),
+        ("partial", OSError("partial removal")),
+        ("rewrite", RuntimeError("deletion refused by file policy")),
+        ("publish-failed", None),
+    ]
+    for name, error in cases:
+        out = Path(tmp, "cleanup_" + name)
+        work = out / "target.work"
+        work.mkdir(parents=True)
+        master, preview = work / "master.fits", work / "preview.png"
+        master.write_bytes(b"complete master")
+        preview.write_bytes(b"complete preview")
+        scratch = work / "scratch.log"
+        scratch.write_text("scratch fixture")
+        report = {"target": "target", "failed_stage": None,
+                  "completed_stages": ["stack", "preview"], "timings": {}, "notes": []}
+        published_report = out / "target_report.json"
+        real_rmtree, real_write, real_publish = entry.shutil.rmtree, entry.write_report, entry.atomic_publish
+
+        def cleanup(path, *args, **kwargs):
+            if error is not None:
+                if name == "partial":
+                    scratch.unlink()
+                raise error
+            return real_rmtree(path, *args, **kwargs)
+
+        def write_report(path, payload):
+            if name == "rewrite" and str(path) == str(published_report):
+                raise OSError("report rewrite refused")
+            return real_write(path, payload)
+
+        def publish(*args):
+            if name == "publish-failed":
+                raise RuntimeError("publish refused")
+            return real_publish(*args)
+
+        def pipeline(args):
+            return entry._commit_and_publish(report, args, entry.time.time(), str(work),
+                                             str(out), "target", str(master), str(preview))
+
+        argv = [str(work), "--out", str(out), "--target", "target", "--quiet"]
+        if name == "keep":
+            argv.append("--keep-work")
+        with patch.object(entry, "run_pipeline", side_effect=pipeline), \
+                patch.object(entry.shutil, "rmtree", side_effect=cleanup) as removal, \
+                patch.object(entry, "write_report", side_effect=write_report), \
+                patch.object(entry, "atomic_publish", side_effect=publish):
+            rc, _, stderr = run_main(argv, entry=entry)
+        saved = json.loads(published_report.read_text())
+        label = "cleanup " + name
+        if name == "publish-failed":
+            check(label + " remains a commit failure", rc == entry.EXIT_COMMIT_FAILED
+                  and saved["failed_stage"] == "commit" and work.is_dir(), (rc, saved))
+            check(label + " does not attempt cleanup", removal.call_count == 0)
+            continue
+        check(label + " exits successfully", rc == entry.EXIT_OK, (rc, stderr))
+        check(label + " preserves the complete success report",
+              saved["status"] == "ok" and saved["failed_stage"] is None
+              and saved["completed_stages"][-1] == "commit"
+              and isinstance(saved["timings"]["total_s"], float)
+              and saved["artifacts"]["report"] == str(published_report), saved)
+        check(label + " preserves both products",
+              Path(saved["artifacts"]["master"]).read_bytes() == b"complete master"
+              and Path(saved["artifacts"]["preview"]).read_bytes() == b"complete preview")
+        check(label + " creates no crash report", not (out / "target_report.internal.json").exists())
+        check(label + " never retries cleanup", removal.call_count == (0 if name == "keep" else 1))
+        if error is not None:
+            note = "scratch cleanup failed at %s: %s: %s" % (work, type(error).__name__, error)
+            check(label + " warns even in quiet mode", "warning: " + note in stderr, stderr)
+            check(label + " records the residual directory", report["work_dir"] == str(work)
+                  and work.is_dir() and note in report["notes"], report)
+            if name == "rewrite":
+                check(label + " preserves the published snapshot on rewrite failure",
+                      "report rewrite refused" in stderr and saved["notes"] == [], (saved, stderr))
+            else:
+                check(label + " persists diagnostics", note in saved["notes"]
+                      and saved["work_dir"] == str(work), saved)
+            if name == "partial":
+                check(label + " permits partial scratch removal", not scratch.exists())
+        else:
+            check(label + " honors keep-work", work.exists() == (name == "keep"))
+
+
 def test_output_contract(tmp):
     section("stdout carries the script, stderr narrates the run")
     from unittest.mock import patch
@@ -2695,6 +2819,41 @@ def test_composition_preparation():
     check("composition unit tests pass", result.wasSuccessful(), output.getvalue())
 
 
+def test_channel_composition():
+    import unittest
+    from test_compose_channels import ChannelCompositionTests
+    from test_composition_quality import CompositionQualityTests
+
+    section("RGB/SHO/HOO/LRGB and H-alpha channel composition")
+    output = io.StringIO()
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ChannelCompositionTests)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CompositionQualityTests))
+    result = unittest.TextTestRunner(stream=output).run(suite)
+    check("channel composition unit tests pass", result.wasSuccessful(), output.getvalue())
+
+
+def test_filter_batch():
+    import unittest
+    from test_batch_filters import BatchFilterTests
+
+    section("multi-filter batch and bucket resume")
+    output = io.StringIO()
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(BatchFilterTests)
+    result = unittest.TextTestRunner(stream=output).run(suite)
+    check("filter batch unit tests pass", result.wasSuccessful(), output.getvalue())
+
+
+def test_external_masters():
+    import unittest
+    from test_external_masters import ExternalMasterTests
+
+    section("explicit external master import")
+    output = io.StringIO()
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ExternalMasterTests)
+    result = unittest.TextTestRunner(stream=output).run(suite)
+    check("external master unit tests pass", result.wasSuccessful(), output.getvalue())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--real", action="store_true",
@@ -2707,6 +2866,9 @@ def main():
     tmp = tempfile.mkdtemp(prefix="astra-selftest-")
     try:
         test_composition_preparation()
+        test_channel_composition()
+        test_filter_batch()
+        test_external_masters()
         test_sequence_stem()
         test_work_dir_sequence_extension(tmp)
         test_fits_roundtrip(tmp)
@@ -2721,6 +2883,7 @@ def main():
         test_mono_sensor_without_bayerpat()
         test_missing_dark_override()
         test_mono_report_contract()
+        test_drizzle_flat_report()
         test_mono_pipeline_end_to_end(tmp)
         test_cosmetic_parameters()
         test_pipeline_branches(tmp)
@@ -2739,6 +2902,7 @@ def main():
         test_pws_black_corners(tmp)
         test_pws_xisf_conversion(tmp)
         test_atomic_commit(tmp)
+        test_commit_cleanup(tmp)
         test_output_contract(tmp)
         test_report_atomicity(tmp)
         test_mixed_filter_refusal(tmp)

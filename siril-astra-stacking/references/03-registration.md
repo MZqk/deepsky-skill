@@ -275,7 +275,9 @@ Framing method "max" cannot export to FITSEQ or SER format, aborting
 
 ### 无 flat 的处理
 
-智能望远镜无平场。**不传 `-flat=`**——Siril 会在无权重情况下处理，但质量依赖自身平场函数。报告记录 `flat_used: "none"` 并在 `degradations` 加 `drizzle_without_flat_weights`。
+当前 drizzle 链路均不向 `seqapplyreg` 传 `-flat=`，因此报告中的 `flat_used: "none"` 只表示未启用 drizzle 平场权重，不表示设备不产生平场，也不表示未做平场校正。校准母版的选用见 `calibration.flat`：有母版时由 `calibrate -flat=` 单独处理，dry-run 则只记录计划。`flat_note` 对计划和实际运行使用相同的参数说明。
+
+既有降级标记规则保持不变：设备 profile 的 `flats_available` 为假时，自动选择的 drizzle 链路记录 `drizzle_without_flat_weights`；该标记不是全部链路是否使用校准平场的判据。
 
 **不合成平场**：用背景渐晕反推平场会引入伪影，且 `-equalize_cfa` 是给 master flat 用的、误用会偏色。
 

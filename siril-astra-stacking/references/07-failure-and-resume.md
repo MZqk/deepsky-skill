@@ -77,8 +77,9 @@ published = atomic_publish(work_dir, out_dir, target_name, artifacts)
 | stack 失败 | 退出 5，**work 目录保留** |
 | `--dry-run` 成功 | 退出 0，**work 目录有意保留**，report 含 `work_dir` |
 | 发布失败 | 退出 7，work 目录保留 |
+| 发布成功后清理失败（含清理阶段 Ctrl-C） | 退出 0，report 保持成功，stderr 与 `notes` 告警，`work_dir` 指向可能残留的工作目录 |
 
-**成功时 work 目录被删除**（`--keep-work` 除外）；失败时保留，`--dry-run` 也保留。这样失败后可以直接查看 `.log` 与中间 FITS。
+**成功时尝试删除 work 目录**（`--keep-work` 除外）；清理异常不会改变已经提交的成功结果，也不重试删除或绕过宿主守卫。清理可能已经删除部分文件，告警路径不保证完整保留中间数据。失败时保留，`--dry-run` 也保留。
 
 ## 7.5 report.json 始终写出
 
@@ -101,7 +102,7 @@ published = atomic_publish(work_dir, out_dir, target_name, artifacts)
 ### 报告有两个写入时刻
 
 1. **commit 之前**：`_commit_and_publish`先把 `artifacts`（由 `_published_paths` 预计算）、`completed_stages`（含 `commit`）、`timings.total_s` 全部填好，写入 work 目录内的报告，再连同母版、预览一起 rename 发布。
-2. **commit 之后**：对输出目录内的同一文件做一次**内容完全相同**的重写（`total_s` 不会重算）。
+2. **commit 之后**：对输出目录内的同一文件做一次重写，通常内容完全相同（`total_s` 不会重算）；清理失败时补充 `notes` 与 `work_dir`。写回失败只发出 stderr 告警，保留已发布的完整成功快照和退出码 0。
 
 这样设计的唯一目的：**进程在 commit 窗口内被杀死时，已发布的报告仍是完整终态**。早期版本先写残缺快照、发布完才补字段，进程死在中间就会留下 `artifacts: {}`、缺 `commit`、`timings: {}` 的报告——2026-10-10 的NGC 6946 六通道实跑中有四份报告正是这个形态，而三件套其实已全部发布成功。
 
@@ -112,7 +113,7 @@ published = atomic_publish(work_dir, out_dir, target_name, artifacts)
 | 字段 | 含义 |
 |---|---|
 | `report_path` | 报告自身的绝对路径（自指字段） |
-| `work_dir` | 保留的 scratch 目录：`--keep-work` 成功时，或 `--dry-run` 时**总是**存在 |
+| `work_dir` | scratch 目录路径：`--keep-work` 成功时或 `--dry-run` 时总是记录；发布后清理失败时也记录，但文件可能仅部分残留 |
 
 `<target>_report.internal.json`：仅在未捕获异常发生、且输出目录已存在一份 `status: "ok"` 的完整报告时出现（见 7.8）。
 
@@ -222,3 +223,11 @@ work 目录是有意保留的：那份 `.sir` 是 dry-run 唯一的可执行产�
 | 预览未生成 | `report.preview.produced` 为 false，母版不受影响；查 `astra_preview.log` |
 | 视频 / JPEG 被拒 | 设备需导出逐帧 FITS，见 SKILL.md 铁律 2 |
 | `Could not save the settings ... g_rename() failed` | macOS 受限环境的正常现象，不影响结果 |
+
+## 7.12 批处理的整桶续跑
+
+`batch_filters.py --resume` 使用独立的 `batch_report.json` 检查点，和上文单桶入口的 `--resume` 不同：批处理确实跳过经过哈希复验的成功桶，未完成桶从头执行。原始帧、所选母帧、设备配置、处理参数和 Siril 环境必须保持原值，变更时改用新输出目录。
+
+续跑会先验证所有成功桶和成功准备包；产物缺失或内容变化时拒绝，不自行覆盖修复。未完成尝试及日志在重跑前归档，准备失败可仅重试准备。整个批处理目录搬迁后不接管旧检查点；独立的 `composition_inputs/` 准备包仍可按既有契约搬迁供合成使用。
+
+一桶失败即停止后续桶，报告记录具体桶和子进程退出码。部分母版可能已完整保存，但只有外层 `status=ok` 才代表整批及准备包完成。更详细的输入、产物和检查点字段见 `05-output-contract.md` §5.13。

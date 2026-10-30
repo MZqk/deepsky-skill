@@ -199,7 +199,7 @@ class CompositionTests(unittest.TestCase):
              )):
             def fake_align(siril, work, layers, mono, timeout):
                 for layer in layers:
-                    (work / (layer["filter"] + ".fit")).write_bytes(b"fake_fit")
+                    write_master(work / (layer["filter"] + ".fit"), layer["filter"], value=0.05)
                 return {"frames": [{"h": composition.IDENTITY}, {"h": composition.IDENTITY}], "reference_image": 0}, True
             mock_align.side_effect = fake_align
 
