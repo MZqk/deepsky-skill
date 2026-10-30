@@ -1,0 +1,88 @@
+name: Release Skill
+
+on:
+  push:
+    tags:
+      - 'skill/*/*'
+      - '*/*'
+  workflow_dispatch:
+    inputs:
+      skill:
+        description: 'Skill slug to release'
+        required: true
+        type: choice
+        options:
+          - pws-stacking
+          - deep-sky-processor
+          - siril-astra-stacking
+          - siril-moon-stacking
+          - starun-siril
+          - deep-sky-advisor
+          - deep-sky-capture-advisor
+          - siril-mosaic
+      tag_format:
+        description: 'Tag pattern (e.g. skill/{slug}/v{version} or {slug}/v{version})'
+        required: false
+        default: 'skill/{slug}/v{version}'
+      draft:
+        description: 'Create as draft release'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Mark as prerelease'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve target and build release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SLUG="${{ github.event.inputs.skill }}"
+            # Read version from SKILL.md
+            VERSION=$(python3 -c "from scripts.release_skill import get_skill_version_from_skill_md; from pathlib import Path; print(get_skill_version_from_skill_md(Path('$SLUG')))")
+            TAG_FMT="${{ github.event.inputs.tag_format }}"
+            TAG_NAME=$(echo "$TAG_FMT" | sed "s/{slug}/$SLUG/g" | sed "s/{version}/$VERSION/g")
+            
+            # Ensure tag exists locally and remotely if dispatching
+            if ! git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+              echo "Creating git tag $TAG_NAME..."
+              git tag -a "$TAG_NAME" -m "Release $SLUG v$VERSION"
+              git push origin "$TAG_NAME"
+            fi
+            
+            DRAFT_FLAG=""
+            if [ "${{ github.event.inputs.draft }}" = "true" ]; then
+              DRAFT_FLAG="--draft"
+            fi
+            PRE_FLAG=""
+            if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
+              PRE_FLAG="--prerelease"
+            fi
+            
+            python3 scripts/release_skill.py "$TAG_NAME" --gh-release $DRAFT_FLAG $PRE_FLAG
+          else
+            TAG_NAME="${{ github.ref_name }}"
+            echo "Triggered by tag: $TAG_NAME"
+            python3 scripts/release_skill.py "$TAG_NAME" --gh-release
+          fi
