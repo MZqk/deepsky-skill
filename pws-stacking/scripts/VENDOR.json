@@ -1,0 +1,12 @@
+{
+  "src": "/Users/mz/dev/Partition-Weighted-Stacking",
+  "files": {
+    "pws.py": "069e45cad4f381b022b82d49bc90aeb30f4e5f16465c9cfca136bfda8ddd40cf",
+    "pws_params.py": "7bf23a745c48e8ff6eb518198db741b9b16fe22a38d8875fbbe9ac11a2f1d7dc",
+    "DWT_DetailCore.py": "de0228df1c4b4ee1cf50a36cfe971299497081e53fe3322000ac30363baa0686",
+    "xisf_io.py": "949b1ddda4e8ec697b85afe0981f5eda70c02cb53a752d17de4d96e97ed5f62e",
+    "LICENSE": "19e7588609152be101db225f52f6c929107a47b800bf2de0938c8fa99cc54a23",
+    "THIRD_PARTY_LICENSES.md": "c0c98841e8dc9e77546f0c70f22cd7de1598052d2df0f06cb58705a0e3b39fef",
+    "requirements.txt": "3e91bbd62008042aa4e06df5b4668d73d9c68e8e33431f7342b7fb1c483ab1d3"
+  }
+}

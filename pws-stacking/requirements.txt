@@ -1,0 +1,17 @@
+# PWS skill 的无界面运行依赖（**不含 PySide6**）
+#
+# 本 skill 只导入引擎本体（vendor/pws.py 及其闭包），不导入 ui/ 与 main.py，
+# 因此**不需要** Qt / PySide6。上游 requirements.txt 同时列了 PySide6（那是给图形
+# 界面用的），若照装会白拉一个数百 MB 且本 skill 永不使用的 GUI 框架。
+#
+# 已验证版本：numpy 2.5.3 / scipy 1.18.1 / astropy 8.0.1 / photutils 3.0.0 / psutil 7.2.2
+# 上游声明验证版本：numpy 2.4.4 / scipy 1.17.1 / astropy 7.2.0 / photutils 3.0.0 / Python 3.12.5
+
+numpy>=2.0
+scipy>=1.11
+astropy>=6.0
+photutils>=1.11      # 星点检测与 PSF 拟合（DAOStarFinder / fit_fwhm），必需
+
+# 可选：探测可用内存，用于判断临时帧是否落盘。
+# 未安装时引擎按 8 GiB 保守估计；显式指定 --frames-dir 时不影响正确性。
+psutil>=5.9
