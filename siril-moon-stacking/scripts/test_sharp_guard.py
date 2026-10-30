@@ -216,7 +216,9 @@ def test_native_guarded_products(tmp_path, terrain, mode, style, deconv, scale, 
         "--sharp-mode", "crisp", "--wavelet-l1", "1.25", "--unsharp", "0.1", "--midtone", "0.42",
     ])
     moon.cmd_postprocess(args)
-    guard = json.loads((tmp_path / "postprocess_receipt.json").read_text())["sharp_guard"]
+    receipt = json.loads((tmp_path / "postprocess_receipt.json").read_text())
+    guard = receipt["sharp_guard"]
+    assert receipt["deconvolution"]["reason"] == ("user_disabled" if deconv == "none" else "user_selected")
     assert guard["mode"] == "auto" and guard["alpha"] in (0, .25, .5, .75, 1)
     assert guard["delivery"]["status"] == "passed"
     assert set(guard["stages"]) == {"deconvolution", "wavelet", "combined"}

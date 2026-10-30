@@ -200,7 +200,9 @@ def test_p0_p1():
             moon.cmd_postprocess(post)
             moon.cmd_verify(moon.build_parser().parse_args(['verify','--work',str(mono)]))
             receipt = moon.load_json(mono/'postprocess_receipt.json')
-            assert receipt['deconvolution']['applied'] == 'none'
+            assert receipt['deconvolution'] == {
+                'requested': 'auto', 'applied': 'none', 'reason': 'missing_optical_metadata',
+            }
             assert (mono/'moon_sharp.fit').exists()
             for line in (mono/'logs/03_postprocess.ssf').read_text().splitlines():
                 if line.startswith('mtf '):

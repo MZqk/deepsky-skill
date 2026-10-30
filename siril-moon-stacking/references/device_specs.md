@@ -1,5 +1,7 @@
 # 智能望远镜设备规格表
 
+Python 命令使用入口文档中设置的 `TASK_SKILL_DIR`、`TASK_PYTHON` 和 `TASK_SIRIL`。
+
 当视频 / SER 采集源没有写入 `FOCALLEN` / `APERTURE` / `XPIXSZ` 时，本技能用这张表提供**先验**，
 让 `--drizzle auto` 的判定与 postprocess 的光学推断有可用输入，而不是退回 3.73µm / 80mm / 400mm
 这类硬编码默认值。
@@ -51,7 +53,7 @@
 | `celestron-origin` | Celestron Origin | 335 mm | 152 mm | f/2.2 | Sony IMX178 | 2.4 µm | official |
 | `celestron-origin-mk2` | Celestron Origin Mark II | 335 mm | 152 mm | f/2.2 | Sony IMX678 | 2.0 µm | official |
 
-查表：`python scripts/moon_stack.py devices`（JSON 全表）或 `... devices --id seestar-s50`（单项）。
+查表：`"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" devices`（JSON 全表）或 `... devices --id seestar-s50`（单项）。
 用 `--device <id>` 可强制指定；`--device none` 可完全关闭。
 
 ## 存疑与未公布（务必按此理解）

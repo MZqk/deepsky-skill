@@ -20,6 +20,7 @@ Architecture:
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -53,7 +54,13 @@ except ImportError:  # pragma: no cover - script dir not yet on sys.path
         list_devices,
     )
 
-import numpy as np
+try:
+    import numpy as np
+except Exception as exc:
+    np = None
+    _numpy_import_error = f"{type(exc).__name__}: {exc}"
+else:
+    _numpy_import_error = None
 
 DEFAULT_SIRIL = "/Applications/Siril.app/Contents/MacOS/siril-cli"
 RAW_EXTS = {".orf", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raw", ".rw2", ".pef", ".srf"}
@@ -97,8 +104,16 @@ def dump_json(path: Path, obj: dict | list) -> None:
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def resolve_siril(siril: str) -> str | None:
+    path = shutil.which(siril)
+    return str(Path(path).resolve()) if path else None
+
+
 def run_siril_script(siril: str, script_lines: list[str], cwd: Path, log_path: Path, timeout: int = 3600) -> dict:
     """Write an SSF script and execute Siril CLI in an isolated directory."""
+    executable = resolve_siril(siril)
+    if not executable:
+        die(f"Siril CLI not found or not executable: {siril}; pass --siril before the subcommand")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     ssf_file = log_path.with_suffix(".ssf")
     # Always ensure 'requires 1.4.4' is at the top
@@ -120,7 +135,7 @@ def run_siril_script(siril: str, script_lines: list[str], cwd: Path, log_path: P
             line = " ".join(fields)
         bounded.append(line)
     ssf_file.write_text("\n".join(bounded) + "\n", encoding="utf-8")
-    cmd = [siril, "-s", str(ssf_file), "-d", str(cwd)]
+    cmd = [executable, "-s", str(ssf_file), "-d", str(cwd)]
     env = dict(os.environ, LANG="C")
     started = time.time()
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
@@ -1005,8 +1020,8 @@ def _video_crop(profile, indices, margin: int, mode: str, sky_margin_ratio: floa
 
 
 
-def _disk_available(work, args):
-    free = shutil.disk_usage(work).free
+def _disk_available(work, args, volume=None):
+    free = shutil.disk_usage(volume or work).free
     reserve = max(10*1024**3, int(free*0.1))
     available = max(0, free-reserve)
     cap = getattr(args, "disk_budget_gb", None)
@@ -5129,47 +5144,111 @@ def _estimate_adaptive_sharpening(
     }
 
 
+def _deconvolution_choice(requested: str, trusted: bool) -> tuple[str, str]:
+    if requested == "auto":
+        return ("sb", "trusted_optics") if trusted else ("none", "missing_optical_metadata")
+    return requested, "user_disabled" if requested == "none" else "user_selected"
+
+
 def cmd_postprocess(args) -> None:
     from astropy.io import fits
     import cv2
     import numpy as np
 
     work = Path(args.work).expanduser().resolve()
-    master = work / args.master
-    if not master.exists():
+    master = Path(os.path.abspath(work / args.master))
+    resolved_master = master.resolve()
+    if not master.is_relative_to(work) or not resolved_master.is_relative_to(work):
+        die("--master must be inside the work directory; copy the file into --work first")
+    if not master.is_file():
         die(f"master FITS not found: {master}; run stack first")
+    if master == work / "adc_receipt.json" or resolved_master == work / "adc_receipt.json":
+        die("--master cannot use the ADC receipt path; choose a different working filename")
 
     logs_dir = work / "logs"
+    with ExitStack() as staging:
+        with fits.open(master, memmap=False) as hdul:
+            hdr, d = hdul[0].header, hdul[0].data
+        if not np.all(np.isfinite(d)):
+            die("master FITS contains non-finite pixels; repair the source before postprocessing")
 
-    # 0. Atmospheric Dispersion Correction (ADC)
-    if not getattr(args, "no_adc", False):
-        adc_res = align_rgb_channels(master)
-        if adc_res.get("applied"):
+        candidate, adc_res = master, None
+        if not getattr(args, "no_adc", False) and d.ndim == 3 and d.shape[0] >= 3:
+            del d, hdul
+            _, _, available = _disk_available(work, args, resolved_master.parent)
+            needed = int(np.ceil(resolved_master.stat().st_size * 1.25))
+            if needed > available:
+                die(f"insufficient ADC disk budget: need {needed} bytes, available {available}; use more disk space")
+            scratch = Path(staging.enter_context(tempfile.TemporaryDirectory(prefix=".moon-adc-", dir=resolved_master.parent)))
+            candidate = scratch / resolved_master.name
+            try:
+                shutil.copy2(resolved_master, candidate)
+                adc_res = align_rgb_channels(candidate)
+            except Exception as exc:
+                die(f"ADC failed; original master was not modified: {type(exc).__name__}: {exc}")
+            with fits.open(candidate, memmap=False) as hdul:
+                hdr, d = hdul[0].header, hdul[0].data
+            if not np.all(np.isfinite(d)):
+                die("ADC produced non-finite pixels; the master was not modified")
+
+        mosaic_mode = getattr(args, "mosaic_mode", "disc")
+        px_scale = _resolve_px_scale(args, work, candidate)
+        if px_scale != 1.0:
+            log(f"drizzle supersampling detected: the working grid is {px_scale:g}x finer than "
+                f"native, so pixel-domain tolerances and kernels are scaled by {px_scale:g}")
+        optics = _infer_optical_parameters(hdr, d, args, mosaic_mode=mosaic_mode, px_scale=px_scale)
+        px_size = optics["pixel_size"]
+        fl = optics["focal_length"]
+        dia = optics["aperture"]
+        requested_deconv = getattr(args, "deconv", "auto")
+        deconv_method, deconv_reason = _deconvolution_choice(requested_deconv, optics["trusted"])
+        if deconv_method in ("sb", "wiener") and not optics["trusted"]:
+            die("physical deconvolution needs trusted focal length, aperture and pixel size; provide --focal/--aperture/--pixel-size or use --deconv auto/none")
+
+        if adc_res and adc_res.get("applied"):
+            receipt_dir = Path(staging.enter_context(tempfile.TemporaryDirectory(prefix=".moon-adc-receipt-", dir=work)))
+            receipt_path = receipt_dir / "adc_receipt.json"
+            dump_json(receipt_path, adc_res)
+            receipt_target = work / "adc_receipt.json"
+            had_receipt = receipt_target.exists() or receipt_target.is_symlink()
+            if had_receipt and not (receipt_target.is_file() or receipt_target.is_symlink()):
+                die("ADC receipt path is not a file; original master was not modified")
+            previous_receipt = None
+            published = False
+            try:
+                if had_receipt:
+                    fd, name = tempfile.mkstemp(prefix=".moon-adc-previous-", dir=work)
+                    os.close(fd)
+                    previous_receipt = Path(name)
+                    try:
+                        os.replace(receipt_target, previous_receipt)
+                    except BaseException:
+                        previous_receipt.unlink(missing_ok=True)
+                        raise
+                try:
+                    os.replace(receipt_path, receipt_target)
+                    published = True
+                    os.replace(candidate, resolved_master)
+                except BaseException:
+                    try:
+                        if had_receipt:
+                            os.replace(previous_receipt, receipt_target)
+                        elif published:
+                            receipt_target.unlink(missing_ok=True)
+                    except OSError as exc:
+                        location = previous_receipt if had_receipt else receipt_target
+                        die(f"ADC commit failed; master was not modified; inspect receipt recovery at {location}: {exc}")
+                    raise
+            except OSError as exc:
+                die(f"ADC commit failed; original master was not modified: {exc}")
+            if previous_receipt:
+                try:
+                    previous_receipt.unlink(missing_ok=True)
+                except OSError as exc:
+                    log(f"previous ADC receipt retained at {previous_receipt}: {exc}")
             log(f"ADC applied: R shift={adc_res['shift_r']}, B shift={adc_res['shift_b']} (resp R={adc_res['response_r']:.2f}, B={adc_res['response_b']:.2f})")
-            dump_json(work / "adc_receipt.json", adc_res)
-        else:
+        elif not getattr(args, "no_adc", False):
             log("ADC check: channels aligned or single channel data")
-
-    # Analyze linear master data for planetary histogram stretch & white balance
-    with fits.open(master, memmap=False) as hdul:
-        hdr = hdul[0].header
-        d = hdul[0].data
-    if not np.all(np.isfinite(d)):
-        die("master FITS contains non-finite pixels; repair the source before postprocessing")
-
-    mosaic_mode = getattr(args, "mosaic_mode", "disc")
-    px_scale = _resolve_px_scale(args, work, master)
-    if px_scale != 1.0:
-        log(f"drizzle supersampling detected: the working grid is {px_scale:g}x finer than "
-            f"native, so pixel-domain tolerances and kernels are scaled by {px_scale:g}")
-    optics = _infer_optical_parameters(hdr, d, args, mosaic_mode=mosaic_mode, px_scale=px_scale)
-    px_size = optics["pixel_size"]
-    fl = optics["focal_length"]
-    dia = optics["aperture"]
-    requested_deconv = getattr(args, "deconv", "auto")
-    deconv_method = ("sb" if optics["trusted"] else "none") if requested_deconv == "auto" else requested_deconv
-    if deconv_method in ("sb", "wiener") and not optics["trusted"]:
-        die("physical deconvolution needs trusted focal length, aperture and pixel size; provide --focal/--aperture/--pixel-size or use --deconv auto/none")
 
     if optics.get("lunar_disc"):
         disc = optics["lunar_disc"]
@@ -5600,7 +5679,7 @@ def cmd_postprocess(args) -> None:
         _write_moon_product(work, "moon_mineral", fits.getdata(work / "moon_mineral_master.fit", memmap=False), sharp_header)
 
     receipt["mosaic_mode"] = mosaic_mode
-    receipt["deconvolution"] = {"requested":requested_deconv,"applied":deconv_method,"reason":"trusted_optics" if optics["trusted"] else "missing_optical_metadata"}
+    receipt["deconvolution"] = {"requested":requested_deconv,"applied":deconv_method,"reason":deconv_reason}
     receipt["source_saturation_rgb"] = saturation
     receipt["conservative_color"] = severe_clipping
     receipt["luminance_channel"] = getattr(args,"luminance_channel","weighted")
@@ -7938,18 +8017,111 @@ def cmd_devices(args) -> None:
 
 
 def cmd_probe(args) -> None:
-    info = {"siril": args.siril, "siril_exists": os.path.exists(args.siril)}
-    if info["siril_exists"]:
-        env = dict(os.environ, LANG="C")
-        p = subprocess.run([args.siril, "-v"], capture_output=True, text=True, env=env, timeout=60)
-        info["siril_version"] = (p.stdout or "").strip().splitlines()[-1:]
-    for mod in ("numpy", "astropy", "cv2", "skimage"):
+    from importlib import metadata
+
+    errors, warnings = [], []
+    executable = resolve_siril(args.siril)
+    info = {"siril": args.siril, "siril_exists": bool(executable) or os.path.exists(args.siril),
+            "siril_resolved": executable, "python_executable": sys.executable,
+            "python_version": sys.version.split()[0]}
+    Version, requirements = None, None
+    try:
+        from packaging.requirements import Requirement
+        from packaging.version import InvalidVersion, Version
+    except Exception as exc:
+        errors.append(f"Dependency versions unverified: {type(exc).__name__}: {exc}")
+    else:
         try:
+            requirements = {}
+            for line in (Path(__file__).resolve().parent.parent / "requirements.txt").read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    requirement = Requirement(line)
+                    name = requirement.name.lower().replace("_", "-")
+                    if name in requirements:
+                        raise ValueError(f"duplicate dependency requirement: {name}")
+                    requirements[name] = requirement
+        except Exception as exc:
+            requirements = None
+            errors.append(f"Dependency versions unverified: {type(exc).__name__}: {exc}")
+
+    version_text = None
+    if info["siril_exists"]:
+        info["siril_version"] = []
+    if not executable:
+        errors.append(f"Siril CLI not found or not executable: {args.siril}")
+    else:
+        try:
+            p = subprocess.run([executable, "-v"], capture_output=True, text=True,
+                               env=dict(os.environ, LANG="C"), timeout=60)
+            output = (p.stdout or "") + "\n" + (p.stderr or "")
+            info["siril_version"] = (p.stdout or p.stderr or "").strip().splitlines()[-1:]
+            if p.returncode:
+                errors.append(f"Siril version command failed with exit code {p.returncode}")
+            else:
+                match = re.search(r"\bsiril(?:-cli)?\s+(?:version\s+)?v?([0-9][0-9A-Za-z.!+_-]*)", output, re.I)
+                version_text = match.group(1) if match else None
+                if not version_text:
+                    errors.append("Siril version could not be verified")
+        except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
+            errors.append(f"Siril version check failed: {type(exc).__name__}: {exc}")
+
+    if version_text:
+        if Version is None:
+            errors.append("Siril version unverified: version comparison is unavailable")
+        else:
+            try:
+                if Version(version_text) < Version("1.4.4"):
+                    errors.append(f"Siril {version_text} is unsupported; version 1.4.4 or newer is required")
+            except InvalidVersion:
+                errors.append(f"Siril version could not be verified: {version_text}")
+
+    modules = {"numpy": "numpy", "astropy": "astropy", "cv2": "opencv-python-headless", "skimage": "scikit-image"}
+    if requirements is not None:
+        unknown = sorted(set(requirements) - set(modules.values()))
+        if unknown:
+            errors.append(f"Dependency requirements unverified: {', '.join(unknown)}")
+    for mod, package in modules.items():
+        try:
+            if mod == "numpy" and np is None:
+                raise ImportError(_numpy_import_error)
             m = __import__(mod)
-            info[mod] = getattr(m, "__version__", "ok")
-        except Exception:
+            info[mod] = str(getattr(m, "__version__", "ok"))
+        except Exception as exc:
             info[mod] = None
+            errors.append(f"{mod} import failed: {type(exc).__name__}: {exc}")
+            continue
+
+        if mod == "cv2":
+            try:
+                metadata.version("opencv-python-headless")
+            except metadata.PackageNotFoundError:
+                try:
+                    metadata.version("opencv-python")
+                    warnings.append("opencv-python is installed instead of opencv-python-headless")
+                except metadata.PackageNotFoundError:
+                    errors.append("OpenCV distribution unverified: install opencv-python or opencv-python-headless")
+                except Exception as exc:
+                    errors.append(f"OpenCV distribution unverified: {type(exc).__name__}: {exc}")
+            except Exception as exc:
+                errors.append(f"OpenCV distribution unverified: {type(exc).__name__}: {exc}")
+
+        if requirements is not None:
+            requirement = requirements.get(package)
+            if not requirement:
+                errors.append(f"Dependency requirement unverified: {package} is missing from requirements.txt")
+                continue
+            try:
+                version = Version(str(info[mod]))
+                if not requirement.specifier.contains(version):
+                    errors.append(f"{mod} {version} does not satisfy {requirement.specifier}")
+            except InvalidVersion:
+                errors.append(f"{mod} version could not be verified: {info[mod]}")
+
+    info.update(ready=not errors, errors=errors, warnings=warnings)
     print(json.dumps(info, indent=2))
+    if errors:
+        raise SystemExit(1)
 
 
 # ----------------------------------------------------------------------- main
@@ -8241,4 +8413,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     ns = build_parser().parse_args()
+    if np is None and ns.cmd not in ("probe", "devices"):
+        die(f"numpy import failed: {_numpy_import_error}; install dependencies with {sys.executable} -m pip install -r {Path(__file__).resolve().parent.parent / 'requirements.txt'}")
     ns.func(ns)

@@ -1,393 +1,73 @@
 ---
 name: siril-moon-stacking
-description: |
-  AI-directed lunar lucky imaging and surface astrophotography processor combining Siril 1.4.4 CLI with Python sub-pixel FFT registration. Use when the user wants to align, stack, wavelet-deconvolve, and enhance lunar RAW/SER/FITS/AVI/MP4 image sequences or videos (such as from Seestar S50/S30, planetary cameras, or telephoto lenses), correct atmospheric dispersion, or produce mineral moon color images under authenticity constraints. Includes a built-in smart-telescope specification table that identifies the capture device and supplies optics priors, plus HST drizzle supersampling with a metadata-free sampling criterion.
-  AI 主导的月面天文摄影与幸运成像处理助手。融合 Siril 1.4.4 CLI 与 Python 亚像素频域配准插件，支持月球单帧连拍与 SER/FITS/AVI/MP4 视频流（如 Seestar S50/S30、行星相机或单反长焦拍摄）的选帧堆叠、小波反卷积、色散校正、非标准视频自愈与矿物月色彩提取；内置智能望远镜规格表可自动识别采集设备并补齐光学参数，并支持 HST Drizzle 超采样（含零元数据实测判据）。
+description: >
+  Align, stack and enhance lunar RAW/FITS/SER/AVI/MP4 captures with Siril and Python.
+  Use for lunar lucky imaging, wavelet sharpening, Drizzle, atmospheric dispersion correction
+  or mineral moon processing, including Seestar, planetary camera and telephoto captures.
+  用于月球、月面的幸运成像选帧堆叠、配准、小波反卷积、色散校正与矿物月处理。
 license: Proprietary
 metadata:
   slug: siril-moon-stacking
-  version: "1.2.0"
+  version: "1.2.1"
   displayName: Siril Moon Stacking
   summary: AI 主导的月面天文摄影与幸运成像处理助手，融合 Siril 1.4.4 CLI 与亚像素频域配准。
-  tags: [astronomy, lunar, siril, lucky-imaging]
+  tags: "astronomy, lunar, siril, lucky-imaging"
   homepage: https://github.com/MZqk/deepsky-skill
 ---
-
 # Siril Moon Stacking
 
-## 1. 定位与设计原则
+使用 Siril CLI 和 Python 处理月面 RAW/FITS 帧序列、SER 录像及 AVI/MP4/MOV/MKV/M4V 视频。按用户要求运行完整流程或指定阶段；缺少输入路径或独立工作目录时再询问。
 
-本 Skill 是 **“Siril 原生主干 + Python 极简配准插件”** 的专业月面后期解决方案。
+## 真实性与数据安全
 
-* **Siril 的职责（主干）**：
-  * 相机 RAW 原生多线程解码与去马赛克（`convert -debayer` / 支持 `split_cfa`, `seqsplit_cfa`）；
-  * 序列管理与安全工作目录隔离；
-  * 基于单应性矩阵的多线程双三次（Bicubic）亚像素重采样与构图自适应（`seqapplyreg -framing=min/max -interp=cu`）；
-  * **统一剔除均值堆叠 + 噪声加权**：所有位深统一采用 Winsorized 剔除均值（`stack rej w 3 3 -norm=addscale -weight=noise`），严禁中位数/最值叠加。实测 Siril 1.4.4 的 `stack sum` 会**按全图最大值归一化且不做任何像素剔除**——单帧一个热噪点/宇宙线/压缩坏块即可让整幅信号塌缩约 100×（实测 0.4926 → 0.004984），而 `sum` 与 `rej` 的相对对比度完全一致（2.0 vs 1.97），故 `sum` 已降级为 `--stack-method sum` 的显式回退。`-weight=noise` 按背景噪声给帧加权，估计失败时自动去权重重试；
-  * **HST Drizzle 超采样（`--drizzle {auto,off,2,3}`，默认 `auto`）**：`auto` 按**两条独立判据**依次判定是否欠采样——① **衍射极限**：需要焦距/口径/像元三者齐备，理论艾里斑半径 `< 1.5px` 时启用；② **实测 PSF 宽度**：任一元数据缺失时改用，先由月轮几何反推焦距（月轮 RANSAC 半径 + 像元尺寸 + JPL 历表月球视直径），再从月轮边缘扩散函数（ESF）实测有效 PSF 的 FWHM，`< 2.0px` 时启用。口径在几何上无法从图像反推，故判据①只在口径已知时可用；判据②完全不依赖光学元数据，**零元数据也能判定**。所有分支都会把判据、取值与来源写进 `stack_receipt.json`，决策可审计。实测输出网格线性尺寸翻倍（512×256 → 1022×512）；Siril 会自动把母版 `XPIXSZ` 除以缩放倍率（2.9µm → 1.45µm），技能再行校验并补写 `DRIZZLE`/`DRZSCALE`/`DRZPIXFR`/`DRZKRENL`/`ORIGXPIX` 诊断关键字，postprocess 全链路的像素域容差与卷积核按该倍率同步缩放；
-  * **物理艾里斑 Airy Disc 反卷积**（`makepsf manual -airy` + `sb -iters=2` Split Bregman / Wiener / RL），针对月面高斯噪声模型消除环形山暗环伪影；
-  * 自适应行星通道中值传递函数（`mtf`）与双曲拉伸（`asinh` / `ght`）校正白平衡与底噪偏置；
-  * 局部对比度自适应增强（`clahe`）；
-  * 'à trous' B-Spline 多尺度小波细节重构（`wavelet` + `wrecons`）与微反差锐化（`unsharp`）；
-  * 色散校正与矿物月饱和度渐进式提升（`rmgreen 0` + `satu`）；
-  * 32 位 FITS 母版、16 位 TIFF 母版及高质量 JPG 导出。
-* **Python 的职责（插件）**：
-  * **AVI / MP4 / MOV 通用视频原生直解（Direct-pass FITS）**：直接利用 OpenCV 硬件级解码逐帧抽取并平滑扩展至 16-bit FITS 序列，零中间容器转录，节省 50% 磁盘 I/O 写入带宽；自动注入 `BITPIX=16`, `ORIG_BIT=8` 并在下游与 Siril 剔除均值堆叠联动；
-  * **专业 SER 视频流原生直读与极速解压**：直接解析 178 字节规范头，零拷贝 `np.memmap` 提取帧数据，OpenCV 硬件级 demosaicing（1080p 单帧 <5ms），元数据（UTC 时间戳/相机/望远镜）无损注入 FITS；
-  * **低仰角宏观大气消光一阶梯度补偿**：在 32 位浮点线性空间与对数色比空间鲁棒估计横跨月盘的 Rayleigh 消光红化坡度，平复“底暖顶冷、底暗顶亮”倾斜，杜绝矿物月被大气消光撕裂；
-  * **单色（Mono）与彩色（RGB）全链路自适应**：智能生成 `L 1` 与 `L 3` 序列，单色输入（或 `--force-mono`）自动规避彩色专属滤镜；
-  * 智能月相感知与高反差特征地貌定位（终结者明暗线/环形山密集区，抗月相干扰）；
-  * 基于 Hann 加窗的 FFT 亚像素频域相位相关位移计算；
-  * 视宁度与云雾置信度评分，帧数感知动态挑选（小样本自动扩充比例，保证高信噪比）；
-  * 向 Siril 的 `.seq` 序列文件注入 `R0` 单应性变换矩阵与选帧状态；
-  * **大气色散亚像素校正 (ADC)**：在母版后处理阶段自动对齐 R/B 通道至 G 通道，消除月面断崖与月轮外边缘的红蓝伪色彩边缘。
+- 细节恢复仅限对光学和视宁度低通特性的数学还原，如小波重构或物理 PSF 反卷积；禁止用生成式模型或其他方法凭空添加月坑、裂谷和纹理。
+- 矿物月色彩必须基于传感器捕获的色差，不得任意着色或伪造月海边界。
+- 不得在原始输入目录中创建、修改或覆盖数据；`--work` 必须指向独立工作目录。已有工作目录与输入或处理参数不兼容时使用新目录。
 
-## 2. 真实性红线
+## 环境与基本流程
 
-1. **零生成式造假**：严禁使用 AI 扩散模型、超分辨率生成等算法无中生有地编造月坑、裂谷或月面纹理；所有细节恢复必须且只能来自小波反卷积对光学和视宁度低通特性的数学还原。
-2. **矿物月真实性约束**：色彩饱和度拉伸必须基于传感器捕获到的微小光谱反照率差异，严禁随意人工着色或伪造不存在的月海边界。
-3. **安全隔离**：绝对禁止在用户原始图像目录直接生成、修改或覆盖数据，必须使用独立的临时工作目录。
-
----
-
-## 3. 核心处理流程（5 步闭环）
-
-### Step 1: 环境探测与数据导入
-运行诊断探测并导入原始序列：
-```bash
-# 安装运行时依赖（numpy / astropy / opencv-python-headless / scikit-image）
-pip install -r requirements.txt
-
-# 检查 Siril CLI 与依赖
-python scripts/moon_stack.py probe
-
-# 方式 A：扫描并导入单帧 RAW 或 FITS 目录
-python scripts/moon_stack.py import --input /path/to/moon_raws --work /path/to/work
-
-# 方式 B：直接传入单个 SER 视频文件（或包含 .ser 的录像目录），支持限制导入帧数
-python scripts/moon_stack.py import --input /path/to/moon_capture.ser --work /path/to/work --limit 500
-
-# Option C: Score every MP4 / AVI / MOV frame and import adaptive selections as 16-bit FITS
-python scripts/moon_stack.py import --input /path/to/moon_capture.avi --work /path/to/work
-```
-> **视频两遍顺序读取（MP4 / AVI / MOV / MKV / M4V 共用同一路径）**：默认保留原始视频，先完整逐帧评分，再顺序读取并只将入选帧写成 FITS，最后交给 `register` / Siril 配准与堆叠。不会先把全片展开为 FITS，也不会为每张入选帧反复 seek。
-> * `adaptive`（**默认**）：复用 Otsu 自适应选帧决定导入数量；`--limit 0`（默认）表示**无数量上限，仍按质量筛选**，正数则是入选帧上限。可用 `--select-mode utility` / `relative` / `percent` 或 `--keep-percent` 调整导入筛选；`all` 默认只在导入时做一次主质量筛选，后续配准仅剔除低置信度或失败帧；`--register-selection reselect` 可显式重新筛选。
-> * `--probe-stride 1`（**默认**）：整段视频每帧都评分。显式设为更大值只减少评分次数，仍需逐帧解码，并可能漏掉好帧。评分使用绿色通道或单色平面，通过缩小图像的特征相关跟踪同一地貌 ROI，相关性不足时回退质心位移；月盘出框或无法可靠定位时会记录质量标记。
-> * `smart-top`：显式 `--limit N` 时从整段视频的已评分候选中取全局 Top N；`smart-cluster` 则按 10 个时间窗分散选帧。两者都顺序提取；`smart-cluster` 使用真实呈现时间戳分窗，无法验证时间戳时明确报错。
-> * **明确要求全帧落盘**：`--sample-mode head --limit 0` 跳过导入质量筛选；若还要求所有有效、可配准帧参与叠加，`all` 再加 `--keep-percent 100`。默认 `adaptive --keep-percent 100` 也会保留所有正清晰度候选，但解码失败、低信号或无有效结构帧不在其候选池中；空间不足仍会缩减落盘数量。
-> * `window` / `head`：自 `--start-frame` 起顺序读取，正数 `--limit` 控制片段帧数；智能模式始终扫描整片，不使用该起始偏移。
-> * `import_receipt.json` 的 `video_metadata.seeing_probe` 记录评分帧数、实际 stride、选择模式与入选数量；`adaptive` 另记录 `selection_meta`（阈值与决策原因）。这些是导入候选，`register` 默认复用主筛选并检查配准置信度，`stack` 只叠加 `I 1` 的帧，并从 Siril 日志和输出序列核对实际帧数。空间节省比例取决于实际入选数，配准输出与 Drizzle 仍需额外空间。
-> **自动裁剪与空间预算（1.1.0）**：`--video-roi auto` 默认用固定框覆盖月盘、可见月尖和候选漂移范围，`--roi-margin 64` 留出原始像素边距；不会缩放数据。无法可靠定位时回退全画幅，`--video-roi off` 可显式保留全画幅。默认提前估算 FITS、浮点重采样、Drizzle 临时文件、自适应小波分层及成片，增加 25% 估算余量，并保留至少 10 GiB 或磁盘可用空间 10%（取较大值）。空间不足按质量缩减候选，无法容纳最低数量时中止；`--disk-budget-gb` 可进一步限制工作目录体积，单位 GiB，也可用于独立 `postprocess`。分层提取前再次检查新增空间，空间不足明确报错。
->
-> **评分与复用**：在月面内部最多三个特征区域进行曝光归一化、局部噪声估计和饱和检查，以缩小图像的特征相关跟踪稳定 ROI，防止邻近亮点参与月面评分。`--min-signal-ratio 0.2` 默认排除月面信号低于片段第 90 百分位 20% 的帧，避免过暗 MP4 编码块被当成清晰细节；可按拍摄条件调整，0 关闭此额外门限。`video_scores.json` 缓存全片评分、PTS、位置及质量标记，并校验源 SHA-256、算法版本与参数。增加 `--limit` 只新增缺失 FITS，复用固定参考帧下的配准结果；源文件、裁剪或通道不兼容时使用新工作目录。
->
-> **可选反馈扩容**：`all --candidate-mode feedback` 从最多 256 帧开始翻倍，使用每轮完整入选序列执行 Siril 全局剔除堆叠。固定公共区域与参考月盘之外的同一批天空像素，噪声至少降低 5%、细节下降不超过 3% 才接受新一轮，连续两轮无改善停止；候选、用户上限或空间预算也会终止扩容。`candidate_feedback.json` 保留各轮指标、实际帧数、获选轮与停止原因；默认仍为 `single`。背景或细节指标无法可靠测量时保留当前结果并明确停止，不宣称找到了最佳帧数。
+将下面三个变量设为实际绝对路径，并在同一 shell 中使用；换用新 shell 时重新设置。依赖安装和脚本执行必须使用同一个 Python 解释器。需要 Siril 1.4.4+、numpy、astropy、OpenCV 和 scikit-image；兼容版本的 `opencv-python` 也可替代 `opencv-python-headless`。
 
 ```bash
-# Reuse cached scores and grow only missing video candidates
-python scripts/moon_stack.py all --input /path/to/moon.mp4 --work /path/to/work --candidate-mode feedback --limit 2048
+TASK_SKILL_DIR="/absolute/path/to/siril-moon-stacking"
+TASK_PYTHON="/absolute/path/to/venv/bin/python"
+TASK_SIRIL="/absolute/path/to/siril-cli"
 
-# Preserve full dimensions, or select green luminance while retaining RGB chrominance
-python scripts/moon_stack.py import --input /path/to/moon.avi --work /path/to/full --video-roi off
-python scripts/moon_stack.py postprocess --work /path/to/work --luminance-channel green --deconv auto
+# Inspect Siril and Python dependencies
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" probe
+
+# Process and verify a complete sequence
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" all --input /path/to/input --work /path/to/work --deconv auto
 ```
 
-> **⚠️ SER 路径的 `--limit` 语义不同（易踩坑）**：`import` 的 SER 分支**不具备** `--sample-mode` 的智能扫描能力，`--limit N` 退化为**顺序截断（取前 N 帧）**，等价于视频路径的 `head` 模式。因此外部工具转出的 `SER → import --limit 500` 拿到的是**前 500 帧**，而不是 MP4 / AVI `adaptive` 路径的**全片自适应择优候选**或 `smart-top --limit 500` 的 Top 500。
-> * 导入外部 SER 时若仍要保住 lucky imaging 的选帧收益，请用 `--limit 0` **全帧导入**，让 `register` 在完整候选池上做 Otsu 选帧——全片均有参与下游评估的机会，最终选帧仍由 `register` 决定；
-> * **转 SER 不会免除选帧环节**（换容器不改变视宁度造成的帧间质量差异），但会**削弱 `import` 阶段的内容驱动抽帧能力**。仅在本技能流水线内处理时，mp4/avi 直解路径功能更全（含 sidecar `DATE-OBS` 注入、Bayer 图案探测与设备识别），转 SER 属负收益；仅在需要与 AutoStakkert / PIPP / SER Player 等外部工具互通时才转 SER——**本技能不内置视频转 SER 工具**，请用 ffmpeg 或 PIPP 自行转换。
-> **前置条件**：需已安装 Siril 1.4.4+（macOS 默认路径 `/Applications/Siril.app/Contents/MacOS/siril-cli`，可用 `--siril` 覆盖）。
-> `probe` 输出的 `numpy` / `astropy` / `cv2` / `skimage` 四项必须均非 `null`，否则对应步骤会以 `ModuleNotFoundError` 中断。
+`probe` 始终输出 JSON：`ready: true` 表示基础依赖和版本检查通过；缺失、不兼容或无法验证时返回非零退出码，并在 `errors` 中说明。标准版 OpenCV 可用但会在 `warnings` 中提示。探测不会安装依赖；需要安装时，在用户选定的环境中执行 `"$TASK_PYTHON" -m pip install -r "$TASK_SKILL_DIR/requirements.txt"`。
 
-> **采集设备识别与光学先验（`--device`）**：智能望远镜的视频/SER 往往不写 `FOCALLEN`/`APERTURE`，此时内置规格表会兜底提供像元尺寸/焦距/口径。
-> * 自动识别信号优先级：FITS 头 `TELESCOP`/`INSTRUME`（`high`）→ 采集侧车 `SENSOR`/`TELESCOP`（`medium`）→ 文件名（`medium`）→ 传感器型号回退（`low`，仅当共用该传感器的机型规格一致时才采纳整组，否则最多只回退像元尺寸）。仅命中品牌（如只写 `DWARFLAB`）时不注入任何先验。
-> * `--device <id>` 强制指定（如 `--device seestar-s50`）；`--device none` 完全关闭。`python scripts/moon_stack.py devices` 打印全部 19 个机型的 JSON 规格表（含来源等级与存疑标注）。
-> * **先验永远不是实测**：由表写入的 FITS 头会带 `DEVICE`/`DEVSRC`/`DEVCONF`/`OPTPRIOR`/`OPTISRC` 溯源标记，来源标注显示为 `FITS Header (FOCALLEN) [device_table: seestar-s50]`。**侧车显式值与实测永远优先**——只有缺失的键才会被填，且 `OPTPRIOR` 精确列出被填的键。
-> * **FITS 输入路径只识别不注入**：FITS 帧是用户原文件的软链接，技能红线禁止改写用户原始目录；识别结果只写入 `import_receipt.json` 的 `device` 字段并打日志。此时若需要这些先验，请显式传 `--focal`/`--pixel-size`/`--aperture`，或依赖 `--drizzle auto` 的月轮 ESF 实测判据（无需任何光学元数据）。
-> * 完整规格表、来源等级、存疑说明与识别规则见 [`references/device_specs.md`](references/device_specs.md)。
+macOS 默认 Siril 路径为 `/Applications/Siril.app/Contents/MacOS/siril-cli`；`--siril` 可指定其他绝对路径或 `PATH` 中的命令名，且必须放在子命令之前。`all` 已包含质检。也可在同一工作目录中执行所需阶段：
 
-### Step 2: 智能选帧与刚体亚像素配准
-自动识别月面反差特征，通过双锚点互相关解算亚像素视场旋转角 $\theta$ 与平移 $(dx, dy)$：
 ```bash
-# 智能选帧（默认基于参考帧质量运行 Otsu 双峰自动聚类；亦可选用 --select-mode utility/mtf-snr 联合效用模型）
-python scripts/moon_stack.py register --work /path/to/work
-
-# 可选：选用物理级 MTF-SNR 联合效用模型（平衡高频对比度与信噪比，支持 --utility-alpha / --utility-beta 权重调校）
-python scripts/moon_stack.py register --work /path/to/work --select-mode utility --utility-alpha 2.0 --utility-beta 1.0
-```
-* **选帧模式一览**：
-  * `otsu`（**默认推荐**）：Otsu 自适应双峰聚类，自动判定当晚平静视宁度临界断崖；内置**超稳视宁度相对散布感知（Spread-Aware）**，当全序列极差 $<6\%$ 时自动扩容保留至 75% 优质帧，兼顾极致信噪比与抗抖动；
-  * `utility` / `mtf-snr`：**MTF-SNR 联合效用模型**，求导最大化 $U(k) = \bar{Q}(k)^\alpha \cdot \sqrt{k/N}^\beta$，严格平衡清晰度衰减与降噪增益；
-  * `relative`：按参考帧质量相对阈值筛选（`--quality-threshold 0.75`）；
-  * `percent`：固定/经验分级百分比（`--keep-percent <val>`）。
-* Python 会自动生成包含 `R0 ... H cosθ -sinθ h13 sinθ cosθ h23 0 0 1` 刚体单应性矩阵（遵循 FITS 图像原点在左下角的坐标系约定）及 `I <index> 1/0` 选帧标记的 Siril 标准 `.seq` 文件，彻底根除长间隔连拍带来的月盘外围视旋转模糊与劣质帧污染。
-
-### Step 3: Siril 原生重采样（插值 / Drizzle）与剔除均值堆叠
-由 Siril CLI 原生执行多线程重采样与高动态堆叠（插值路径严格保持 Clamping，绝不加 `-noclamp` 避免数值越界）：
-```bash
-# 自动生成并执行 02_align_stack.ssf
-# 模式 A（默认全月盘）：--mosaic-mode disc（默认 framing=min，统一裁切画幅）
-# 模式 B（全景马赛克面板）：--mosaic-mode tile（自动缺省 framing=max，保留完整交叠区域）
-python scripts/moon_stack.py stack --work /path/to/work --mosaic-mode disc --interp cu
-
-# Drizzle 超采样：auto（默认，自动判定欠采样）/ off / 强制 2 或 3
-python scripts/moon_stack.py stack --work /path/to/work --drizzle auto
-# 头部缺 FOCALLEN/XPIXSZ 时，可显式喂给 auto 决策
-python scripts/moon_stack.py stack --work /path/to/work --drizzle auto --focal 160 --pixel-size 2.9 --aperture 30
-# 判据阈值可调（默认艾里斑 1.5px / 实测 PSF FWHM 2.0px）
-python scripts/moon_stack.py stack --work /path/to/work --drizzle-psf-threshold 2.5
-```
-* **重采样两条互斥路径**：
-  * 插值（默认）：`seqapplyreg -framing={min|max} -interp={cu|li} -filter-incl`；
-  * Drizzle（`--drizzle` 启用时）：`seqapplyreg -framing={min|max} -scale={2|3} -drizzle -pixfrac={1/scale} -kernel=square -filter-incl`，**自动去掉 `-interp=`**。scale=2 时输出网格线性尺寸翻倍（512×256 → 1022×512），代价是约 4× 像素量、体积与耗时，以及更高的噪声（需更多帧补偿）；
-  * `--drizzle-kernel` 默认 `square`（保通量、任意 scale 稳健）；`turbo` 更快但易留 null pixel（Moiré 花纹）；**Lanczos 核仅允许 `scale == pixfrac == 1.0`，用于超采样时会被自动降级为 `square`**；
-  * `--mosaic-mode tile` 下 `auto` 默认关闭 drizzle（保持各面板采样尺度一致，避免与 `siril-mosaic` 自有的 `-scale` 冲突），需显式 `--drizzle 2` 才启用；
-* **`auto` 的两条判据（按序尝试，全部可溯源）**：
-  1. **衍射极限**（`--drizzle-airy-threshold`，默认 1.5px）：需要焦距 + 口径 + 像元三者齐备（来自 CLI 或 FITS 头）。理论艾里斑半径 `r = 1.22·λ·F#/px` 低于阈值即启用。**口径无法从图像反推**，故这条判据只在口径已知时可用；
-  2. **实测 PSF 宽度**（`--drizzle-psf-threshold`，默认 2.0px）：任一元数据缺失时启用。先从参考帧（`ranking.json` 选出的最锐帧）用月轮几何反推焦距，再以月轮边缘扩散函数（ESF）实测有效 PSF 的 FWHM（`FWHM = 0.919 × w10-90`），低于阈值即启用。**不需要任何光学元数据**，零元数据也能判定；
-  * 两条判据都无法成立时关闭 drizzle，并给出可操作的提示，**绝不使用默认口径 80mm / 默认像元 3.73µm 冒充真实值**；
-  * 判据②的两个已知边界：几何反推要求**完整月盘在画面内**（局部特写 / 马赛克切片会失败），且若头部没有像元尺寸则拒绝反推（默认值会让焦距等比失真）；月轮过曝时 ESF 顶部被削平会低估 FWHM，此时回执标注 `psf_possible_saturation`；
-* **堆叠策略**：统一 `stack rej w {sigma} -norm={norm} -filter-included [-weight=noise]` 生成 32 位 `moon_master.fit`。`--weight {auto,none,noise}` 默认 `auto`（rej 路径启用噪声加权）；`--stack-method sum` 保留为显式回退（`sum` 无剔除、无加权、按最大值归一化）；
-* **失败自愈**：`-weight=noise` 因背景统计不可用（`MAD is null` 等）失败时，自动去掉 `-weight=` 重跑一次；drizzle 运行失败且非强制时自动回退为插值路径重跑，两者均记入 `stack_receipt.json`；
-* **母版像素尺度**：Siril 在 drizzle 时会自动把 `XPIXSZ` 除以缩放倍率；技能随后校验，若未修正则代为改写，并写入 `DRIZZLE`/`DRZSCALE`/`DRZPIXFR`/`DRZKRENL`/`ORIGXPIX` 与 `HISTORY`。`FOCALLEN` 作为物理量始终不动，因此 `siril-mosaic` 的 `seqplatesolve -focal= -pixelsize=` 自动获得正确尺度；
-* 若指定 `--mosaic-mode tile`，自动默认启用最大画幅（`framing=max` 并带 `-maximize` 标记），最大化保留与邻近切片的重叠对齐特征，杜绝误裁切；
-* `stack_receipt.json` 记录 `px_scale`、`weight`、`drizzle` 决策明细与 `drizzle.header` 校验结果，供 postprocess 与 verify 消费。
-
-### Step 4: ADC 大气色散对齐与插值联动小波重构
-自动执行光学参数智能推断、通道亚像素对准、Airy 物理反卷积与插值自适应细节重构：
-```bash
-# Generate postprocessing commands from trusted optics, or bypass physical deconvolution
-python scripts/moon_stack.py postprocess --work /path/to/work --deconv auto
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" import --input /path/to/input --work /path/to/work
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" register --work /path/to/work
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" stack --work /path/to/work
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" postprocess --work /path/to/work --deconv auto
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" verify --work /path/to/work
 ```
 
-默认 `--deconv auto` 仅在可信焦距、口径和像元齐备时启用 Airy 反卷积，未知参数保持空值并跳过；显式 `sb` / `wiener` 缺少参数时给出错误。MTF 命令保持合法单位范围，必要时按同一系数归一化线性明度与色度，保留高光余量。饱和像素不参与自动白平衡，源通道严重截断时采用保守矿物色处理并记录警告；增益无法恢复已截断颜色。单色保存锐化 FITS 并生成 DHR/CSI/GKM；背景噪声按通道在月盘外计算，无可靠空背景时标注不可用。方形导出覆盖完整可见月面及拟合月轮，边界不足补黑边，不缩小框切掉月尖。
-* 自动执行：
-  * **智能光学参数推断 (Intelligent Optical Parameter Inference)**：
-    * **FITS Header 自动挖掘**：优先自动解析 `XPIXSZ` / `PIXSIZE` 像元尺寸（如 $3.73\ \mu\text{m}$），摆脱死板硬编码；
-    * **全月盘亚像素几何反推**：联动 RANSAC 鲁棒月轮拟合得到真实月盘像素直径 $D_{px}$（如实测 $2097\text{ px} \implies$ 像面尺寸 $7.82\text{ mm}$）。结合 **JPL DE 历表精确月球视直径**（从 FITS Header `DATE-OBS` 自动查询拍摄时刻的地月距离，通过 $\theta = 2\arctan(R_{moon}/d)$ 计算精确视角，精度 $< 0.5\%$；无 `DATE-OBS` 时回退至中值 $31.07'$），通过光学针孔成像几何 $f = y / (2\tan(\theta/2))$，自动精确反推望远镜真实有效焦距（如 $865.5\text{ mm} \approx 866\text{ mm}$），彻底解决默认值（$400\text{ mm}$）低估一倍的物理失真；
-    * **自适应 Airy PSF 核尺寸**：PSF kernel 大小随计算得到的 Airy 半径自动缩放（$ks = \text{clamp}(\lceil r_{airy} \times 6.0 \rceil_{\text{odd}},\ 15,\ 65)$），短焦避免高频振铃、长焦完整覆盖衍射环；
-    * **精准驱动 Airy 物理反卷积**：使 Split Bregman 生成的 Airy PSF 像元半径从缩水的 $0.90\text{ px}$ 恢复为物理真实的 **$1.95\text{ px}$**（焦比 $F/10.8$），完全释放光学反卷积对衍射弥散的真实还原能力；
-    * **切片模式安全旁路**：在 `--mosaic-mode tile` 下自动旁路全月轮拟合，回退至 Header `FOCALLEN` 或安全配置；支持 `--focal`、`--pixel-size`、`--aperture` 用户显式覆盖。
-  * **ADC 亚像素通道对齐**：校准 R/B 相对 G 的空间偏移，消除边缘红蓝伪彩色彩边；
-  * **物理 Airy PSF + Split Bregman 去卷积**：还原光学低通弥散，消灭亮缘黑环暗斑；
-  * **物理反照率自适应中间调解析拉伸 (Smart Auto-Midtone, 默认 `--midtone auto`)**：
-    * **物理原理**：基于月面玄武岩月海反照率中位数与高光截止点，通过 Siril 原生 MTF 方程 $y = \frac{(m-1)x}{(2m-1)x-m}$ 解析反解最优中间调参数 $m_{\text{auto}}$；
-    * **全月相与曝光自适应**：不论满月高照度、弦月大阴影，亦或欠曝/过曝连拍，均能全自动将月面反照率锚定在目视最舒适的深影调区间，彻底消除 `--midtone` 人工盲猜；
-  * **高光保护自适应拉伸**：中值自适应保留高光动态余量，绝无死白溢出；
-  * **物理感知自适应温润锐化 (Adaptive Organic Sharpening, 默认 `--sharp-mode auto` / 平衡温润模型 B 方案)**：
-    * **径向傅里叶功率谱视宁度截止频率感知 (Radial PSD Seeing Cutoff)**：通过 2D-FFT 径向平均功率谱计算月面有效信号降至残噪基底的临界空间截止频率 $k_{\text{cutoff}}$；平静视宁度释放第 1 层微弱微反差，气流抖动时自动锁定第 1 层为 1.00 并向第 2、3 层转移能量，杜绝毛刺噪点；
-    * **平坦月海残噪感知**：利用 Donoho MAD 估计平坦玄武岩熔岩平原的高频噪声基底 $\sigma_{noise}$，信噪比较低时自动抑制高频放大，彻底消除平原沙砾噪点；
-    * **反卷积与小波能量守恒折让**：检测到 Airy 物理反卷积已激活时，小波重构各层增益在物理阻尼掩模保护下收敛至黄金微调区间（增益收敛至 $2\%\sim 6\%$，实测 `1.02, 1.04, 1.06, 1.03`），既充分释放环形山台地与月溪的清晰微反差，又彻底消灭暗环甜甜圈与人工浮雕描边；
-    * **彻底解耦 CLAHE 局部硬反差**：反卷积激活或 auto 模式下 CLAHE 彻底旁路（`clip = 0.0`），坚决杜绝局部微反差过拉造成的石膏白垩感、生硬刻痕与死黑阴影；
-    * **算法互斥防御（USM 自动旁路）**：在小波与反卷积激活时，传统的单尺度反锐化掩模自动归零（`unsharp = 0`），从源头切断阶跃边缘下冲（Undershoot）与人工白边；
-    * **语义化预设分级**：
-      * `--sharp-mode auto`（现代平衡温润基准，默认推荐）：Airy 反卷积 + 黄金小波微调保底（1.02/1.04/1.06/1.03）+ 彻底旁路 CLAHE，呈现纯物理柔和纯镜感与丰富微反差；
-      * `--sharp-mode mellow`（目视超柔镜感）：Airy 反卷积 + 1~2% 极弱小波 + 彻底关闭 CLAHE，呈现高级大口径目视镜感；
-      * `--sharp-mode mild`（温和轻调）、`--sharp-mode crisp`（高反差雕塑感）、`--sharp-mode none`（旁路锐化纯物理母版）或手动参数覆盖；
-  * **可信尺度与区域小波（默认 `--wavelet-adapt auto`）**：
-    * 所有预设及手动系数均为请求上限。仅由反卷积前的 `moon_unsharpened.fit` 冻结每层平坦区 MAD 噪声、局部信号支持与区域权重；暗部、高光、强边缘、月面边界及卷积边界连续减弱增强，残差始终不增强。单母版统计不证明新纹理真实。
-    * Siril `extract 5` 实测为四个带符号细节层与一个残差，合计五个有效重构系数。Drizzle 按 `j_native = j_work − log2(px_scale)` 映射四个原生尺度请求，关闭虚增最细层和无支持的粗层；层数受图像尺寸限制。跨网格映射是尺度近似，不保证逐像素一致。
-    * `--wavelet-l1` 默认表示原生最细尺度；`--wavelet-adapt off` 恢复全局小波及旧工作网格语义。此开关与 `--sharp-guard`、`--anti-ringing` 独立，支持 `postprocess` 和 `all`。CLAHE/USM 仍为独立后续步骤。
-    * 保存 `moon_wavelet_support.fit`，将基准结构区与非零请求、可信权重至少 0.5 的区域相交后冻结为收益区域；不足 32 像素时由护栏回退，不放宽损伤门限。`verify` 和实际 TIFF 检查复用同一区域；关闭自适应时清除旧支持文件。
-    * `postprocess_receipt.json.wavelet_adaptation` 记录层映射、请求与有效增益范围、噪声、可信覆盖率及旁路原因。分层逐层读取，隔离临时目录在成功或失败后清理；缺层、尺寸错误、非有限值和空间不足均明确失败，不自动改走全局增强。
-  * **完整链路防过锐（默认 `--sharp-guard auto`）**：
-    * 反卷积前保存 `moon_unsharpened.fit`，与增强分支共用白平衡、线性校正及 MTF；原有反卷积后基准继续保留。亮边与暗环阻尼依据完整基准定位，默认不对零增强增量另加 soft-knee。
-    * 固定基准的有效区域、亮度尺度、平坦区及收益区域，依次尝试增强保留比例 `1 / 0.75 / 0.5 / 0.25`；首个满足整个月面损伤限制且收益区域中位梯度提高至少 0.5% 的结果获选，否则回到无反卷积、无小波增强的基准。只运行一次反卷积，不搜索 PSF；关闭自适应时恢复原结构区收益判据。
-    * 所有模式（含 `crisp` 和手动参数）默认受保护；`--sharp-guard off` 独立关闭护栏，`--anti-ringing off` 仅关闭局部阻尼。`--sharp-mode none` 仍只旁路小波等增强，反卷积由 `--deconv` 单独控制。
-    * 门限：DHR / 正过冲比 ≤ 0.035；CSI ≤ `max(0.025, baseline + 0.005)`；GKM ≤ `max(14, baseline × 1.10)`；平坦区高频残差 MAD ≤ `max(baseline × 1.10, 1e-6)`；不得新增削顶。门限是待真实素材校准的工程默认值，不证明真实分辨率提升。
-    * 有效月面不足 500 像素、关键指标无效或无法测量收益时回退；缺少强边缘记为不适用，不伪报为零。原始母版有 NaN/Inf 时报错，增强候选有 NaN/Inf 时拒绝候选。
-    * `postprocess_receipt.json.sharp_guard` 记录各档指标、拒绝原因、分阶段诊断及 `accepted / reduced / fallback / off` 状态。所有成片来自同一获选结果；`verify` 撤销显示几何后检查实际 16 位 TIFF 与浮点成片母版的量化误差及质量指标。证据不足显示 `unavailable`，旧目录缺少完整基准时保护状态为 `unknown`。
-  * **安全黑点噪声抑制 (Safe Noise Ceiling Pedestal)**：
-    * 采用四角安全噪声上限（$\text{median} + 2.0\sigma$），防止深空暗背景被非线性拉伸曲线与 CLAHE 局部直方图抬升，保证外围真空深空呈现纯净深邃的零噪黑底；
-  * **月面专用线性灰世界平衡 (Linear Gray-World Balance, 默认 `--white-balance gray-world`)**：
-    * **物理线性空间平衡**：坚决在非线性拉伸之前于 32 位浮点线性空间完成通道增益校准（$R_{lin} = R_{net} \cdot k_R, B_{lin} = B_{net} \cdot k_B$），避免独立逐通道非线性 MTF 拉伸在暗部产生斜率差异导致的色偏；
-    * **统一等度拉伸 (Unified Isometric MTF)**：校准后各通道共享相同拉伸参数（$bg=0, hi=hi_{lum}, mid=0.13$），彻底消除暗部阴影与微光区的色调漂移；
-    * 支持 `--white-balance legacy` 回退至旧版模式。
-  * **月轮弧边色差与紫边抑制 (Limb Edge Defringing & CA Suppression)**：
-    * 针对望远镜/长焦镜头在大反差明暗交界处产生的次级光谱与瑞利散射蓝紫边缘，在物理色度层对月轮过渡边缘（$L < 0.10 \times p_{99.95}$）实施色散平滑，限制过量蓝光散溢；
-    * **保护真实地质色彩**：月面主体保留高达 +15% 的真实矿物蓝余量，完美还原静海（Mare Tranquillitatis）富钛玄武岩的真实地质矿物色，同时彻底消除月盘外缘弧边刺眼的紫边（Purple Fringing）；
-  * **月轮亮弧前向散射眩光抑制 (Lunar Limb Glare Suppression, 默认 `--glare-suppress auto`)**：
-    * **物理成因诊断**：月球明亮边缘在镜头前组镜片/保护镜以及地球高空大气气溶胶作用下，产生微弱的前向米氏/瑞利散射（Forward Scattering Glare），在非线性 MTF 与局部 CLAHE 强拉伸后外太空弥漫灰度高达 80~130 的发光亮雾；
-    * **亚像素几何拟合**：采用径向最大负梯度拐点扫描配合 RANSAC 鲁棒圆拟合，精确解算月面真实物理天体圆盘（拟合残差 $\sigma_{res} < 1.0\text{px}$）；
-    * **线性平滑衰减场**：在 32 位浮点线性空间非线性拉伸前，保持月盘实体（$r \le R + 1.0\text{px}$）100% 原始信号无损，在 $r \in [R+1, R+1+\delta]$ 实施 Hermite 三次 Smoothstep 平滑过渡（默认 $\delta = 4.5\text{px}$，保留望远镜 Airy 斑真实光学衍射轮廓，绝不产生剪纸边缘），在 $r > R + 1 + \delta$ 彻底清零漫射外太空背景，使深空恢复纯净零噪深邃黑；
-    * 支持 `--glare-suppress auto`（默认 4.5px 过渡）、`--glare-suppress mild`（8.0px 柔和）、`--glare-suppress aggressive`（2.5px 紧致）与 `--glare-suppress off`（旁路）；
-  * **亚像素阶跃边缘下冲暗环抑制 (Subpixel Anti-Ringing Damping, 默认 `--anti-ringing auto`)**：
-    * **物理成因诊断**：阳光直射的高耸亮坑壁与坑底深阴影交界处，物理 Airy 反卷积频域振荡、双三次插值负旁瓣与多尺度小波高频差分级联，在暗侧陡峭处产生严重负下冲（Negative Undershoot），导致环形山边缘呈现人工“浓黑细圈/黑描边”（甜甜圈伪影）；
-    * **暗环风险场定位**：基于归一化梯度与局部动态基准，精准锁定明暗交界断崖的暗侧过渡带，生成连续平滑的高斯羽化阻尼掩模 $M_{damp}$；
-    * **双向弹性阻尼**：分别衰减强边缘暗侧负增量和亮侧正过冲。负向强度按插值与反卷积状态设为 0.45~0.65，正向强度为 0.75；完整链路护栏随后检验实际损伤，必要时继续降档，不保证细节完全无损；
-    * **参数支持**：`--anti-ringing {auto,off,mild,aggressive}`（默认 `auto`），支持 `--damping-factor <0.0-1.0>` 手动精细调节，支持 `--anti-ringing off` 完全旁路；
-  * **低仰角宏观大气消光一阶梯度补偿 (Atmospheric Extinction Gradient Compensation, 默认 `--extinction-comp auto`)**：
-    * **物理成因诊断**：月面低仰角（$a < 30^\circ$）拍摄时，因半度视场跨度的大气柱质量（Airmass）差诱发 Rayleigh/气溶胶消光空间倾斜，导致月盘呈现“底暖顶冷、底暗顶亮”的宏观红化与通量坡度，严重污染矿物月并造成拼接色差；
-    * **地质反照率解耦**：将像元映射至对数色比空间（$\ln(B/G), \ln(R/G)$），表面绝对光通量差异被完全消除；
-    * **网格中位数降采样与 Huber 鲁棒回归**：通过 $16\times 16$ 局部块中位数提取低频空间斜率，对局部高钛玄武岩色块天然免疫；
-    * **Rayleigh 物理一致性校核**：验证蓝光与红光消光矢量的反向共线性，视场梯度 $<1.5\%$ 时自动旁路（高仰角零扰动）；
-    * **参数支持**：`--extinction-comp {auto,mild,aggressive,off}`（默认 `auto`），在 32 位浮点线性空间执行通量守恒除法平复。
-  * **全局色彩与直方图锁定（Anchor Master Profile Lock）**：
-    * **核心痛点**：多面板月面全景马赛克（Multi-panel Mosaic）切片单独后处理时，各切片地质反照率差异悬殊（如纯暗玄武岩的月海切片 vs 极亮辐射纹的高地切片）。若各自独立估计白平衡与高光拉伸截断点，会导致各切片出现严重色块漂移（如月海切片偏紫、高地切片泛黄），且重叠区明暗映射阶梯跳变高达 400% 以上，拼接后接缝处出现不可调和的明暗断层；
-    * **锁定机制**：支持将基准面板（Anchor Master）的 32 位浮点线性白平衡增益（$k_r, k_b$）与统一直方图拉伸基准（$bg_{lum}, hi_{lum}$、midtone 及矿物月色彩参数）导出为 `lunar_profile.json`，并由所有从属面板（Slave Tiles）一键锁入；
-    * **命令行参数**：
-      * `--lock-profile <path>`：从指定 JSON 档案中加载基准 profile 锁定全局色彩与拉伸；
-      * `--lock-from <work_dir>`：指定基准面板工作目录，自动加载其 `lunar_profile.json`；
-      * `--export-profile <path>`：导出当前切片的校准 profile（默认自动保存至工作目录的 `lunar_profile.json`）；
-      * `--lock-wb <kr> <kb>`：手动强制锁定 R/G 与 B/G 通道增益；
-      * `--lock-stretch <bg> <hi>`：手动强制锁定直方图黑位与高光截断点；
-    * **多面板标准拼接工作流**：
-      1. 选取反照率均匀、包含明暗界线或中央高地的面板作为 **基准面板（Anchor Master）** 执行后处理：
-         ```bash
-         python scripts/moon_stack.py postprocess --work /path/to/tile_center --mosaic-mode tile
-         ```
-      2. 对邻近的所有切片，后处理时统一挂载基准面板的 profile：
-         ```bash
-         python scripts/moon_stack.py postprocess --work /path/to/tile_north --mosaic-mode tile --lock-from /path/to/tile_center
-         python scripts/moon_stack.py postprocess --work /path/to/tile_south --mosaic-mode tile --lock-from /path/to/tile_center
-         ```
-      3. 所有面板在绝对物理级线性归一化基准上对齐，重叠区地质反照率阶梯跳变降为 0.0000%，无缝拼合。
-  * **L/RGB 明度与色度分离重构 (L/RGB Separation Pipeline, 默认 `--mineral-mode lrgb`)**：
-    * **物理明度提取**：自动计算物理加权明度 $L = 0.299R + 0.587G + 0.114B$ 生成 32 位 `moon_lum.fit`；
-    * **高频细节全归 L**：Airy PSF 物理反卷积、插值联动小波重构、Post-Wavelet CLAHE 与微反差 Unsharp 全部且仅作用于单通道明度 $L$，从物理源头彻底杜绝彩色高频噪点与边缘伪彩镶边；
-    * **低频色彩全归 RGB**：RGB 通道执行独立自适应底噪中性化、`rmgreen 0` 去绿并受控提饱和；
-    * **Siril 原生合成**：调用 `rgbcomp -lum=moon_lum_sharp` 分别合成干净自然的 `moon_natural`（自然色调+极致细节）与鲜活地质真实的 `moon_mineral`（矿物月）；
-    * 支持 `--mineral-mode legacy` 回退至旧版全通道单体小波流程。
-  * **电影级深影调地质彩月重构 (Deep-Cine Mineral Moon, 默认 `--mineral-style deep-cine`)**：
-    * **胶片级非线性 S 曲线影调雕塑 (Filmic S-Curve Tone Sculpting)**：基于物理反卷积与温润小波重构的 32 位明度图（$L_{sharp}$），摒弃容易把高地压灰的单一 $\gamma$ 暗化，引入平滑步阶混合的非线性 S 曲线（暗部 $\gamma \approx 1.15$，亮部 $\gamma \approx 0.96$）。既将月海玄武岩压沉至油润厚重的丝绒质感，又完整保留南高地与第谷辐射纹通透璀璨的冷银白（亮部中位数维持在 $V \approx 168\sim 174$ 高质感区间）；
-    * **晨昏线相位红化防御 (Terminator Phase-Reddening Defense)**：通过欧氏距离变换 `distanceTransform` 计算月盘表面到夜半球晨昏线的几何距离场。在距离 $< 25\text{px}$ 的明暗断崖区平滑将色度衰减归零，彻底切断太阳低掠射角微细风化层散射引起的假性霓虹橙光圈（Phase Reddening），使晨昏线完全恢复冷硬石质反照率与深邃立体炭黑；
-    * **色度低通去噪平滑 (Geological Chrominance Filtering)**：在 32 位浮点线性归一化色度比空间（$cr_r = R / L, cr_b = B / L$）执行大半径高斯低通滤波（$\sigma \approx 0.016 \times \min(H, W)$，约 $36\text{px}$），彻底消除高倍色彩放大时 Bayer 阵列与微弱色散产生的沙砾杂色，呈现水彩般晕染的油画质感；
-    * **双极地质色相纯化合成 (Bipolar Pure Synthesis)**：
-      * *天青湛蓝 (Ti, 静海富钛区)*：定向锁定在纯正天青/牛仔蓝（Azure / Denim Blue, OpenCV $H \approx 106\sim 107$），告别阴暗发紫；
-      * *赤陶桃木褐 (Fe, 澄海/高地富铁区)*：定向锁定在温润赤陶桃木色（Terracotta Peach / Copper, OpenCV $H \approx 11\sim 12$），黄绿杂色率从传统拉伸的 $18.6\%$ 彻底降至 $< 0.03\%$；
-    * **双向明度引导色度保护 (Dual Luma-guided Chroma Masking)**：
-      * *暗部滚降 (Shadow Rolloff)*：晨昏线月坑与深阴影区色度自然归零，呈现立体纯炭黑与冷石灰色；
-      * *高光保护 (Highlight Protection)*：哥白尼/第谷辐射纹与撞击坑边缘色度收敛，保持冷银白纯净质感；
-      * *亮轮锁止 (Limb Edge Zeroing)*：月轮物理边界外侧 $14\text{px}$ 内色度平滑归零，杜绝边缘黄环紫边；
-  * **月盘自适应天空留白与深空居中 (Adaptive Lunar Sky Margins, 默认 `--auto-margin`, `--sky-margin 0.25`)**：
-    * **物理与美学痛点**：全画幅月盘拍摄或经纬仪漂移导致月球偏心、贴边（四边空隙不足甚至紧顶画框），视觉逼仄且构图失衡；若盲目缩放月盘凑留白，会引入双三次/双线性重采样插值，破坏月面原生高分辨率，违背天文真实性红线；
-    * **零插值安全深空扩充 (Zero-Interpolation Padding)**：坚决不缩放月面原生像素。基于 RANSAC 解算的月轮物理圆心 $(c_x, c_y)$ 与半径 $R$，动态计算满足四周最小留白率（默认 $0.25 \times R$，即边缘至月轮至少保留 25% 半径的天空）所需的画布尺寸与居中偏移量；
-    * **真空深空零噪填充**：上下左右扩展区以四角深空零噪基底平滑填充，与月轮前向散射抑制（`--glare-suppress`）无缝衔接，输出纯净深邃黑底；
-    * **切片模式安全旁路**：在 `--mosaic-mode tile` 下自动完全旁路留白处理，绝对保护相邻面板拼接重叠几何区；
-    * **全链路协同扩展**：
-      * 方形特写（`_square.jpg`）视场边长联动扩展至 $S = 2R \times (1 + 2 \times \text{sky\_margin})$（默认 1.50 倍月球直径），居中展示完整月球本体与呼吸感深空；
-      * 交互式 HTML 对比器（`comparison.html`）中的参考帧（`moon_reference.jpg`）自动同步相同 padding 扩展与居中，保持双窗 1:1 亚像素严密联动；
-      * 视频导入阶段（`--video-roi auto`）自动依据 `--sky-margin` 预留足够边距，避免前期抽帧过紧截断；
-    * **参数支持**：`--sky-margin <ratio>`（默认 `0.25`，即 25% 半径）、`--auto-margin` / `--no-auto-margin`（默认启用）。
-  * **风格定制与回退支持**：默认产出电影级深影调成片 `moon_mineral.jpg`；亦支持 `--mineral-style natural` 直接回退至经典自然轻盈饱和度拉伸风格；
-  * **参数支持**：`--mineral-fe-boost 6.8`, `--mineral-ti-boost 10.2`, `--mineral-gamma 1.09`。
-* 自动生成产物：
-  * `moon_master.fit`：32 位未锐化母版；
-  * `moon_unsharpened.fit`：完成校准与同参数 MTF、但未反卷积或锐化的完整链路基准；
-  * `moon_natural_baseline.fit`：按自然色成片流程渲染并量化到 16 位网格的浮点质检基准；
-  * `moon_natural_master.fit` / `moon_mineral_master.fit`：显示几何调整前的浮点成片（单色不生成矿物月）；
-  * `moon_lum.fit`：32 位物理明度母版（仅 LRGB 模式）；
-  * `moon_natural.tif`：16 位小波细节母版（自适应居中留白保护）；
-  * `moon_natural.jpg`：高清晰度自然写实影调成果图（全月盘自适应居中与安全深空留白）；
-  * `moon_natural_square.jpg`：1:1 自然写实方形特写社交成果图（自适应 1.50× 直径居中留白）；
-  * `moon_mineral.jpg`：电影级深影调地质彩月成果图（Deep-Cine 哑光玄武岩油润深影调，自适应居中留白）；
-  * `moon_mineral_square.jpg`：1:1 地质彩月方形特写社交成果图（自适应 1.50× 直径居中留白）；
-  * `moon_raw_original.jpg`：相机原生未加工真实底片（原始原生画幅、未经仿射平移或扩边留白，保留真实传感器底噪与大气弥散辉光）；
-  * `moon_reference.jpg`：亚像素坐标对齐对比帧（同步自适应留白与公允拉伸，1:1 精确对齐成片网格，专用于微观细节比对）；
-  * `comparison.html`：**交互式 HTML 双窗同步对比器**（自包含零依赖单文件，双击即开）；
-  * `lunar_profile.json`：校准 Profile 档案（记录通道增益 $k_r, k_b$、直方图截断 $bg, hi$、矿物月色彩系数，可供其他面板锁入）；
-  * `mosaic_tile_info.json`：切片元数据清单（记录尺寸、位深、物理比例、Profile 锁定状态与产品路径，供 `siril-mosaic` 马赛克拼接技能直接消费）。
+- 默认使用剔除均值堆叠与自动 Drizzle 判断；缺少可信焦距、口径或像元参数时，`--deconv auto` 跳过物理反卷积。防过锐与自适应小波默认启用，不要为了让处理通过而关闭保护。
+- 后处理的 `--master` 必须位于工作目录内，且软链接解析后仍在目录内；外部母版请先复制到工作目录。
+- SER 的正数 `--limit` 截取前 N 帧；普通视频默认扫描并按质量选择，`--limit 0` 仍会筛选。涉及选帧或空间预算时先读输入参考。
+- 多面板拼接使用 `--mosaic-mode tile`，并保持各面板尺度和 profile 一致；默认 `disc` 面向完整月盘。
+- 工作目录的典型产物包括 `moon_master.fit`、`moon_natural.tif`、`moon_natural.jpg`、`verify_report.json` 和 `comparison.html`；彩色输入可生成 `moon_mineral.jpg`，单色输入不生成矿物月成片。
+- 检查质检报告、相关回执与实际导出文件；报告失败或证据不足，不要宣称细节已被证实。
 
-### Step 5: 质检报告与交互式对比审验
-```bash
-python scripts/moon_stack.py verify --work /path/to/work
+## 按需读取
 
-# 双击或直接在浏览器打开交互式双窗同步对比器
-open /path/to/work/comparison.html
-```
-* **交互式 HTML 双窗同步对比器 (comparison.html)**：
-  * **参考图源双模切换**：
-    * `🎯 对齐对比帧`：与成片严格重合，专用于微观地貌的 1:1 卷帘与闪烁微观细节比对；
-    * `📷 原生真实 RAW`：相机原生拍摄画幅，无仿射平移、无扩边留白、无消光，真实还原单帧拍摄底片；
-    * 快捷键 **`R`** 可在两种参考模式间实时瞬时切换；
-  * **三模无缝切换**：
-    * `Side-by-Side`（双窗并排联动）：左侧显示参考单帧，右侧显示堆叠增强成片，两窗完全 1:1 亚像素同步平移与缩放，带同步十字准星；
-    * `Split Slider`（卷帘滑动对比）：单视口可拖拽分割条，实时查看微坑与噪点“擦玻璃”式过渡；
-    * `Blink Toggle`（闪烁交替对比）：按空格键在单帧与成片间极速切换，敏锐发现细节增益；
-  * **预设倍率与居中**：支持 `Fit` 适屏、`100%`（1:1 原始物理像素）、`200%` 高频检测、`Center`（一键居中月轮）；
-  * **快捷键支持**：`Space` (Blink闪烁)、`R` (切换对齐/原生RAW)、`1` (100%)、`2` (200%)、`0/F` (适屏)、`C` (居中)、`Tab` (切换视图)、`M` (切换成片)、`H` (HUD面板唤出/折叠)；
-  * **质检与光学 HUD 抽屉 (全中文，默认隐藏)**：默认隐藏保持画面纯净，按 `H` 或点击顶栏 `📊 质检 HUD` 随时唤出；全面呈现中文量化指标（拍摄设备、焦距/口径、堆叠帧数、DHR、CSI、GKM、深空残噪与地质矿物增益）。
-* **全面量化质检指标矩阵**：
-  * **防过锐状态**：HUD 显示保护状态、增强保留比例、自适应状态及可信覆盖率；`verify_report.json.sharp_guard.delivery` 区分实际 TIFF 通过、失败、证据不足和关闭。展示性阈值提示不能替代完整基准上的自动接受规则；
-  * **切片模式与 Profile 锁定状态**：显示 `Mosaic mode: tile/disc` 与 `Calibration Profile: LOCKED (source=..., hi_lum=...)` 或 `AUTO`；
-  * **光学参数推断状态 (Optical Setup)**：显示焦距 $f$、口径 $D$、焦比 $F$、像元 Airy 斑尺寸及推断来源（如几何反推 `geometric inversion` 或 Header）；
-  * **暗环比率 (Dark Halo Ratio, DHR)**：度量阶跃明暗边缘阴影侧负下冲能量。$<0.015$ 为 `EXCELLENT (artifact-free)`，$<0.035$ 为 `GOOD (controlled)`，$\ge 0.035$ 触发暗环警报；
-  * **高光白垩饱和度 (Chalky Saturation Index, CSI)**：检测过度拉伸导致的死白与微反差抹平。$<0.010$ 为 `EXCELLENT (highlight dynamic retained)`，$\ge 0.025$ 触发白垩化警报；
-  * **梯度峰度脆裂度 (Gradient Kurtosis Metric, GKM)**：评估边缘梯度重尾分布以量化过度锐化与人工毛刺脆裂感。$<6.0$ 为 `ORGANIC (natural smooth)`，$6.0\sim 14.0$ 为 `CRISP (high detail)`，$\ge 14.0$ 触发脆裂警报；
-  * **底噪标准差与动态范围**：精确检查四角深空底噪 $\sigma_{bg}$ 与主直方图像素极值。
+只读取与当前任务有关的参考文档；需要具体选项时运行 `"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" <command> --help`。
 
-> **一键执行模式**：
-> 也可以直接使用 `all` 命令一步完成全套流水线：
-> ```bash
-> python scripts/moon_stack.py all --input /path/to/moon_raws --work /path/to/work --deconv sb --mosaic-mode disc
-> ```
-
----
-
-## 4. 视宁度与月相自适应决策表
-
-| 月相或拍摄条件 | 视宁度预估 | 建议保留率 (`--keep-percent`) | 锚点特征定位建议 | 适用后处理倾向 |
-| :--- | :--- | :--- | :--- | :--- |
-| **满月 (Full Moon)** | 普遍中等 | 30% ~ 40% | 自动定位第谷/哥白尼辐射纹高频区 | 极佳的矿物月制作时机，中度小波重构 |
-| **上弦/下弦/凸月** | 良好 | 40% ~ 50% | 自动锁定明暗交界线（Terminator）断崖群 | 激进小波第 1~3 层重构，凸显立体月坑阴影 |
-| **娥眉月 (Crescent)** | 视宁度常较差（低仰角） | 10% ~ 20% | 自动加窗于亮月牙中段，抑制大面积背景黑边 | 保守小波重构，配合中度 unsharp，防止颗粒噪声 |
-| **薄云/经纬仪大漂移** | 气流不稳定 | 15% ~ 25% | 启用置信度强过滤，自动剔除漂移过大或云雾帧 | 标准自然细节版为主 |
-
----
-
-## 5. 故障排查与恢复 (Troubleshooting)
-
-1. **报错：`Cannot load a memory-mapped image: BZERO/BSCALE ...`**：
-   * 已在此架构中强制统一使用 `memmap=False` 规避，保证与 Astropy 7.x 完美兼容。
-2. **报错：`common area too small after alignment`**：
-   * 说明序列中有个别帧发生了镜头严重抖动或出框。本插件已内置置信度阈值过滤，会自动丢弃此类异常帧；如仍出现，可降低 `--keep-percent`。
-3. **Siril SSF 脚本独立调试**：
-   * 所有步骤均在工作目录的 `logs/` 下保留了对应的 `01_import.ssf`、`02_align_stack.ssf`、`03_postprocess.ssf` 与日志。用户或智能体可直接使用 Siril GUI 载入单步排查。
-4. **月面重影分层同心弧 (Concentric Ghosting Limb)**：
-   * 原因：FITS 图像坐标系原点位于左下角，纵轴向上递增；而 NumPy 二维数组索引按行向下递增。若将向下位移（`+dy`）直接取反注入 Siril 的 `R0` 单应矩阵 $H_{23}$，会导致帧向相反方向错位，使经纬仪漂移误差翻倍（形成梯田状分层重影）。
-   * 规范：Siril 单应矩阵垂直分量 $H_{23}$ 必须为 `+dy`。
-5. **月面偏绿与过曝/欠拉伸 (Green Cast & Overexposure)**：
-   * 原因：拜尔阵列（RGGB）绿光通道灵敏度偏高，且相机存在基底偏置（Black Pedestal）；深空常用的 `autostretch` 默认以 80% 黑背景为参考将其拉伸至 0.25 灰度，导致行星/月面高光剧烈溢出。
-   * 规范：采用月面专用的通道独立 `mtf` 动态截取背景偏置并匹配高光，结合 `rmgreen` 消除色相偏色，再进行小波细节恢复。
-6. **环形山边缘硬振铃/白边暗环防御 (Overshoot & Ringing Prevention)**：
-   * 原因：双三次（Bicubic）插值核在阶跃边缘存在负旁瓣，对于阳光直射的亮坑壁与深邃阴影交界处易产生微过冲（白边）与下冲（黑圈）；若小波锐化过猛会被成倍放大。
-   * 规范：
-     * 配合新增的 `--anti-ringing auto`（亚像素边缘下冲阻尼），在 32 位浮点明度层对阴影侧负下冲执行非对称软性平复（DHR 降低 60% 以上），彻底切断黑圈形成通道，同时 100% 保留高光山脊的极限锐度；
-     * 极端高反差或追求绝对零伪影时，建议使用 `--interp li`（双线性稳健模式），并联动自动放宽小波第 1 层至 `1.10`；
-     * 追求极限 MTF 分辨力时使用 `--interp cu`（双三次模式），并严格锁定小波第 1 层在 `1.05` 抑制过冲；
-     * 无论何种模式，Siril `seqapplyreg` 均严格保持默认 Clamping，绝不使用 `-noclamp`。
-7. **高光白垩死白与微反差缺失 (Chalky Bleached Highlights)**：
-   * 原因：非线性拉伸高光截断点过紧，或 CLAHE clip 过大导致辐射纹和环形山亮峰像素全部挤压在 1.0 附近，微结构梯度归零（CSI 指标超标 $>0.025$），形成石膏般平板死白。
-   * 规范：调大高光保护余量（默认 `midtone 0.13` 配合 $p_{99.95} \times 1.10$ 线性高位），适当降低 `--clahe-clip` 或选用 `--sharp-mode auto / mellow`。
-8. **质感脆裂硬化与人工毛刺 (Brittle / Crunchy Over-Sharpening)**：
-   * 原因：多尺度小波重构增益偏激，叠加了单尺度 USM 锐化，导致全图梯度分布出现厚尾极端毛刺（GKM 指标超标 $>14.0$）。
-   * 规范：保持 `--sharp-mode auto`（反卷积能量折让与 USM 自动旁路），避免手动叠加过激小波系数。
-9. **马赛克面板边缘被切除或外太空清零抹杀 (Mosaic Tile Edge Truncation)**：
-   * 原因：在多面板月面全景拼接时，默认的 `disc` 模式使用 `framing min` 统一截幅，并使用 RANSAC 月轮拟合对 $r > R + 4.5$ 处清零，导致切片邻近区域的月面地形被误杀。
-   * 规范：拼接切片必须显式指定 `--mosaic-mode tile`，系统将自动使用 `--framing max` 保留最大画幅交叠，并旁路所有月盘半径清零逻辑，导出 `mosaic_tile_info.json` 与 `siril-mosaic` 联动。
-10. **多面板拼接切片接缝阶梯断层与色块跳跃 (Mosaic Seam Stepping & Color Patch Discontinuity)**：
-    * 原因：多面板切片地质反照率差异悬殊（如玄武岩暗月海 vs 亮高地），若各自独立计算 $p_{99.95}$ 与通道比，MTF 映射斜率相差数倍，拼接时重叠区明暗阶梯断层跳跃可达 400%+ 且色块漂移严重。
-    * 规范：先选定代表性面板作为基准（Anchor Master）导出 `lunar_profile.json`，邻近切片后处理时传入 `--lock-from /path/to/anchor` 或 `--lock-profile ...`，统一白平衡增益与非线性 MTF 映射，将接缝明暗阶跃断层彻底归零至 0.0000%。
-11. **非标准视频解码失败与损坏容器自愈 (Non-Standard Video Codec & Corrupted Container Recovery)**：
-    * 原因：拍摄中途断电/App崩溃致 MP4 缺失关键 `moov` 索引原子；视频采用 H.265/HEVC、AV1 或 Apple ProRes 高规格编码，而当前 Python OpenCV 缺少解码器后端；行星相机特殊未压缩调色板（FourCC 如 `Y800`, `GREY`, `DIB `）未被映射；天文专用 SER 文件或 FITS 图像被误命为 `.mp4/.avi` 扩展名。
-    * 规范：脚本内置全套智能文件头与 OpenCV 状态诊断器（`format_video_decode_error`），在解码受阻时自动输出包含文件大小、魔数、FourCC、捕获状态及确凿根因的报告；针对未闭合 MP4 自动生成快速修复指令（`ffmpeg -err_detect ignore_err -i input.mp4 -c copy fixed.mp4`）；针对非标准编码自动生成无损转码指令（`ffmpeg -i input.mp4 -c:v rawvideo -pix_fmt bgr24 converted.avi`）；识别到真实 SER/FITS 头时自动引导使用 `--format ser` 或 `--format fits`。
-    * **Siril 自身不能做「视频 → SER」转换**：`convert` 只扫描静态图像，实测对现存的 `.mp4`/`.avi` 一律报 "No files were found for conversion"；CLI 的 `load` 也读不了 SER（实测对 Siril **自己写出**的 `.ser` 同样报 "file not found or not supported"，属 CLI 读取限制而非文件缺陷）。若需把 MP4 交给 AutoStakkert / PIPP / SER Player 等外部工具，请用 ffmpeg 或 PIPP 自行转换——**本技能不内置视频转 SER 工具**（mp4/avi 直解路径功能更全，转换属负收益）。
-
----
-
-## 6. 参考文档
-
-按需加载，不必一次性读入：
-
-| 文档 | 内容 |
+| 场景 | 参考文档 |
 | :--- | :--- |
-| [`references/device_specs.md`](references/device_specs.md) | 19 款智能望远镜的焦距/口径/像元规格表、来源等级、存疑与未公布说明、识别信号优先级、溯源标记定义 |
-| [`references/siril-144-cli.md`](references/siril-144-cli.md) | Siril 1.4.4 CLI 权威语法与实测行为（`convert` / `seqapplyreg` / `-drizzle` / `stack` 分支与 `-weight=`） |
-| [`references/lunar_processing_guide.md`](references/lunar_processing_guide.md) | 月面处理原理：叠加 SNR、反卷积、小波、色彩的真实性边界 |
-
-命令行自省（无需读文档即可查询）：
-
-```bash
-python scripts/moon_stack.py devices            # 设备规格表（JSON）
-python scripts/moon_stack.py devices --id dwarf-3
-python scripts/moon_stack.py stack --help       # 含 --drizzle / --weight 全部选项
-```
+| RAW/FITS、SER 或视频导入、选帧、空间预算、缓存和配准 | [输入、选帧与配准](references/input-and-registration.md) |
+| 堆叠、Drizzle、Siril CLI 或配准矩阵 | [Siril CLI 参考](references/siril-144-cli.md) |
+| 智能望远镜设备识别、光学先验和来源 | [设备规格表](references/device_specs.md) |
+| 反卷积、小波、防过锐、色彩或马赛克 profile | [后处理](references/postprocessing.md) |
+| 输出、质检、对比器或故障恢复 | [产物、质检与故障恢复](references/quality-and-troubleshooting.md) |
+| 需要解释月面处理原理或真实性边界 | [月面处理指南](references/lunar_processing_guide.md) |

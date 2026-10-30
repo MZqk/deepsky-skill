@@ -2,6 +2,8 @@
 
 本文件记录**本机实测与官方命令集核对**得到的语法与核心约束，是 `siril-moon-stacking` 调用 Siril CLI 的权威参考依据。
 
+Python 命令使用入口文档中设置的 `TASK_SKILL_DIR`、`TASK_PYTHON` 和 `TASK_SIRIL`。
+
 ---
 
 ## 1. 调用契约与环境基础
@@ -41,12 +43,20 @@ link basename [-date] [-start=index] [-out=dir]
 * Siril GUI 中的 Image Pattern Alignment 与 KOMBAT（行星配准）为图形界面框选专用，**未开放 CLI 入口**。
 
 ### 突破口：利用 `.seq` 文件的 `R0` 单应性矩阵由 `seqapplyreg` 接管
-Siril 的序列文件 `.seq` 原生支持存储图像单应性变换矩阵（Homography）。在序列条目后写入：
+Siril 的 `.seq` 使用 `R0` 保存第 0 图层的单应性矩阵，RGB 默认继承。技能按 FITS 坐标约定生成矩阵，纵轴原点在下、向上递增。无旋转时，注入前的平移为 $H_{13}=-dx$、$H_{23}=+dy$：
+
 ```text
-R0 1.0 1.0 1.0 0 0.0 1 H 1 0 -dx 0 1 -dy 0 0 1
+R0 1.0 1.0 1.0 0 0.0 1 H 1 0 -dx 0 1 +dy 0 0 1
 ```
-* `R0`：表示应用于第 0 图层（RGB 图像默认继承）；
-* `H 1 0 -dx 0 1 -dy 0 0 1`：为 3×3 变换矩阵，其中平移分量 $H_{13} = -\Delta x, H_{23} = -\Delta y$；
+
+有旋转时不能沿用该简化式。对于脚本中的旋转角 `theta` 和中心 `(cx, cy)`，`H` 的前两行为：
+
+```text
+cos(theta)   sin(theta)  cx*(1-cos(theta)) - cy*sin(theta) - dx
+-sin(theta)  cos(theta)  cy*(1-cos(theta)) + cx*sin(theta) + dy
+```
+
+技能可能为避免 Siril 1.4.4 的零和矩阵拒绝，给所有矩阵的 $H_{13}$ 增加相同的输出原点偏移；相对变换不变。
 * 随后调用 Siril 原生 `seqapplyreg`：
 ```bash
 seqapplyreg sequencename -framing=min -interp=cu
@@ -115,6 +125,37 @@ stack r_moon_ rej w 3 3 -norm=addscale -weight=noise -filter-included -out=moon_
 
 > 注意：3 帧时 Winsorized 3σ 无法剔除单点异常（日志 `Pixel rejection in channel #0: 0.000%`），剔除需要足够的帧数。
 
+### 4.4 技能的重采样与堆叠决策
+由 Siril CLI 原生执行多线程重采样与高动态堆叠（插值路径严格保持 Clamping，绝不加 `-noclamp` 避免数值越界）：
+```bash
+# Generate and execute 02_align_stack.ssf
+# Full disc: framing=min by default
+# Mosaic panels: use --mosaic-mode tile for framing=max
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" stack --work /path/to/work --mosaic-mode disc --interp cu
+
+# Drizzle: auto, off, or force scale 2 or 3
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" stack --work /path/to/work --drizzle auto
+# Supply trusted optics explicitly when metadata is missing
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" stack --work /path/to/work --drizzle auto --focal 160 --pixel-size 2.9 --aperture 30
+# Override the measured PSF threshold if needed
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" stack --work /path/to/work --drizzle-psf-threshold 2.5
+```
+* **重采样两条互斥路径**：
+  * 未启用 Drizzle 时使用插值：`seqapplyreg -framing={min|max} -interp={cu|li} -filter-incl`；
+  * Drizzle（`--drizzle` 启用时）：`seqapplyreg -framing={min|max} -scale={2|3} -drizzle -pixfrac={1/scale} -kernel=square -filter-incl`，**自动去掉 `-interp=`**。scale=2 时输出网格线性尺寸翻倍（512×256 → 1022×512），代价是约 4× 像素量、体积与耗时，以及更高的噪声（需更多帧补偿）；
+  * `--drizzle-kernel` 默认 `square`（保通量、任意 scale 稳健）；`turbo` 更快但易留 null pixel（Moiré 花纹）；**Lanczos 核仅允许 `scale == pixfrac == 1.0`，用于超采样时会被自动降级为 `square`**；
+  * `--mosaic-mode tile` 下 `auto` 默认关闭 drizzle（保持各面板采样尺度一致，避免与 `siril-mosaic` 自有的 `-scale` 冲突），需显式 `--drizzle 2` 才启用；
+* **`auto` 的两条判据（按序尝试，全部可溯源）**：
+  1. **衍射极限**（`--drizzle-airy-threshold`，默认 1.5px）：需要焦距 + 口径 + 像元三者齐备（来自 CLI 或 FITS 头）。理论艾里斑半径 `r = 1.22·λ·F#/px` 低于阈值即启用。**口径无法从图像反推**，故这条判据只在口径已知时可用；
+  2. **实测 PSF 宽度**（`--drizzle-psf-threshold`，默认 2.0px）：任一元数据缺失时启用。对参考帧（`ranking.json` 选出的最锐帧）以月轮边缘扩散函数（ESF）实测有效 PSF 的 FWHM（`FWHM = 0.919 × w10-90`），低于阈值即启用。几何反推焦距是独立步骤，并非此测量的前提；PSF 判据**不需要光学元数据**；
+  * 两条判据都无法成立时关闭 drizzle，并给出可操作的提示，**绝不使用默认口径 80mm / 默认像元 3.73µm 冒充真实值**；
+  * 几何反推焦距的边界：要求**完整月盘在画面内**（局部特写 / 马赛克切片会失败），且没有可信像元尺寸时拒绝采纳反推焦距；这不阻止独立的 PSF 测量。月轮过曝时 ESF 顶部被削平会低估 FWHM，此时回执标注 `psf_possible_saturation`；
+* **堆叠策略**：统一 `stack rej w {sigma} -norm={norm} -filter-included [-weight=noise]` 生成 32 位 `moon_master.fit`。`--weight {auto,none,noise}` 默认 `auto`（rej 路径启用噪声加权）；`--stack-method sum` 保留为显式回退（`sum` 无剔除、无加权、按最大值归一化）；
+* **失败自愈**：`-weight=noise` 因背景统计不可用（`MAD is null` 等）失败时，自动去掉 `-weight=` 重跑一次；drizzle 运行失败且非强制时自动回退为插值路径重跑，两者均记入 `stack_receipt.json`；
+* **母版像素尺度**：Siril 在 drizzle 时会自动把 `XPIXSZ` 除以缩放倍率；技能随后校验，若未修正则代为改写，并写入 `DRIZZLE`/`DRZSCALE`/`DRZPIXFR`/`DRZKRENL`/`ORIGXPIX` 与 `HISTORY`。`FOCALLEN` 作为物理量始终不动，因此 `siril-mosaic` 的 `seqplatesolve -focal= -pixelsize=` 自动获得正确尺度；
+* 若指定 `--mosaic-mode tile`，自动默认启用最大画幅（`framing=max` 并带 `-maximize` 标记），最大化保留与邻近切片的重叠对齐特征，杜绝误裁切；
+* `stack_receipt.json` 记录 `px_scale`、`weight`、`drizzle` 决策明细与 `drizzle.header` 校验结果，供 postprocess 与 verify 消费。
+
 ---
 
 ## 5. 后处理与细节重构
@@ -134,13 +175,13 @@ wrecons c1 c2 c3 ...
 
 ```bash
 # Full-chain protection also applies to explicit sharpening settings.
-python scripts/moon_stack.py postprocess --work /path/to/work --sharp-mode crisp --sharp-guard auto
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" postprocess --work /path/to/work --sharp-mode crisp --sharp-guard auto
 
 # Disable local ringing damping while retaining full-chain protection.
-python scripts/moon_stack.py postprocess --work /path/to/work --anti-ringing off
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" postprocess --work /path/to/work --anti-ringing off
 
 # Explicitly bypass the full-chain guard; existing local damping settings still apply.
-python scripts/moon_stack.py postprocess --work /path/to/work --sharp-guard off
+"$TASK_PYTHON" "$TASK_SKILL_DIR/scripts/moon_stack.py" --siril "$TASK_SIRIL" postprocess --work /path/to/work --sharp-guard off
 ```
 
 ### 色彩增强与矿物月 (`satu` / `rmgreen` / `rgbcomp`)

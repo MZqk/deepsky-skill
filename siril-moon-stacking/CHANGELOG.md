@@ -2,6 +2,13 @@
 
 本文件记录 `siril-moon-stacking` 的独立版本变更。
 
+## [1.2.1] - 2026-10-27
+
+- Store metadata tags as a string to conform to the Agent Skills specification.
+- Organize lunar processing guidance into scenario-specific references for progressive loading.
+- Validate runtime dependencies and Siril availability in `probe`; failures now return a nonzero exit status while retaining JSON output.
+- Stage ADC and validate optics before replacing a working master, reject external masters, and record the actual deconvolution decision.
+
 ## [1.2.0] - 2026-10-16
 
 - Add default `--wavelet-adapt auto|off` support to `postprocess` and `all`. Freeze per-scale noise, signal support and continuous regional weights from the pre-deconvolution reference; apply requested gains only where supported, sharing luminance weights across legacy RGB channels.
