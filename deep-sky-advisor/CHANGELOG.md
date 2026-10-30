@@ -2,6 +2,18 @@
 
 本文件记录 `deep-sky-advisor` 的独立版本变更。
 
+## [0.4.3] - 2026-10-28
+
+- Pass the analyzer's absolute JSON path to the advice command so separate shell invocations work; quote the input path placeholder.
+
+## [0.4.2] - 2026-10-28
+
+- Use an explicit working directory for intermediate analysis artifacts and advice drafts; save a finalized report only when requested or required by the workflow.
+
+## [0.4.1] - 2026-10-28
+
+- Convert `metadata.tags` to a string to comply with the Agent Skills specification.
+
 ## [0.4.0] - 2026-10-03
 
 新增 `color_refinement`（色彩精修），这是第一个真正使用 `finishing` 阶段的操作。

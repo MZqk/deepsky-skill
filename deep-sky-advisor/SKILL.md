@@ -6,10 +6,10 @@ description: |
 license: Proprietary
 metadata:
   slug: deep-sky-advisor
-  version: "0.4.0"
+  version: "0.4.3"
   displayName: Deep Sky Advisor
   summary: 对深空图像文件进行量化诊断，并同时给出 Siril 与 PixInsight 双轨后期建议，Photoshop 作为下游二次加工。
-  tags: [astronomy, astrophotography, diagnostics, fits]
+  tags: "astronomy, astrophotography, diagnostics, fits"
   homepage: https://github.com/MZqk/deepsky-skill
 ---
 
@@ -90,13 +90,18 @@ Do not block on missing optional information. Continue with explicit unknowns.
 
 ### 2. Analyze the image file
 
-Run from the skill directory:
+Run both lines below in one shell invocation from the skill directory, replacing the input
+placeholder with an absolute path. Always pass an explicit working
+directory for intermediate artifacts; use a fresh temporary directory unless the surrounding
+workflow provides a scratch directory. Omitting the output directory writes beside the input file.
 
 ```bash
-bash scripts/run_analysis.sh <image_file_path> [output_directory]
+advisor_work_dir="$(mktemp -d)"
+bash scripts/run_analysis.sh "<image_file_absolute_path>" "$advisor_work_dir"
 ```
 
-The launcher executes `scripts/analyze_file.py` and currently produces:
+The launcher executes `scripts/analyze_file.py` and produces these intermediates in the working
+directory:
 
 - `<image_stem>_analysis.json`;
 - `<image_stem>_preview.png`;
@@ -129,10 +134,13 @@ evidence label and warning. In particular:
 The analyzer does **not** provide plate solving, catalog object identification, photometric color
 validation, regional physical SNR, or definitive optical/mechanical diagnosis.
 
-Compile the measured report into an auditable recommendation draft:
+Compile the measured report into an auditable recommendation draft. Run from the skill directory
+and replace `<analysis_json_absolute_path>` with the exact path printed after `Analysis JSON:`
+by the analyzer. Separate tool invocations may start fresh shells, so pass this absolute path
+instead of relying on variables from the analysis command:
 
 ```bash
-python scripts/generate_advice.py <image_stem>_analysis.json \
+.venv/bin/python scripts/generate_advice.py "<analysis_json_absolute_path>" \
   --software siril,pixinsight \
   --target-type emission_nebula \
   --target-name NGC6888 \
@@ -144,10 +152,13 @@ python scripts/generate_advice.py <image_stem>_analysis.json \
 combined with a concrete application. The downstream finishing stage defaults to Photoshop and can
 be disabled with `--no-finishing`.
 
-This creates:
+The compiler always writes both draft files beside the analysis JSON by default, so this command
+keeps them in the same working directory:
 
 - `<image_stem>_advice.json`;
 - `<image_stem>_processing_report.md`.
+
+These are intermediate artifacts for review, not a finalized saved report for the user.
 
 Read `references/recommendation_policy.md` before modifying the generated recommendation. Treat
 the compiler as a safety baseline, not a substitute for inspecting previews or understanding user
@@ -359,8 +370,12 @@ format, color space, calibration state, and the forbidden irreversible operation
 The shared sections — assessment, measured facts, visual findings, objective, sequence, and the
 not-recommended table — appear **once**. Do not repeat them inside each track.
 
-Save the report as `<image_stem>_processing_report.md` only when the user requests a saved report
-or the surrounding workflow requires an artifact. Otherwise return the advice directly.
+Finalize the report after reviewing the previews and adding visual findings. Save that finalized
+report as `<image_stem>_processing_report.md` in the user-requested or workflow-required output
+location only when the user requests a saved report or the surrounding workflow requires an
+artifact. Otherwise return the advice directly and keep the analysis JSON, previews, advice JSON,
+and Markdown draft in the working directory; do not copy them to a delivery location.
+Creating the compiler's intermediate Markdown draft does not count as delivering a saved report.
 
 ## Target-specific safety
 
