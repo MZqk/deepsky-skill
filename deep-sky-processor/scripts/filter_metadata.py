@@ -12,13 +12,24 @@ FILTER_KEYS = ("FILTER", "FILTERID", "FILTNAME")
 _SEESTAR_REFERENCES = {
     "s30-pro": "https://us.seestar.com/products/seestar-s30-pro",
     "s30": "https://us.seestar.com/products/seestar-s30-all-in-one-smart-telescope",
+    "s50-pro": "https://us.seestar.com/products/seestar-s50-pro-smart-telescope",
     "s50": "https://us.seestar.com/blogs/faq/s50",
 }
 _DEVICE_KEYS = ("INSTRUME", "TELESCOP", "TELESCOPE", "CREATOR", "ORIGIN")
+_DWARF_ALIASES = {"mini": "dwarf-mini", "ii": "dwarf-ii", "2": "dwarf-ii",
+                  "iii": "dwarf-3", "3": "dwarf-3", "draco": "dwarf-draco"}
+# Vendor-declared broadband wheel positions; Draco ships Astro only (no VIS).
+_DWARF_BROADBAND_NAMES = {
+    "dwarf-mini": {"astro", "astro filter"},
+    "dwarf-ii": {"vis", "vis filter"},
+    "dwarf-3": {"astro", "astro filter", "vis", "vis filter"},
+    "dwarf-draco": {"astro", "astro filter"},
+}
 _DWARF_REFERENCES = {
     "dwarf-mini": "https://help.dwarflab.com/en/docs/DWARF-mini-Smart-Telescope-User-Manual",
     "dwarf-ii": "https://www.dwarflab.com/gb/pages/astronomy-with-dwarf-3-smart-telescope",
     "dwarf-3": "https://help.dwarflab.com/en/docs/DWARF-3-Smart-Telescope-User-Manual-Part1-App-Interface-Introduction?product=dwarf-3",
+    "dwarf-draco": "https://www.dwarflab.com/products/draco",
 }
 
 
@@ -31,10 +42,9 @@ def _dwarf_models(header):
     models = set()
     for key in _DEVICE_KEYS:
         text = re.sub(r"[\s_\-‐‑‒–—−]+", " ", _normalize(header.get(key)))
-        match = re.fullmatch(r"(?:dwarflab ?)?dwarf ?(mini|ii|2|iii|3)", text)
+        match = re.fullmatch(r"(?:dwarflab ?)?dwarf ?(mini|ii|2|iii|3|draco)|(?:dwarflab ?)?draco", text)
         if match:
-            models.add({"mini": "dwarf-mini", "ii": "dwarf-ii", "2": "dwarf-ii",
-                        "iii": "dwarf-3", "3": "dwarf-3"}[match[1]])
+            models.add(_DWARF_ALIASES[match[1] or "draco"])
     return models
 
 
@@ -51,6 +61,8 @@ def _seestar_models(header):
             models.add("s30-pro")
         elif re.search(r"\b(?:seestar ?)?s ?30\b(?![ -]*(?:pro|p))", text):
             models.add("s30")
+        elif re.search(r"\b(?:seestar ?)?s ?50 ?(?:pro|p)\b", text):
+            models.add("s50-pro")
         elif re.search(r"\b(?:seestar ?)?s ?50\b", text):
             models.add("s50")
     return models
@@ -94,11 +106,9 @@ def classify_filter(filter_name, header=None):
         return profile
     device = " ".join(_normalize(header.get(key)) for key in _DEVICE_KEYS)
     model = profile.get("device_model")
-    if model and "seestar" not in device and _dwarf_telephoto(header):
+    if model in _DWARF_BROADBAND_NAMES and "seestar" not in device and _dwarf_telephoto(header):
         duo = model != "dwarf-ii" and re.fullmatch(r"(?:duo|dual)[ -]*band", text)
-        broad = text in ({"vis", "vis filter"} if model == "dwarf-ii" else
-                         {"astro", "astro filter", "vis", "vis filter"} if model == "dwarf-3" else
-                         {"astro", "astro filter"})
+        broad = text in _DWARF_BROADBAND_NAMES.get(model, ())
         if duo or broad:
             profile.update({"class": "dual_band" if duo else "broadband",
                             "lines": ["H-alpha", "OIII"] if duo else [],
