@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deep Sky Advisor"
+  short_description: "对深空图像文件进行量化诊断并提供双轨后期处理建议"
+  default_prompt: "使用 $deep-sky-advisor 分析这张深空图像文件，并给出有数据支撑的后期处理建议。"

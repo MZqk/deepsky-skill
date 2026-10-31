@@ -152,11 +152,11 @@ instead of relying on variables from the analysis command:
 combined with a concrete application. The downstream finishing stage defaults to Photoshop and can
 be disabled with `--no-finishing`.
 
-The compiler always writes both draft files beside the analysis JSON by default, so this command
-keeps them in the same working directory:
+The compiler writes draft files beside the analysis JSON by default, keeping them in the same working directory:
 
-- `<image_stem>_advice.json`;
-- `<image_stem>_processing_report.md`.
+- `<image_stem>_advice.json`: complete auditable advice payload;
+- `<image_stem>_processing_report.md`: human-readable dual-track markdown report;
+- `<image_stem>_recommendations.json`: structured pipeline execution recommendations and tool adapters for downstream automation (custom path can be set via `--output-recommendations`).
 
 These are intermediate artifacts for review, not a finalized saved report for the user.
 
@@ -376,6 +376,30 @@ location only when the user requests a saved report or the surrounding workflow 
 artifact. Otherwise return the advice directly and keep the analysis JSON, previews, advice JSON,
 and Markdown draft in the working directory; do not copy them to a delivery location.
 Creating the compiler's intermediate Markdown draft does not count as delivering a saved report.
+
+### 9. Automation handoff & pipeline recommendations
+
+When integrating with downstream automated processing skills (such as `deep-sky-processor` or `starun-siril`), consume `<image_stem>_recommendations.json` (or the `pipeline_recommendations` field in `<image_stem>_advice.json`).
+
+The recommendations block conforms to schema `1.0` and contains:
+
+- `diagnostics_summary`: Key image metrics including `processing_stage`, `transfer_state`, `channel_model`, `gradient_detected`, `star_fwhm_px`, and highlight pressure warnings.
+- `execution_pipeline`: Safe recommended operations and parameters across the processing phases:
+  - `crop`: stacking edge crop recommendation based on minimum pixel ratios.
+  - `background_extraction`: gradient magnitude and R² statistics with DBE cautions.
+  - `color_calibration`: PCC vs neutralization recommendations and saturation thresholds.
+  - `linear_denoise`: MAD sigma noise level, recommended luminance/chrominance sigma.
+  - `stretching`: target background value (e.g. 0.10 for M42, 0.11 general), algorithm preference (GHS vs Asinh/MTF), and highlight protection flags.
+  - `star_treatment`: star reduction limits (0.0 for star subjects/clusters, 0.25 for galaxies, 0.40 general) and mask scale based on measured FWHM.
+  - `color_refinement`: residual color balance guidance.
+- `tool_adapters`: Pre-formatted execution arguments and CLI invocations for downstream skills:
+  - `deep_sky_processor`:
+    - `stretch_factor`, `target_bg`, `skip_dbe`, `denoise_level`, `max_saturation`, `star_reduction_limit`.
+    - `suggested_cli`: generated CLI command for `deep-sky-processor` (e.g. invoking `enhance` with `--target-type galaxy --target-bg 0.11 --skip-dbe`).
+  - `starun_siril`:
+    - `init_arguments`: `input_state` (`linear`/`nonlinear`/`auto`), `channel_mode` (`broadband`/`narrowband`/`mono`), `dualband`, `style`, `stars`.
+    - `suggested_stages`: dynamic sequence of recommended stage directories.
+    - `suggested_cli`: generated CLI command for `starun-siril` (e.g. running `init` with `--session session_dir --input-state linear --channel-mode broadband`).
 
 ## Target-specific safety
 

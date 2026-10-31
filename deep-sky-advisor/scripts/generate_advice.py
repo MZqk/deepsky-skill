@@ -683,6 +683,219 @@ def _handoff_contract(operations, tracks, finishing):
     }
 
 
+def build_pipeline_recommendations(analysis, operations, tracks, finishing, target_type, target_name, filter_name):
+    """Build a structured execution parameter block tailored for downstream automated processors."""
+    by_id = {op["id"]: op for op in operations}
+    stage = _get(analysis, "classification.processing_stage", "unknown")
+    transfer = _get(analysis, "classification.transfer_state", "unknown")
+    channel_model = str(_get(analysis, "classification.channel_model", "unknown"))
+    is_narrowband = _is_narrowband(analysis, filter_name)
+    has_wcs = bool(_get(analysis, "file.header.WCSAXES"))
+
+    target_key = (target_name or "").strip().lower().replace(" ", "")
+    target_is_star_subject = target_type in STAR_SUBJECTS or target_key == "m45"
+
+    star_fwhm = float(_get(analysis, "stars.fwhm_major_median_px", 0.0) or 0.0)
+    star_ecc = float(_get(analysis, "stars.eccentricity_p90", 0.0) or 0.0)
+    noise_sigma = float(_get(analysis, "noise.background_noise_sigma_normalized", 0.0) or 0.0)
+    gradient = float(_get(analysis, "background.plane.magnitude_across_frame", 0.0) or 0.0)
+    gradient_r2 = float(_get(analysis, "background.plane.r_squared", 0.0) or 0.0)
+    gradient_detected = gradient >= 0.08 and gradient_r2 >= 0.55
+
+    highlight_ratio, highlight_path, highlight_label, per_channel_driven = _highlight_pressure(analysis)
+    highlight_pressure = highlight_ratio >= HIGHLIGHT_REVIEW_THRESHOLD
+
+    diagnostics_summary = {
+        "processing_stage": stage,
+        "transfer_state": transfer,
+        "channel_model": channel_model,
+        "is_narrowband": is_narrowband,
+        "has_wcs": has_wcs,
+        "target_type": target_type,
+        "target_name": target_name,
+        "filter": filter_name or _get(analysis, "classification.filter"),
+        "star_fwhm_px": round(star_fwhm, 2) if star_fwhm > 0 else None,
+        "star_eccentricity_p90": round(star_ecc, 3) if star_ecc > 0 else None,
+        "background_noise_sigma": round(noise_sigma, 4) if noise_sigma > 0 else None,
+        "gradient_detected": gradient_detected,
+        "gradient_magnitude": round(gradient, 3) if gradient > 0 else 0.0,
+        "gradient_r2": round(gradient_r2, 3) if gradient_r2 > 0 else 0.0,
+        "highlight_pressure": highlight_pressure,
+        "saturated_channels": [highlight_label] if per_channel_driven else [],
+    }
+
+    crop_op = by_id.get("crop_edges", {})
+    crop_recommended = crop_op.get("decision") in {"recommend", "review"}
+
+    bg_op = by_id.get("background_review", {})
+    bg_recommended = bg_op.get("decision") in {"recommend", "review"}
+
+    color_op = by_id.get("color_calibration", {})
+    color_recommended = color_op.get("decision") in {"recommend", "review"}
+    bg_ratios = _get(analysis, "color.background_ratios_to_mean") or {}
+
+    denoise_op = by_id.get("linear_denoise", {})
+    denoise_recommended = denoise_op.get("decision") in {"recommend", "review"}
+
+    stretch_op = by_id.get("controlled_stretch", {})
+    stretch_recommended = stretch_op.get("decision") in {"recommend", "review"}
+
+    star_op = by_id.get("star_treatment", {})
+    star_reduction_recommended = star_op.get("decision") in {"recommend", "review"}
+
+    refine_op = by_id.get("color_refinement", {})
+    refine_recommended = refine_op.get("decision") in {"recommend", "review"}
+
+    execution_pipeline = {
+        "crop": {
+            "recommended": crop_recommended,
+            "confidence": crop_op.get("confidence", "low"),
+            "reason": "检测到图像边缘存在可测比例的无效像素或零值楔形" if crop_recommended else "图像边缘完整，无需裁切",
+        },
+        "background_extraction": {
+            "recommended": bg_recommended,
+            "confidence": bg_op.get("confidence", "low"),
+            "method": "dbe" if gradient_detected else "skip",
+            "gradient_magnitude": round(gradient, 3),
+            "gradient_r2": round(gradient_r2, 3),
+            "cautions": bg_op.get("cautions", []),
+        },
+        "color_calibration": {
+            "recommended": color_recommended,
+            "confidence": color_op.get("confidence", "low"),
+            "method": "pcc" if has_wcs else "neutralize",
+            "measured_background_ratios": bg_ratios,
+            "recommended_saturation_limit": 1.25 if target_is_star_subject else 1.45,
+        },
+        "linear_denoise": {
+            "recommended": denoise_recommended,
+            "confidence": denoise_op.get("confidence", "low"),
+            "noise_level_sigma": round(noise_sigma, 4),
+            "recommended_strength": "light" if noise_sigma < 0.02 else "moderate",
+            "luminance_sigma": round(min(noise_sigma * 0.8, 0.015), 4),
+            "chrominance_sigma": round(min(noise_sigma * 2.0, 0.04), 4),
+        },
+        "stretching": {
+            "recommended": stretch_recommended,
+            "confidence": stretch_op.get("confidence", "medium"),
+            "source_transfer_state": transfer,
+            "target_transfer_state": "nonlinear",
+            "recommended_algorithm": "ghs" if (target_type == "emission_nebula" or target_key == "m42") else "asinh_or_mtf",
+            "target_background": 0.10 if target_key == "m42" else 0.11,
+            "highlight_protection_needed": highlight_pressure,
+            "saturated_channels": [highlight_label] if per_channel_driven else [],
+        },
+        "star_treatment": {
+            "recommended": star_reduction_recommended,
+            "confidence": star_op.get("confidence", "low"),
+            "subject_is_stars": target_is_star_subject,
+            "mask_scale_fwhm_px": round(star_fwhm * 1.5, 2) if star_fwhm > 0 else None,
+            "max_reduction_ratio": 0.0 if target_is_star_subject else (0.25 if target_type == "galaxy" else 0.40),
+        },
+        "color_refinement": {
+            "recommended": refine_recommended,
+            "confidence": refine_op.get("confidence", "low"),
+            "method": "selective_neutralization" if refine_recommended else "skip",
+        },
+    }
+
+    file_path = _get(analysis, "file.filepath") or _get(analysis, "file.filename") or "input.fits"
+
+    dsp_stretch_factor = 0.75 if target_key == "m42" else (
+        0.85 if target_type == "emission_nebula" else (
+            1.20 if target_type == "reflection_nebula" else (
+                1.15 if target_type == "dark_nebula" else 1.0
+            )
+        )
+    )
+    dsp_target_bg = 0.10 if target_key == "m42" else 0.11
+    dsp_skip_dbe = not gradient_detected
+    dsp_denoise_level = "conservative" if (target_is_star_subject or noise_sigma < 0.01) else "standard"
+    dsp_max_sat = 1.25 if target_is_star_subject else 1.45
+    dsp_star_reduction_limit = 0.0 if target_is_star_subject else (0.25 if target_type == "galaxy" else 0.40)
+
+    dsp_cli_args = [f"python3 scripts/enhance.py '{file_path}'"]
+    if target_type != "unknown":
+        dsp_cli_args.append(f"--target-type {target_type}")
+    if target_name:
+        dsp_cli_args.append(f"--target-name '{target_name}'")
+    dsp_cli_args.append(f"--target-bg {dsp_target_bg}")
+    if dsp_skip_dbe:
+        dsp_cli_args.append("--skip-dbe")
+
+    siril_input_state = "linear" if transfer in ("linear", "likely_linear") else (
+        "nonlinear" if transfer in ("stretched", "nonlinear", "likely_nonlinear") else "auto"
+    )
+    siril_channel_mode = "narrowband" if is_narrowband else ("broadband" if channel_model == "rgb" else ("mono" if channel_model == "mono" else "unknown"))
+    siril_dualband = "auto" if (is_narrowband and channel_model == "rgb") else "off"
+    siril_style = "natural" if target_is_star_subject else "vivid"
+    siril_stars = "preserve" if target_is_star_subject else "adaptive"
+
+    suggested_stages = ["stage-01-input-inspect"]
+    if crop_recommended:
+        suggested_stages.append("stage-02-geometry")
+    if bg_recommended:
+        suggested_stages.append("stage-03-background")
+    if color_recommended:
+        suggested_stages.append("stage-04-astrometry-color")
+    if denoise_recommended:
+        suggested_stages.append("stage-05-linear-restoration")
+    if stretch_recommended:
+        suggested_stages.append("stage-07-stretch")
+    if star_reduction_recommended:
+        suggested_stages.append("stage-08-starless-enhance")
+    suggested_stages.append("stage-10-delivery-finishing")
+
+    siril_cli = f"python3 scripts/deep_sky_siril.py init '{file_path}' --session session_dir --input-state {siril_input_state} --channel-mode {siril_channel_mode}"
+    if target_name:
+        siril_cli += f" --target-name '{target_name}'"
+    if target_type != "unknown":
+        siril_cli += f" --target-type {target_type}"
+    if siril_dualband == "auto":
+        siril_cli += " --dualband auto"
+
+    tool_adapters = {
+        "deep_sky_processor": {
+            "target_type": target_type,
+            "target_name": target_name,
+            "filter": filter_name,
+            "stretch_factor": dsp_stretch_factor,
+            "target_bg": dsp_target_bg,
+            "skip_dbe": dsp_skip_dbe,
+            "denoise_level": dsp_denoise_level,
+            "max_saturation": dsp_max_sat,
+            "star_reduction_limit": dsp_star_reduction_limit,
+            "suggested_cli": " ".join(dsp_cli_args),
+        },
+        "starun_siril": {
+            "init_arguments": {
+                "input_state": siril_input_state,
+                "channel_mode": siril_channel_mode,
+                "dualband": siril_dualband,
+                "target_type": target_type,
+                "target_name": target_name,
+                "style": siril_style,
+                "stars": siril_stars,
+            },
+            "suggested_stages": suggested_stages,
+            "suggested_cli": siril_cli,
+        },
+    }
+
+    return {
+        "schema_version": "1.0",
+        "generator": "deep-sky-advisor",
+        "source_file": {
+            "filename": _get(analysis, "file.filename"),
+            "filepath": _get(analysis, "file.filepath"),
+            "format": _get(analysis, "file.format"),
+        },
+        "diagnostics_summary": diagnostics_summary,
+        "execution_pipeline": execution_pipeline,
+        "tool_adapters": tool_adapters,
+    }
+
+
 def _payload(analysis, operations, tracks, finishing, target_type, target_name, filter_name):
     for operation in operations:
         operation["implementations"] = _implementations(
@@ -701,6 +914,9 @@ def _payload(analysis, operations, tracks, finishing, target_type, target_name, 
         required_info.append("请提供目标类型，以启用对应的真实性和安全规则。")
     if not (filter_name or _get(analysis, "classification.filter")):
         required_info.append("请提供滤镜或通道采集信息。")
+    pipeline_recommendations = build_pipeline_recommendations(
+        analysis, operations, tracks, finishing, target_type, target_name, filter_name
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "source_analysis_schema": analysis.get("schema_version"),
@@ -716,6 +932,7 @@ def _payload(analysis, operations, tracks, finishing, target_type, target_name, 
         },
         "operations": operations,
         "handoff_contract": _handoff_contract(operations, tracks, finishing),
+        "pipeline_recommendations": pipeline_recommendations,
         "required_information": required_info,
         "policy": {
             "exact_parameters_require_evidence": True,
@@ -1077,6 +1294,7 @@ def main(argv=None):
     parser.add_argument("--filter")
     parser.add_argument("--output-json")
     parser.add_argument("--output-markdown")
+    parser.add_argument("--output-recommendations", help="Output path for structured pipeline recommendations JSON")
     args = parser.parse_args(argv)
 
     try:
@@ -1099,15 +1317,23 @@ def main(argv=None):
         output_markdown = Path(args.output_markdown).expanduser().resolve() if args.output_markdown else analysis_path.with_name(
             analysis_path.stem.replace("_analysis", "") + "_processing_report.md"
         )
+        output_recs = Path(args.output_recommendations).expanduser().resolve() if args.output_recommendations else analysis_path.with_name(
+            analysis_path.stem.replace("_analysis", "") + "_recommendations.json"
+        )
         advice["advice_json"] = str(output_json)
         advice["report_markdown"] = str(output_markdown)
+        advice["recommendations_json"] = str(output_recs)
         output_json.write_text(json.dumps(advice, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         output_markdown.write_text(render_markdown(advice), encoding="utf-8")
+        if "pipeline_recommendations" in advice:
+            output_recs.write_text(json.dumps(advice["pipeline_recommendations"], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     except Exception as exc:
         print(f"Advice generation failed: {exc}", file=sys.stderr)
         return 1
     print(f"Advice JSON: {output_json}")
     print(f"Markdown report: {output_markdown}")
+    if "pipeline_recommendations" in advice:
+        print(f"Recommendations JSON: {output_recs}")
     return 0
 
 

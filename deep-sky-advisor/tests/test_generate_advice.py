@@ -724,5 +724,149 @@ class ContentOwnershipTests(unittest.TestCase):
         self.assertIn("该目标/滤镜可能包含与梯度相似的真实大尺度信号。", markdown)
 
 
+class PipelineRecommendationsTests(unittest.TestCase):
+    def test_pipeline_recommendations_structure(self):
+        advice = dual_advice()
+        self.assertIn("pipeline_recommendations", advice)
+        recs = advice["pipeline_recommendations"]
+        self.assertEqual(recs["schema_version"], "1.0")
+        self.assertEqual(recs["generator"], "deep-sky-advisor")
+        self.assertIn("diagnostics_summary", recs)
+        self.assertIn("execution_pipeline", recs)
+        self.assertIn("tool_adapters", recs)
+
+        summary = recs["diagnostics_summary"]
+        self.assertEqual(summary["target_type"], "galaxy")
+        self.assertEqual(summary["target_name"], "M31")
+        self.assertEqual(summary["processing_stage"], "stacked_or_integrated")
+        self.assertEqual(summary["channel_model"], "rgb")
+        self.assertTrue(summary["gradient_detected"])
+        self.assertAlmostEqual(summary["star_fwhm_px"], 3.4)
+
+        pipeline = recs["execution_pipeline"]
+        for stage in (
+            "crop", "background_extraction", "color_calibration",
+            "linear_denoise", "stretching", "star_treatment", "color_refinement",
+        ):
+            self.assertIn(stage, pipeline)
+
+        adapters = recs["tool_adapters"]
+        self.assertIn("deep_sky_processor", adapters)
+        self.assertIn("starun_siril", adapters)
+
+    def test_tool_adapters_deep_sky_processor_adaptation(self):
+        # M42 target special stretch factor and background
+        m42_analysis = base_analysis()
+        m42_advice = advisor.compile_advice(
+            m42_analysis,
+            software="siril",
+            target_type="emission_nebula",
+            target_name="M42",
+        )
+        dsp = m42_advice["pipeline_recommendations"]["tool_adapters"]["deep_sky_processor"]
+        self.assertEqual(dsp["stretch_factor"], 0.75)
+        self.assertEqual(dsp["target_bg"], 0.10)
+        self.assertIn("--target-bg 0.1", dsp["suggested_cli"])
+
+        # Emission nebula (not M42)
+        ngc_advice = advisor.compile_advice(
+            base_analysis(),
+            software="siril",
+            target_type="emission_nebula",
+            target_name="NGC7000",
+        )
+        dsp_ngc = ngc_advice["pipeline_recommendations"]["tool_adapters"]["deep_sky_processor"]
+        self.assertEqual(dsp_ngc["stretch_factor"], 0.85)
+        self.assertEqual(dsp_ngc["target_bg"], 0.11)
+
+        # Star subject (globular cluster) star reduction limit and max saturation
+        cluster_advice = advisor.compile_advice(
+            base_analysis(),
+            software="siril",
+            target_type="globular_cluster",
+            target_name="M13",
+        )
+        dsp_cluster = cluster_advice["pipeline_recommendations"]["tool_adapters"]["deep_sky_processor"]
+        self.assertEqual(dsp_cluster["star_reduction_limit"], 0.0)
+        self.assertEqual(dsp_cluster["max_saturation"], 1.25)
+        self.assertEqual(dsp_cluster["denoise_level"], "conservative")
+
+        # Skip DBE when no gradient detected
+        clean_analysis = base_analysis()
+        clean_analysis["background"]["plane"]["magnitude_across_frame"] = 0.02
+        clean_advice = advisor.compile_advice(
+            clean_analysis,
+            software="siril",
+            target_type="galaxy",
+        )
+        dsp_clean = clean_advice["pipeline_recommendations"]["tool_adapters"]["deep_sky_processor"]
+        self.assertTrue(dsp_clean["skip_dbe"])
+        self.assertIn("--skip-dbe", dsp_clean["suggested_cli"])
+
+    def test_tool_adapters_starun_siril_adaptation(self):
+        # Linear broadband RGB
+        advice = dual_advice()
+        siril = advice["pipeline_recommendations"]["tool_adapters"]["starun_siril"]
+        args = siril["init_arguments"]
+        self.assertEqual(args["input_state"], "linear")
+        self.assertEqual(args["channel_mode"], "broadband")
+        self.assertEqual(args["dualband"], "off")
+        self.assertIn("stage-03-background", siril["suggested_stages"])
+        self.assertIn("--input-state linear", siril["suggested_cli"])
+        self.assertIn("--channel-mode broadband", siril["suggested_cli"])
+
+        # Dualband narrowband OSC
+        nb_analysis = base_analysis()
+        nb_analysis["classification"]["filter"] = "DualBand"
+        nb_advice = advisor.compile_advice(
+            nb_analysis,
+            software="siril",
+            target_type="emission_nebula",
+            filter_name="DualBand",
+        )
+        siril_nb = nb_advice["pipeline_recommendations"]["tool_adapters"]["starun_siril"]
+        self.assertEqual(siril_nb["init_arguments"]["channel_mode"], "narrowband")
+        self.assertEqual(siril_nb["init_arguments"]["dualband"], "auto")
+        self.assertIn("--dualband auto", siril_nb["suggested_cli"])
+
+        # Star subject style and stars
+        star_advice = advisor.compile_advice(
+            base_analysis(),
+            software="siril",
+            target_type="globular_cluster",
+        )
+        siril_star = star_advice["pipeline_recommendations"]["tool_adapters"]["starun_siril"]
+        self.assertEqual(siril_star["init_arguments"]["style"], "natural")
+        self.assertEqual(siril_star["init_arguments"]["stars"], "preserve")
+
+    def test_cli_writes_recommendations_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            analysis_file = tmp_path / "sample_analysis.json"
+            analysis_data = base_analysis()
+            analysis_file.write_text(json.dumps(analysis_data), encoding="utf-8")
+
+            # Run default CLI
+            exit_code = advisor.main([str(analysis_file), "--target-type", "galaxy", "--target-name", "M31"])
+            self.assertEqual(exit_code, 0)
+
+            default_recs = tmp_path / "sample_recommendations.json"
+            self.assertTrue(default_recs.exists())
+            recs_data = json.loads(default_recs.read_text(encoding="utf-8"))
+            self.assertEqual(recs_data["schema_version"], "1.0")
+            self.assertEqual(recs_data["generator"], "deep-sky-advisor")
+            self.assertIn("tool_adapters", recs_data)
+
+            # Run with explicit --output-recommendations
+            custom_recs = tmp_path / "custom_dir" / "out_recs.json"
+            custom_recs.parent.mkdir(parents=True, exist_ok=True)
+            exit_code = advisor.main([
+                str(analysis_file),
+                "--output-recommendations", str(custom_recs),
+            ])
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(custom_recs.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
