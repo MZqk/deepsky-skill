@@ -160,6 +160,27 @@ def update_manifest(
     return data
 
 
+def update_release_authorization(skill_dir: Path, new_version: str, dry_run: bool = False) -> bool:
+    auth_path = skill_dir / "release-authorization.json"
+    if not auth_path.is_file():
+        return False
+    try:
+        data = json.loads(auth_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    changed = False
+    if data.get("version") != new_version:
+        data["version"] = new_version
+        changed = True
+    if "authorization_scope" in data:
+        slug = data.get("slug") or skill_dir.name
+        data["authorization_scope"] = f"xiaohongshu-red-skill:{slug}@{new_version}"
+        changed = True
+    if changed and not dry_run:
+        auth_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return changed
+
+
 def bump_skill(
     slug: str,
     target: str,
@@ -200,6 +221,9 @@ def bump_skill(
     # 3. Update skills.manifest.json
     update_manifest(repo_root, slug, new_version_str, dry_run=dry_run)
 
+    # 4. Update release-authorization.json if present
+    auth_updated = update_release_authorization(skill_dir, new_version_str, dry_run=dry_run)
+
     tag_name = tag_format.format(slug=slug, version=new_version_str)
 
     if not dry_run and (do_commit or do_tag):
@@ -209,6 +233,8 @@ def bump_skill(
             str(skill_dir / "CHANGELOG.md"),
             str(repo_root / "skills.manifest.json"),
         ]
+        if auth_updated:
+            files_to_add.append(str(skill_dir / "release-authorization.json"))
         subprocess.run(["git", "add", *files_to_add], cwd=repo_root, check=True)
         commit_msg = f"chore(release): bump {slug} to v{new_version_str}"
         subprocess.run(["git", "commit", "-m", commit_msg], cwd=repo_root, check=True)

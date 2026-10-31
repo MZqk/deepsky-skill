@@ -96,29 +96,36 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          if [ "${SKILL}" = "siril-astra-stacking" ]; then
-            "${SKILL}/.venv/bin/python" -B "${SKILL}/scripts/selftest.py"
-          elif [ -d "${SKILL}/tests" ]; then
+          tested=0
+          if [ -d "${SKILL}/tests" ]; then
             "${SKILL}/.venv/bin/python" -B -m pytest -p no:cacheprovider "${SKILL}/tests"
-          else
-            echo "${SKILL} has no tests directory; structure and release checks still apply."
+            tested=1
+          fi
+          if [ -f "${SKILL}/scripts/selftest.py" ]; then
+            "${SKILL}/.venv/bin/python" -B "${SKILL}/scripts/selftest.py"
+            tested=1
+          fi
+          if [ "${tested}" -eq 0 ]; then
+            echo "${SKILL} has no tests directory or selftest script; structure and release checks still apply."
           fi
       - name: Check release boundary
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
+          skill_version="$(python3 -c "import json; print(json.load(open('skills.manifest.json'))['skills'].get('${SKILL}', {}).get('version', 'latest'))")"
+          release_zip="${RUNNER_TEMP}/${SKILL}-${skill_version}.zip"
           case "${SKILL}" in
             deep-sky-capture-advisor)
               "${SKILL}/.venv/bin/python" \
                 deep-sky-capture-advisor/scripts/package_release.py \
-                --output "${RUNNER_TEMP}/deep-sky-capture-advisor-1.0.1.zip"
+                --output "${release_zip}"
               ;;
             siril-mosaic)
               "${SKILL}/.venv/bin/python" \
                 siril-mosaic/scripts/package_release.py --check
               "${SKILL}/.venv/bin/python" \
                 siril-mosaic/scripts/package_release.py \
-                --output "${RUNNER_TEMP}/siril-mosaic-1.0.1.zip"
+                --output "${release_zip}"
               ;;
           esac
       - name: Confirm tests did not rewrite tracked files

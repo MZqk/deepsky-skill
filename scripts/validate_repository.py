@@ -218,8 +218,13 @@ def validate_skill_dir(skill_dir: Path) -> list[str]:
     if not isinstance(description, str) or not description.strip():
         errors.append(f"{prefix} description must be a non-empty string")
 
-    if frontmatter.get("license") != "Proprietary":
-        errors.append(f"{prefix} license must be Proprietary")
+    allowed_licenses = ("Proprietary", "NOASSERTION")
+    if slug == "starun-siril":
+        allowed_licenses = (
+            "Proprietary (see LICENSE.md); StarNet adapters GPL-3.0-or-later",
+        )
+    if frontmatter.get("license") not in allowed_licenses:
+        errors.append(f"{prefix} license must be {' or '.join(allowed_licenses)}")
 
     compatibility = frontmatter.get("compatibility")
     if compatibility is not None and (
