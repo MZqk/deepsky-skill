@@ -1,0 +1,4 @@
+interface:
+  display_name: "PWS Stacking"
+  short_description: "无界面运行 PWS 分区加权叠加，开跑前强制预检已校准与已对齐前提"
+  default_prompt: "使用 $pws-stacking 对这组已校准已对齐的单通道帧做分区加权叠加。"
