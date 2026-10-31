@@ -1,0 +1,40 @@
+Function	Use case	Definition
+abs	abs ( x )	Absolute value of x.
+acos	acos ( x )	Arc cosine of x.
+acosh	acosh ( x )	Hyperbolic arc cosine of x.
+asin	asin ( x )	Arc sine of x.
+asinh	asinh ( x )	Hyperbolic arc sine of x.
+atan	atan ( x )	Arc tangent of x.
+atan2	atan2 ( y, x )	Arc tangent of y/x.
+atanh	atanh ( x )	Hyperbolic arc tangent of x.
+ceil	ceil ( x )	Round x upwards to the nearest integer.
+cos	cos ( x )	Cosine of x.
+cosh	cosh ( x )	Hyperbolic cosine of x.
+e	e	The constant e=2.718282...
+exp	exp ( x )	Exponential function.
+fac	fac( x )	Factorial function.
+iif	iif( cond, expr_true, expr_false )	"| Conditional function (or inline if function).
+| Returns *expr_true* if *cond* evaluates to nonzero.
+| Returns *expr_false* if *cond* evaluates to zero."
+floor	floor ( x )	Highest integer less than or equal to x.
+ln	ln ( x )	Natural logarithm of x.
+log	log ( x )	Base-10 logarithm of x.
+log10	log10 ( x )	Base-10 logarithm of x.
+log2	log2 ( x )	Base-2 logarithm of x.
+max	max ( x, y )	Maximum function.
+min	min ( x, y )	Minimum function.
+mtf	mtf ( m, x )	Midtones Transfer Function (MTF) of x for a midtones balance parameter m in the [0, 1] range.
+ncr	ncr ( x, y )	Combinations function.
+npr	npr ( x, y )	Permutations function.
+pi	pi	The constant π=3.141592...
+pow	pow ( x, y )	Exponentiation function.
+sign	sign ( x )	"| Sign of x:
+| :math:`+1` if :math:`x > 0`
+| :math:`−1` if :math:`x < 0`
+| :math:`\;0` if :math:`x = 0`."
+sin	sin ( x )	Sine of x.
+sinh	sinh ( x )	Hyperbolic sine of x.
+sqrt	sqrt ( x )	Square root of x.
+tan	tan ( x )	Tangent of x.
+tanh	tanh ( x )	Hyperbolic tangent of x.
+trunc	trunc ( x )	Truncated integer part of x.

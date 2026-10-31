@@ -1,0 +1,12 @@
+Function	Use case	Definition
+adev	adev ( Image )	Average absolute deviation of the image.
+bwmv	bwmv ( Image )	Biweight midvariance of the image.
+height	height ( Image )	Height in pixels of the specified image.
+mad	mad ( Image )	Median absolute deviation of the image. The use of mdev is also possible.
+max	max ( Image )	Pixel maximum of the image.
+mean	mean ( Image )	Mean of the image.
+med	med ( Image )	Median of the image. The use of median is also possible.
+min	min ( Image )	Pixel minimum of the image.
+noise	noise ( Image )	Estimation of Gaussian noise in the image.
+sdev	sdev ( Image )	Standard deviation of the image.
+width	width ( Image )	Width in pixels of the specified image.

@@ -1,0 +1,202 @@
+Variable	Default ([Range])	Type	Comment
+core.wd	(not set)	directory	current working directory
+core.extension	.fit	string	FITS file extension
+core.force_16bit	false	boolean	don't use 32 bits for pixel depth
+core.fits_save_icc	true	boolean	embed ICC profiles in FITS when saving
+core.allow_heterogeneous_fitseq	false	boolean	allow FITS cubes to have different sizes
+core.mem_mode	0 [0, 1]	integer	memory mode (0 ratio, 1 amount)
+core.mem_ratio	0.9 [0.05, 4]	double	memory ratio of available
+core.mem_amount	10 [0.1, 1e+06]	double	amount of memory in GB
+core.hd_bitdepth	20 [17, 24]	integer	HD AutoStretch bit depth
+core.script_check_requires	true	boolean	need requires cmd in script
+core.pipe_check_requires	false	boolean	need requires cmd in pipe
+core.check_updates	false	boolean	check update at start-up
+core.lang	(not set)	string	active siril language
+core.swap_dir	os dependant	directory	swap directory
+core.binning_update	true	boolean	update pixel size of binned images
+core.wcs_formalism	1 [0, 1]	integer	WCS formalism used in FITS header
+core.catalogue_namedstars	~/.local/share/kstars/namedstars.dat	string	Path of the namedstars.dat catalogue
+core.catalogue_unnamedstars	~/.local/share/kstars/unnamedstars.dat	string	Path of the unnamedstars.dat catalogue
+core.catalogue_tycho2	~/.local/share/kstars/deepstars.dat	string	Path of the deepstars.dat catalogue
+core.catalogue_nomad	~/.local/share/kstars/USNO-NOMAD-1e8.dat	string	Path of the USNO-NOMAD-1e8.dat catalogue
+core.catalogue_gaia_astro	~/.local/share/siril/gaia_astrometric.dat	string	Path of the local Gaia astrometric catalogue
+core.catalogue_gaia_photo	~/.local/share/siril/gaia_photometric.dat	string	Path of the local Gaia photometric catalogue
+core.rgb_aladin	false	boolean	add CTYPE3='RGB' in the FITS header
+core.use_checksum	false	boolean	Verify file checksums if they exist
+core.copyright	(not set)	string	user copyright to put in file header
+core.starnet_exe	(not set)	string	location of the StarNet executable
+core.starnet_weights	(not set)	string	location of the StarNet-torch weights file
+core.graxpert_path	(not set)	string	location of the GraXpert executable
+core.asnet_dir	(not set)	string	directory of the asnet_ansvr installation
+core.fftw_timelimit	60	double	FFTW planning timelimit
+core.fftw_conv_fft_cutoff	15	integer	Convolution minimum kernel size to use FFTW
+core.fftwf_strategy	0	integer	FFTW planning strategy
+core.fftw_multithreaded	true	boolean	multithreaded FFTW
+core.max_slice_size	32769 [512, 32769]	integer	Maximum slice size for automated slice processing
+starfinder.focal_length	0 [0, 999999]	double	focal length in mm for radius adjustment
+starfinder.pixel_size	0 [0, 99]	double	pixel size in µm for radius adjustment
+debayer.use_bayer_header	true	boolean	use pattern from the file header
+debayer.pattern	0 [0, 7]	integer	index of the Bayer pattern
+debayer.interpolation	8 [0, 9]	integer	type of interpolation
+debayer.orientation	0 [0, 3]	integer	row-order preference
+debayer.offset_x	0 [0, 1]	integer	Bayer matrix offset X
+debayer.offset_y	0 [0, 1]	integer	Bayer matrix offset Y
+debayer.xtrans_passes	1 [1, 4]	integer	Number of passes for the X-Trans Markesteijn algorithm
+photometry.gain	2.3 [0, 10]	double	electrons per ADU for noise estimation
+photometry.inner	20 [2, 100]	double	inner radius for background annulus
+photometry.outer	30 [3, 200]	double	outer radius for background annulus
+photometry.inner_factor	4.2 [2, 50]	double	factor for inner radius automatic computation
+photometry.outer_factor	6.3 [2, 50]	double	factor for outer radius automatic computation
+photometry.force_radius	true	boolean	force flux aperture value
+photometry.auto_aperture_factor	4 [1, 5]	double	Radius/halfFWHM ratio
+photometry.aperture	10 [1, 100]	double	forced aperture for flux computation
+photometry.minval	-1500 [-65536, 65534]	double	minimum valid pixel value for photometry
+photometry.maxval	60000 [1, 65535]	double	maximum valid pixel value for photometry
+photometry.discard_var_catalogues	4 [0, 7]	integer	catalogues to be used to discard the variable stars from the comparison stars list
+photometry.redpref	(not set)	string	preferred SPCC red filter
+photometry.greenpref	(not set)	string	preferred SPCC green filter
+photometry.bluepref	(not set)	string	preferred SPCC blue filter
+photometry.lpfpref	(not set)	string	preferred SPCC DSLR LPF filter
+photometry.oscfilterpref	No filter	string	preferred SPCC OSC filter
+photometry.monosensorpref	(not set)	string	preferred SPCC mono sensor
+photometry.oscsensorpref	(not set)	string	preferred SPCC OSC sensor
+photometry.is_mono	true	boolean	is the SPCC sensor mono?
+photometry.is_dslr	false	boolean	is the SPCC OSC sensor a DSLR?
+photometry.nb_mode	false	boolean	are we in narrowband mode?
+photometry.r_wl	656.28	double	red NB filter wavelength
+photometry.r_bw	6	double	red NB filter bandwidth
+photometry.g_wl	500.7	double	green NB filter wavelength
+photometry.g_bw	6	double	green NB filter bandwidth
+photometry.b_wl	500.7	double	blue NB filter wavelength
+photometry.b_bw	6	double	blue NB filter bandwidth
+astrometry.asnet_keep_xyls	false	boolean	do not delete .xyls FITS tables
+astrometry.asnet_keep_wcs	false	boolean	do not delete .wcs result files
+astrometry.asnet_show_output	false	boolean	show solve-field output in main log
+astrometry.sip_order	3 [1, 5]	integer	degrees of the polynomial correction
+astrometry.radius	10 [0.01, 30]	double	radius around the target coordinates (degrees
+astrometry.max_seconds_run	30 [0, 100000]	integer	maximum seconds to try solving
+astrometry.update_default_scale	true	boolean	update default focal length and pixel size from the result
+astrometry.percent_scale_range	20 [1, 50]	integer	percent below and above the expected sampling to allow
+astrometry.default_obscode	(not set)	string	default IAU observatory code
+analysis.panel	256 [127, 1024]	integer	panel size of aberration inspector
+analysis.window	381 [300, 1600]	integer	window size of aberration inspector
+compression.enabled	false	boolean	FITS compression enabled
+compression.method	0 [0, 3]	integer	FITS compression method
+compression.quantization	16 [8, 256]	double	quantization factor for 32-bit float
+compression.hcompress_scale	4 [0, 256]	double	Hcompress scale factor
+gui_prepro.cfa	false	boolean	type of sensor for cosmetic correction
+gui_prepro.equalize_cfa	true	boolean	equalize flat channels
+gui_prepro.fix_xtrans	false	boolean	enable correction for X-Trans sensor
+gui_prepro.xtrans_af_x	0	integer	if no X-Trans model found, use this
+gui_prepro.xtrans_af_y	0	integer	if no X-Trans model found, use this
+gui_prepro.xtrans_af_w	0	integer	if no X-Trans model found, use this
+gui_prepro.xtrans_af_h	0	integer	if no X-Trans model found, use this
+gui_prepro.xtrans_sample_x	0	integer	if no X-Trans model found, use this
+gui_prepro.xtrans_sample_y	0	integer	if no X-Trans model found, use this
+gui_prepro.xtrans_sample_w	0	integer	if no X-Trans model found, use this
+gui_prepro.xtrans_sample_h	0	integer	if no X-Trans model found, use this
+gui_prepro.bias_lib	(not set)	string	default master bias
+gui_prepro.use_bias_lib	false	boolean	use default master bias
+gui_prepro.dark_lib	(not set)	string	default master dark
+gui_prepro.use_dark_lib	false	boolean	use default master dark
+gui_prepro.flat_lib	(not set)	string	default master flat
+gui_prepro.use_flat_lib	false	boolean	use default master flat
+gui_prepro.disto_lib	(not set)	string	default distortion master
+gui_prepro.use_disto_lib	false	boolean	use default master distortion
+gui_prepro.stack_default	$seqname$stacked	string	default stack name
+gui_prepro.use_stack_default	true	boolean	use preferred stack name
+gui_registration.method	0 [0, 7]	integer	index of the selected registration method
+gui_registration.interpolation	4 [0, 5]	integer	index of the selected interpolation method
+gui_registration.clamping	true	boolean	use clamping method with Lanczos and Cubic interpolation
+gui_registration.drizz_weight_match_bitpix	false	boolean	Match Drizzle weights bitpix to sequence
+gui_stack.method	0 [0, 4]	integer	index of the selected method
+gui_stack.normalization	3 [0, 4]	integer	index of the normalization method
+gui_stack.rejection	5 [0, 7]	integer	index of the rejection method
+gui_stack.weighting	0 [0, 4]	integer	index of the weighting method
+gui_stack.sigma_low	3 [0, 20]	double	sigma low value for rejection
+gui_stack.sigma_high	3 [0, 20]	double	sigma high value for rejection
+gui_stack.linear_low	5 [0, 20]	double	linear low value for rejection
+gui_stack.linear_high	5 [0, 20]	double	linear high value for rejection
+gui_stack.percentile_low	3 [0, 100]	double	percentile low value for rejection
+gui_stack.percentile_high	3 [0, 100]	double	percentile high value for rejection
+gui.first_start	(not set)	string	first start of siril
+gui.silent_quit	false	boolean	don't confirm quit when exiting
+gui.silent_linear	false	boolean	don't confirm save when non linear mode
+gui.remember_windows	true	boolean	remember window position
+gui.main_win_pos_x	0	integer	main window position
+gui.main_win_pos_y	0	integer	main window position
+gui.main_win_pos_w	0	integer	main window position
+gui.main_win_pos_h	0	integer	main window position
+gui.pan_position	-1	integer	position of the two sides separator
+gui.extended	true	boolean	main window is extended
+gui.maximized	false	boolean	main window is maximized
+gui.theme	0 [0, 1]	integer	index of the selected theme
+gui.font_scale	100	double	font scale in percent
+gui.icon_symbolic	false	boolean	icon style
+gui.script_path		list of strings	list of script directories
+gui.use_scripts_repository	true	boolean	use and sync online scripts repository
+gui.use_spcc_repository	true	boolean	use and sync spcc-database repository
+gui.auto_update_scripts	true	boolean	auto sync online scripts repository
+gui.auto_update_spcc	true	boolean	auto sync spcc-database repository
+gui.selected_scripts		list of strings	list of scripts selected from the repository
+gui.warn_scripts_run	true	boolean	warn when launching a script
+gui.show_thumbnails	true	boolean	show thumbnails in open dialog
+gui.thumbnail_size	256	integer	size of the thumbnails
+gui.selection_guides	0	integer	number of elements of the grid guides
+gui.show_deciasec	false	boolean	show tenths of arcseconds on hover
+gui.default_rendering_mode	0 [0, 6]	integer	default display mode
+gui.display_histogram_mode	0 [0, 1]	integer	default histogram display mode
+gui.roi_mode	0	integer	ROI selection mode
+gui.roi_warning	true	boolean	enable ROI dialog warning
+gui.mmb_zoom_action	0	integer	Middle mouse button double click zoom action
+gui.mouse_speed_limit	0	double	Mouse smooth scroll speed limit
+gui.color_bkg_samples	rgba(255, 51, 26, 1.0)	string	configure background samples color
+gui.color_std_annotations	rgba(128, 255, 77, 0.9)	string	configure standard annotation color
+gui.color_dso_annotations	rgba(255, 128, 0, 0.9)	string	configure dso annotation color
+gui.color_sso_annotations	rgba(255, 255, 0, 0.9)	string	configure sso annotation color
+gui.color_tmp_annotations	rgba(255, 0, 0, 0.9)	string	configure tmp annotation color
+gui.custom_monitor_profile	(not set)	string	path to custom monitor ICC profile
+gui.soft_proofing_profile	(not set)	string	path to soft proofing ICC profile
+gui.icc_custom_monitor_active	false	boolean	custom monitor profile active
+gui.icc_soft_proofing_active	false	boolean	output proofing profile active
+gui.custom_RGB_ICC_profile	(not set)	string	path to custom RGB ICC profile
+gui.custom_gray_ICC_profile	(not set)	string	path to custom gray ICC profile
+gui.rendering_intent	1	integer	color management rendering intent
+gui.proofing_intent	1	integer	color management soft proofing intent
+gui.export_intent	1	integer	color management export intent
+gui.default_to_srgb	true	boolean	default to sRGB when exporting non color managed images
+gui.working_gamut	0	integer	color management working gamut
+gui.export_8bit_method	0	integer	color management export profile for 8bit files
+gui.export_16bit_method	1	integer	color management export profile for 16bit files
+gui.icc_autoconversion	0	integer	autoconvert images with an ICC profile to the working color space
+gui.icc_autoassignment	4	integer	encodes ICC profile auto-assignment options
+gui.icc_rendering_bpc	true	boolean	enable rendering BPC
+gui.icc_pedantic_linear	false	boolean	pedantically assign linear ICC profiles
+gui.mouse_actions		list of strings	mouse actions config. Opaque data structure, edit this using the GUI
+gui.scroll_actions		list of strings	scroll actions config. Opaque data structure, edit this using the GUI
+gui_astrometry.compass_position	1 [0, 5]	integer	index of the compass position over grid
+gui_astrometry.cat_messier	true	boolean	show Messier objects in annotations
+gui_astrometry.cat_ngc	true	boolean	show NGC objects in annotations
+gui_astrometry.cat_ic	true	boolean	show IC objects in annotations
+gui_astrometry.cat_ldn	true	boolean	show LDN objects in annotations
+gui_astrometry.cat_sh2	true	boolean	show SH2 objects in annotations
+gui_astrometry.cat_stars	true	boolean	show stars in annotations
+gui_astrometry.cat_const	true	boolean	show constellations in annotations
+gui_astrometry.cat_const_names	true	boolean	show constellations names in annotations
+gui_astrometry.cat_user_dso	true	boolean	show user DSO objects in annotations
+gui_astrometry.cat_user_sso	true	boolean	show user SSO objects in annotations
+gui_pixelmath.pm_presets		list of strings	list of pixel math presets
+script_editor.highlight_syntax	true	boolean	highlight syntax in the script editor
+script_editor.highlight_bracketmatch	true	boolean	highlight matching brackets in the script editor
+script_editor.rmargin	true	boolean	show the right margin in the script editor
+script_editor.rmargin_pos	80	integer	position of the right margin in the script editor
+script_editor.show_linenums	true	boolean	show line numbers in the script editor
+script_editor.show_linemarks	false	boolean	show line marks in the script editor
+script_editor.highlight_currentline	true	boolean	highlight the current line in the script editor
+script_editor.autoindent	true	boolean	automatically indent new lines
+script_editor.indentontab	true	boolean	indent selected blocks of lines in the script editor using the tab key
+script_editor.smartbs	true	boolean	Smart Backspace behaviour in the script editor
+script_editor.smarthomeend	true	boolean	Smart Home / End behaviour in the script editor
+script_editor.showspaces	false	boolean	Show visible space and tab characters in the script editor
+script_editor.shownewlines	false	boolean	Show visible newline characters in the script editor
+script_editor.minimap	false	boolean	Show a minimap in the script editor

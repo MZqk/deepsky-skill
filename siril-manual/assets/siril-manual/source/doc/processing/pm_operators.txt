@@ -1,0 +1,19 @@
+Operator	Use case	Definition
+~	~x	Pixel Inversion operator.
+\-	-x	Unary Minus operator (sign change).
+\+	+x	Unary Plus operator.
+!	!x	Logical NOT operator.
+^	x ^ y	Exponentiation operator.
+\*	x * y	Multiplication operator.
+/	x / y	Division operator.
+%	x % y	Modulus operator.
+\+	x + y	Addition operator.
+\-	x - y	Subtraction operator.
+<	x < y	Less Than relational operator.
+<=	x <= y	Less Than Or Equal relational operator.
+>	x > y	Greater Than relational operator.
+>=	x >= y	Greater Than Or Equal relational operator.
+==	x == y	Equal To relational operator.
+!=	x != y	Not Equal To relational operator.
+&&	x && y	Logical AND operator.
+||	x || y	Logical OR operator.

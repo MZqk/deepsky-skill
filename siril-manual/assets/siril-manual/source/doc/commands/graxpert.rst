@@ -1,0 +1,7 @@
+| Runs the external tool GraXpert. Either **-bg** or **-denoise** must be selected, to set background extraction or denoising.
+| 
+| The following optional arguments may be provided for background removal: **-algo=** sets the background removal algorithm and must be one of **ai**, **rbf**, **kriging** or **spline**; **-mode=** sets the background extraction mode and must be one of **sub** or **div**; **-kernel=** sets the RBF kernel and must be one of **thinplate**, **quintic**, **cubic** or **linear**; **-pts_per_row=** sets the number of points per row on the background sampling grid (default = 15); **-samplesize=** sets the sampling box size for each sample (default = 25); **-splineorder=** sets the spline order for use with the spline algorithm (default = 3); **-bgtol=** sets the background tolerance between -2.0 and 6.0 (default 2.0); **-smoothing=** sets the amount of background smoothing (default = 0.5); **-keep_bg** sets GraXpert to save the indicative background image.
+| 
+| The following optional arguments may be provided for denoising: **-strength=** sets the denoising strength, between 0.0 and 1.0 (default = 0.8).
+| 
+| The following optional arguments apply in all cases: **-cpu** sets GraXpert to use CPU only; **-gpu** sets GraXpert to use a GPU if available (and otherwise fall back to CPU); **-ai_batch_size=** sets the batch size for AI operations (denoising and the background removal AI algorithm) (default = 4: bigger batch sizes may improve performance, especially on CPU, but require more memory)

@@ -1,0 +1,502 @@
+{
+  "aliases": [
+    {
+      "alias": "32位处理",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:set32bits"
+      ]
+    },
+    {
+      "alias": "FITS头",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/FITS-header.rst"
+      ]
+    },
+    {
+      "alias": "Python接口",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Python-API.rst"
+      ]
+    },
+    {
+      "alias": "Python脚本",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:pyscript"
+      ]
+    },
+    {
+      "alias": "RGB合成",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:rgbcomp"
+      ]
+    },
+    {
+      "alias": "Richardson-Lucy反卷积",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:rl"
+      ]
+    },
+    {
+      "alias": "Siril手册",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/index.rst"
+      ]
+    },
+    {
+      "alias": "中间调传递函数",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:mtf"
+      ]
+    },
+    {
+      "alias": "保存图像",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:save"
+      ]
+    },
+    {
+      "alias": "保存预览",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:savejpg"
+      ]
+    },
+    {
+      "alias": "像素数学",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:pm"
+      ]
+    },
+    {
+      "alias": "光度颜色校准",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/color-calibration/pcc.rst",
+        "command:pcc"
+      ]
+    },
+    {
+      "alias": "光谱光度颜色校准",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/color-calibration/spcc.rst",
+        "command:spcc"
+      ]
+    },
+    {
+      "alias": "关闭图像",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:close"
+      ]
+    },
+    {
+      "alias": "加载图像",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:load"
+      ]
+    },
+    {
+      "alias": "动态点扩散函数",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Dynamic-PSF.rst"
+      ]
+    },
+    {
+      "alias": "去绿",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:rmgreen"
+      ]
+    },
+    {
+      "alias": "反卷积",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/deconvolution.rst",
+        "command:rl"
+      ]
+    },
+    {
+      "alias": "反双曲正弦拉伸",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:asinh"
+      ]
+    },
+    {
+      "alias": "命令参考",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Commands.rst"
+      ]
+    },
+    {
+      "alias": "图像处理",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Processing.rst"
+      ]
+    },
+    {
+      "alias": "图像检查",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Image-inspection.rst"
+      ]
+    },
+    {
+      "alias": "图形界面",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/GUI.rst"
+      ]
+    },
+    {
+      "alias": "天体测量",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Astrometry.rst"
+      ]
+    },
+    {
+      "alias": "安装",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Installation.rst"
+      ]
+    },
+    {
+      "alias": "实时叠加",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Livestack.rst"
+      ]
+    },
+    {
+      "alias": "工作流",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Workflow.rst"
+      ]
+    },
+    {
+      "alias": "工作目录",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/cwd.rst"
+      ]
+    },
+    {
+      "alias": "序列",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Sequences.rst"
+      ]
+    },
+    {
+      "alias": "强度剖面",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Intensity-Profiling.rst"
+      ]
+    },
+    {
+      "alias": "拉伸",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/stretching.rst",
+        "command:asinh",
+        "command:mtf",
+        "command:autostretch"
+      ]
+    },
+    {
+      "alias": "文件格式",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/FileFormats.rst"
+      ]
+    },
+    {
+      "alias": "无界面模式",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Headless.rst"
+      ]
+    },
+    {
+      "alias": "星点分离",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/stars/starnet.rst",
+        "command:starnet"
+      ]
+    },
+    {
+      "alias": "星点检测",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:findstar",
+        "command:setfindstar"
+      ]
+    },
+    {
+      "alias": "星点重组",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/stars/star-recomp.rst"
+      ]
+    },
+    {
+      "alias": "条带校正",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/banding.rst",
+        "command:fixbanding"
+      ]
+    },
+    {
+      "alias": "测光",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Photometry.rst"
+      ]
+    },
+    {
+      "alias": "点扩散函数",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:makepsf"
+      ]
+    },
+    {
+      "alias": "版本要求",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:requires"
+      ]
+    },
+    {
+      "alias": "科研使用",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/SirilForScientists.rst"
+      ]
+    },
+    {
+      "alias": "窄带配色",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/color-calibration/spcc.rst"
+      ]
+    },
+    {
+      "alias": "绘图",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Plot.rst"
+      ]
+    },
+    {
+      "alias": "统计",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Statistics.rst",
+        "command:stat"
+      ]
+    },
+    {
+      "alias": "背景扣除",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/background.rst",
+        "command:subsky"
+      ]
+    },
+    {
+      "alias": "背景提取",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/background.rst",
+        "command:subsky"
+      ]
+    },
+    {
+      "alias": "背景框选",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:boxselect"
+      ]
+    },
+    {
+      "alias": "脚本",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Scripts.rst"
+      ]
+    },
+    {
+      "alias": "自动拉伸",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:autostretch"
+      ]
+    },
+    {
+      "alias": "裁剪",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:crop"
+      ]
+    },
+    {
+      "alias": "设置变量",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:set"
+      ]
+    },
+    {
+      "alias": "路径解析",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Pathparsing.rst"
+      ]
+    },
+    {
+      "alias": "通道分离",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:split"
+      ]
+    },
+    {
+      "alias": "问题排查",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Issues.rst"
+      ]
+    },
+    {
+      "alias": "降噪",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/denoising.rst",
+        "command:denoise"
+      ]
+    },
+    {
+      "alias": "预处理",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Preprocessing.rst"
+      ]
+    },
+    {
+      "alias": "颜色校准",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/processing/color-calibration/manual.rst",
+        "page:doc/processing/color-calibration/pcc.rst",
+        "page:doc/processing/color-calibration/spcc.rst",
+        "command:pcc",
+        "command:spcc"
+      ]
+    },
+    {
+      "alias": "颜色管理",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Color-management.rst"
+      ]
+    },
+    {
+      "alias": "饱和度",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "command:satu"
+      ]
+    },
+    {
+      "alias": "首选项",
+      "language": "zh-CN",
+      "reviewed": true,
+      "target_ids": [
+        "page:doc/Preferences.rst"
+      ]
+    }
+  ],
+  "schema": "deep-sky-siril.siril-manual-aliases/v1"
+}

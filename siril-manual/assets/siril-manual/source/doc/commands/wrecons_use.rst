@@ -1,0 +1,3 @@
+.. code-block:: text
+
+    wrecons c1 c2 c3 ...

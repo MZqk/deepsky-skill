@@ -1,0 +1,4 @@
+interface:
+  display_name: "Siril 1.4.4 Offline Manual"
+  short_description: "Integrity-checked offline search and reader for Siril 1.4.4 docs"
+  default_prompt: "Use $siril-manual to look up official Siril 1.4.4 commands, parameters, or documentation sections offline."
