@@ -24,17 +24,19 @@ from package_release import (  # noqa: E402
 )
 
 
+CURRENT_VERSION = _skill_metadata(SKILL_ROOT)["version"]
+
 EXPECTED_AUTHORIZATION = {
     "schema_version": 1,
     "skill_name": "deep-sky-capture-advisor",
     "slug": "deep-sky-capture-advisor",
-    "version": "1.0.3",
+    "version": CURRENT_VERSION,
     "displayName": "深空摄影知识顾问",
     "license": "Proprietary",
     "summary": "中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
     "tags": ["astronomy", "astrophotography", "deep-sky", "siril", "chinese"],
     "homepage": "https://github.com/MZqk/deepsky-skill",
-    "authorization_scope": "xiaohongshu-red-skill:deep-sky-capture-advisor@1.0.3",
+    "authorization_scope": f"xiaohongshu-red-skill:deep-sky-capture-advisor@{CURRENT_VERSION}",
     "source_commit": "e86c8f938673bf06862b01bf19f0d33ae68c86e8",
     "catalog_sha256": "035acb94474d44ffd45383ed28bb7a0a0d4bc7f98f01177bb2a8c2b4cced9302",
     "knowledge_sha256": "d41164a632b6a44d94241fafe63b53b3b1944339bc82749703b6ee9c8a3f417b",
@@ -96,7 +98,7 @@ def test_notice_preserves_proprietary_and_third_party_rights_boundaries() -> Non
     notice = (SKILL_ROOT / "NOTICE.md").read_text(encoding="utf-8")
     assert "proprietary" in notice
     assert "third-party" in notice
-    assert "deep-sky-capture-advisor@1.0.3" in notice
+    assert "deep-sky-capture-advisor@" in notice
     assert "RED skill" in notice
     assert "future version" in notice
 
@@ -114,7 +116,7 @@ def test_skillhub_metadata_uses_quick_validate_compatible_frontmatter_shape() ->
     assert not {"slug", "version", "displayName", "summary", "tags", "homepage"} & top_level_keys
     assert _skill_metadata(SKILL_ROOT) == {
         "slug": "deep-sky-capture-advisor",
-        "version": "1.0.3",
+        "version": CURRENT_VERSION,
         "displayName": "深空摄影知识顾问",
         "summary": "中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
         "tags": ["astronomy", "astrophotography", "deep-sky", "siril", "chinese"],

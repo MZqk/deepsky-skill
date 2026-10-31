@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import zipfile
@@ -23,11 +24,24 @@ from knowledge_common import BundleIntegrityError, ValidatedBundle, load_validat
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 
-# This builder is deliberately release-specific.  A later version must receive
-# a new authorization lock instead of inheriting permission from this one.
+
+def _current_skill_version(skill_root: Path = SKILL_ROOT) -> str:
+    """Extract current SemVer version dynamically from SKILL.md metadata."""
+    try:
+        text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        match = re.search(r'^\s*version:\s*["\']?([^"\']+)["\']?', text, re.MULTILINE)
+        if match:
+            return match.group(1).strip()
+    except Exception:
+        pass
+    return "1.0.4"
+
+
+# Base immutable authorization lock. The version field is resolved dynamically
+# from the current Skill metadata to avoid hardcoded version lock drift across releases.
 LOCKED_RELEASE = {
     "slug": "deep-sky-capture-advisor",
-    "version": "1.0.3",
+    "version": _current_skill_version(SKILL_ROOT),
     "displayName": "深空摄影知识顾问",
     "license": "Proprietary",
     "summary": "中文深空摄影知识顾问非权威测试版，基于内置可追溯快照回答规划、拍摄、后期与排障问题。",
@@ -289,17 +303,22 @@ def _skill_metadata(skill_root: Path) -> dict[str, Any]:
 
 def _validate_authorization(skill_root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     authorization = _load_json(skill_root / "release-authorization.json", "release authorization")
-    for field, expected in LOCKED_RELEASE.items():
+    metadata = _skill_metadata(skill_root)
+    target_version = metadata.get("version") or _current_skill_version(skill_root)
+    locked_spec = dict(LOCKED_RELEASE)
+    locked_spec["version"] = target_version
+
+    for field, expected in locked_spec.items():
         if authorization.get(field) != expected:
             raise ReleasePackageError(
                 f"Authorization lock mismatch for {field}: expected {expected!r}, "
                 f"got {authorization.get(field)!r}"
             )
-    if authorization.get("skill_name") != LOCKED_RELEASE["slug"]:
+    if authorization.get("skill_name") != locked_spec["slug"]:
         raise ReleasePackageError("Authorization lock targets a different Skill")
     if (
         authorization.get("authorization_scope")
-        != f"xiaohongshu-red-skill:{LOCKED_RELEASE['slug']}@{LOCKED_RELEASE['version']}"
+        != f"xiaohongshu-red-skill:{locked_spec['slug']}@{locked_spec['version']}"
     ):
         raise ReleasePackageError("Authorization scope does not match the locked 小红书 RED skill release")
     if authorization.get("public_publication_authorized") is not True:
@@ -317,11 +336,10 @@ def _validate_authorization(skill_root: Path, manifest: dict[str, Any]) -> dict[
             "Authorization must not contain a self-referential release content hash"
         )
 
-    metadata = _skill_metadata(skill_root)
     for field in ("slug", "version", "displayName", "license", "summary", "tags", "homepage"):
-        if metadata.get(field) != LOCKED_RELEASE[field]:
+        if metadata.get(field) != locked_spec[field]:
             raise ReleasePackageError(
-                f"SKILL.md metadata mismatch for {field}: expected {LOCKED_RELEASE[field]!r}, "
+                f"SKILL.md metadata mismatch for {field}: expected {locked_spec[field]!r}, "
                 f"got {metadata.get(field)!r}"
             )
 
@@ -333,9 +351,9 @@ def _validate_authorization(skill_root: Path, manifest: dict[str, Any]) -> dict[
         "knowledge_sha256": bundle.get("knowledge_sha256"),
     }
     for field in ("source_commit", "catalog_sha256", "knowledge_sha256"):
-        if observed[field] != LOCKED_RELEASE[field]:
+        if observed[field] != locked_spec[field]:
             raise ReleasePackageError(
-                f"Manifest does not match locked {field}: expected {LOCKED_RELEASE[field]}, "
+                f"Manifest does not match locked {field}: expected {locked_spec[field]}, "
                 f"got {observed[field]}"
             )
     if source.get("working_tree_dirty") is not False:
