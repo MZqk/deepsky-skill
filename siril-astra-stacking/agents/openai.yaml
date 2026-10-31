@@ -1,0 +1,4 @@
+interface:
+  display_name: "Siril Astra Stacking"
+  short_description: "使用 Siril 1.4 CLI 叠加深空 FITS，支持多滤镜批处理与六种通道合成"
+  default_prompt: "使用 $siril-astra-stacking 将这批深空 FITS 帧叠加为线性母版，并生成预览与质量报告。"

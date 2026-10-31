@@ -280,12 +280,13 @@ R0 <fwhm> <wfwhm> <roundness> <quality> <background> <nbstars> H <h00..h22> <pai
 ## 自检
 
 ```bash
-python3 scripts/selftest.py           # 第一层，无需 Siril
+python3 scripts/selftest.py           # 冒烟自检（秒级，纯标准库，无需 Siril）
+python3 -m unittest discover -s tests # 全量单测套件（纯标准库，无需 Siril）
 python3 scripts/selftest.py --real    # 加真实 Siril 端到端
-python3 scripts/test_prepare_composition.py --real # 合成准备的真实 Siril 夹具
-python3 scripts/test_compose_channels.py --real    # Native composition and H-alpha mixture fixtures
-python3 scripts/test_external_masters.py --real   # Native external FITS/XISF import fixtures
-python3 scripts/test_composition_quality.py --real # Native coverage, crop and background MTF fixtures
+python3 tests/test_prepare_composition.py --real # 合成准备的真实 Siril 夹具
+python3 tests/test_compose_channels.py --real    # Native composition and H-alpha mixture fixtures
+python3 tests/test_external_masters.py --real   # Native external FITS/XISF import fixtures
+python3 tests/test_composition_quality.py --real # Native coverage, crop and background MTF fixtures
 ```
 
 ## 已知局限

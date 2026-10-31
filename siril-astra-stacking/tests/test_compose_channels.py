@@ -1,6 +1,15 @@
 """Channel composition contracts; --real adds native Siril pixel checks."""
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_SKILL = Path(__file__).resolve().parents[1]
+for _p in (_SKILL / 'scripts', _SKILL / 'tests'):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+
 import argparse
 import contextlib
 import io
