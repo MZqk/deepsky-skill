@@ -1,0 +1,4 @@
+interface:
+  display_name: "Siril Moon Stacking"
+  short_description: "融合 Siril 1.4.4 CLI 与亚像素频域配准，完成月面幸运成像堆叠与矿物月处理"
+  default_prompt: "使用 $siril-moon-stacking 对这组月面序列进行亚像素对齐、幸运成像选帧堆叠与矿物月增强。"

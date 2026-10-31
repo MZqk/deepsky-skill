@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Runnable P0/P1 regression: python scripts/test_video_optimizations.py."""
+"""Runnable P0/P1 regression: python tests/test_video_optimizations.py."""
 import contextlib
 import io
 import json
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -11,6 +12,7 @@ import cv2
 import numpy as np
 from astropy.io import fits
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import moon_stack as moon
 
 

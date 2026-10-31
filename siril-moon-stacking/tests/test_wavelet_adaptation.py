@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from astropy.io import fits
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import moon_stack as moon
 
 native = pytest.mark.skipif(not Path(moon.DEFAULT_SIRIL).exists(), reason="Siril CLI unavailable")

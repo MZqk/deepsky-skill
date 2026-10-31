@@ -22,7 +22,7 @@ import pytest
 from astropy.io import fits
 
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from moon_stack import (
     _apply_adaptive_sky_margins,
     _generate_comparison_html,

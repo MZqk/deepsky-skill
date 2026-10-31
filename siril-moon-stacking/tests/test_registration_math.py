@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from moon_stack import (
     _apply_anti_ringing_damping,
     _apply_device_priors,
