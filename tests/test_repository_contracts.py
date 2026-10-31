@@ -164,6 +164,23 @@ def test_structure_validation_rejects_license_mismatch(tmp_path: Path) -> None:
     assert any("license must be Proprietary" in error for error in validate_skill_dir(skill))
 
 
+@pytest.mark.parametrize("license_value", (
+    "Proprietary (see LICENSE.md); StarNet adapters GPL-3.0-or-later",
+    "Proprietary",
+    "MIT",
+))
+def test_structure_validation_checks_starun_license(tmp_path: Path, license_value: str) -> None:
+    skill = _copy_governance_fixture(tmp_path).rename(tmp_path / "starun-siril")
+    for path in skill.glob("*.md"):
+        path.write_text(path.read_text(encoding="utf-8").replace("fixture-skill", skill.name), encoding="utf-8")
+    _replace_skill_text(skill, r"^license: Proprietary$", f"license: {license_value}")
+    errors = validate_skill_dir(skill)
+    if license_value.endswith("GPL-3.0-or-later"):
+        assert errors == []
+    else:
+        assert any("license must" in error for error in errors)
+
+
 def test_structure_validation_rejects_name_mismatch(tmp_path: Path) -> None:
     skill = _copy_governance_fixture(tmp_path)
     _replace_skill_text(skill, rf"^name: {re.escape(skill.name)}$", "name: renamed-advisor")
